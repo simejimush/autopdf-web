@@ -1,0 +1,9 @@
+{
+    "crons": [
+      {
+        "path": "/api/cron?secret=fj39sdfj39sdf9sdf93jsdf93jf93",
+        "schedule": "*/10 * * * *"
+      }
+    ]
+  }
+  
