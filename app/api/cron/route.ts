@@ -1,11 +1,18 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
-// ✅ 既存の手動Run（/api/rules/[id]/run）を使い回す
+// 既存の「手動Run」処理を使い回す（重複実装しない）
 import { POST as runRulePOST } from "@/app/api/rules/[id]/run/route";
 
+type RuleRow = {
+  id: string;
+  // 有効フラグはプロジェクトにより名前が違う可能性があるので両対応
+  is_enabled?: boolean | null;
+  enabled?: boolean | null;
+};
+
 export async function GET(req: Request) {
-  // --- Auth guard (そのまま) ---
+  // --- Auth guard ---
   const auth = req.headers.get("authorization") ?? "";
   const expected = `Bearer ${process.env.CRON_SECRET ?? ""}`;
 
@@ -24,12 +31,9 @@ export async function GET(req: Request) {
 
   console.log("[cron] Cron triggered");
 
-  // --- 1) 有効なルール一覧取得 ---
-  // ⚠ カラム名が違う場合はここだけ合わせて（例: enabled / is_enabled）
-  const { data: rules, error } = await supabaseAdmin
-    .from("rules")
-    .select("id")
-    .eq("is_enabled", true);
+  // --- 1) rules を取得 ---
+  // カラム名差異で詰まらないように、まずは * で取ってJS側でフィルタする
+  const { data, error } = await supabaseAdmin.from("rules").select("*");
 
   if (error) {
     console.error("[cron] Failed to fetch rules:", error);
@@ -39,15 +43,57 @@ export async function GET(req: Request) {
     );
   }
 
-  const ids = (rules ?? []).map((r) => r.id);
-  console.log("[cron] target rules:", ids.length);
+  const rules = (data ?? []) as RuleRow[];
 
-  // --- 2) 1件ずつ実行（安全のため逐次） ---
+  // --- 2) 有効ルールだけ抽出 ---
+  // is_enabled があればそれ優先、なければ enabled、両方なければ「全部有効」として扱う
+  const enabledRules = rules.filter((r) => {
+    const v = (r as any).is_enabled ?? (r as any).enabled;
+    return v === undefined ? true : Boolean(v);
+  });
+
+  console.log("[cron] total rules:", rules.length, "enabled:", enabledRules.length);
+
+  // --- 3) 逐次実行（安全優先） ---
   let ok = 0;
   let ng = 0;
+
   const results: Array<{ id: string; status: number; body?: any }> = [];
 
-  for (const id of ids) {
+  for (const r of enabledRules) {
+    const id = r.id;
+
     try {
-      // run route の ctx.params は Promise なので合わせる
-      const res = await runRulePOST(new Request("http://internal", { method: "POST" })
+      const res = await runRulePOST(
+        new Request("http://internal", { method: "POST" }),
+        { params: Promise.resolve({ id }) } as any
+      );
+
+      const status = (res as any).status ?? 200;
+
+      let body: any = null;
+      try {
+        body = await (res as any).json?.();
+      } catch {}
+
+      if (status >= 200 && status < 300) ok++;
+      else ng++;
+
+      console.log("[cron] rule done:", id, "status:", status);
+      results.push({ id, status, body });
+    } catch (e: any) {
+      ng++;
+      console.error("[cron] rule failed:", id, e?.message ?? e);
+      results.push({ id, status: 500, body: { error: e?.message ?? String(e) } });
+    }
+  }
+
+  return NextResponse.json({
+    message: "Cron finished",
+    total_rules: rules.length,
+    enabled_rules: enabledRules.length,
+    ok,
+    ng,
+    results,
+  });
+}
