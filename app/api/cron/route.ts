@@ -30,6 +30,7 @@ export async function GET(req: Request) {
   }
 
   console.log("[cron] Cron triggered");
+  console.log("### NEW VERSION ###");
 
   // --- 1) rules を取得 ---
   // カラム名差異で詰まらないように、まずは * で取ってJS側でフィルタする
@@ -97,3 +98,4 @@ export async function GET(req: Request) {
     results,
   });
 }
+
