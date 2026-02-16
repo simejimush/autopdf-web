@@ -189,13 +189,45 @@ export async function POST(
     const query = (rule.gmail_query ?? "").trim();
     stepLog("30 searchGmail start", { query });
 
-    const ids = await searchGmail({
-      userId: rule.user_id,
-      query,
-      maxResults: 5,
-    });
+    let ids: string[] = [];
 
-    stepLog("31 searchGmail ok", { count: ids.length });
+    try {
+      ids = await searchGmail({
+        userId: rule.user_id,
+        query,
+        maxResults: 5,
+      });
+
+      stepLog("31 searchGmail ok", { count: ids.length });
+    } catch (e: any) {
+      console.error("[run] 31 searchGmail ERROR", {
+        message: e?.message,
+        name: e?.name,
+        stack: e?.stack,
+        status: e?.response?.status,
+        data: e?.response?.data,
+      });
+
+      // runs を error で更新（runId がある場合）
+      try {
+        if (runId) {
+          await supabaseAdmin
+            .from("runs")
+            .update({
+              status: "error",
+              error_code: "GMAIL_SEARCH_FAILED",
+              message: e?.message ?? "searchGmail failed",
+              finished_at: new Date().toISOString(),
+            })
+            .eq("id", runId);
+        }
+      } catch (e2) {
+        console.error("[run] failed to update runs(error)", e2);
+      }
+
+      // ここで落としてOK（cron側が500を拾う）
+      throw e;
+    }
 
     if (ids.length === 0) {
       // ★ 追加②: runs success 更新（0件でも成功）
