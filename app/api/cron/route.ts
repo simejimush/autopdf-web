@@ -13,19 +13,22 @@ type RuleRow = {
 
 export async function GET(req: Request) {
   // --- Auth guard ---
+  // Vercel Cron からの実行は x-vercel-cron: 1 が付く
+  const isVercelCron = req.headers.get("x-vercel-cron") === "1";
+
+  // 手動実行や外部から叩く用に CRON_SECRET も許可（任意）
   const auth = req.headers.get("authorization") ?? "";
-  const expected = `Bearer ${process.env.CRON_SECRET ?? ""}`;
+  const expected = process.env.CRON_SECRET
+    ? `Bearer ${process.env.CRON_SECRET}`
+    : "";
 
-  if (!process.env.CRON_SECRET) {
-    console.error("[cron] CRON_SECRET is missing in env");
-    return NextResponse.json(
-      { error: "CRON_SECRET is missing in env" },
-      { status: 500 }
-    );
-  }
+  const ok = isVercelCron || (!!expected && auth === expected);
 
-  if (auth !== expected) {
-    console.error("[cron] Unauthorized");
+  if (!ok) {
+    console.error("[cron] Unauthorized", {
+      auth: auth ? "present" : "missing",
+      x_vercel_cron: req.headers.get("x-vercel-cron"),
+    });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -53,7 +56,12 @@ export async function GET(req: Request) {
     return v === undefined ? true : Boolean(v);
   });
 
-  console.log("[cron] total rules:", rules.length, "enabled:", enabledRules.length);
+  console.log(
+    "[cron] total rules:",
+    rules.length,
+    "enabled:",
+    enabledRules.length
+  );
 
   // --- 3) 逐次実行（安全優先） ---
   let ok = 0;
@@ -85,7 +93,11 @@ export async function GET(req: Request) {
     } catch (e: any) {
       ng++;
       console.error("[cron] rule failed:", id, e?.message ?? e);
-      results.push({ id, status: 500, body: { error: e?.message ?? String(e) } });
+      results.push({
+        id,
+        status: 500,
+        body: { error: e?.message ?? String(e) },
+      });
     }
   }
 
@@ -98,4 +110,3 @@ export async function GET(req: Request) {
     results,
   });
 }
-
