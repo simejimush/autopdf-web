@@ -12,14 +12,17 @@ type RuleRow = {
 };
 
 export async function GET(req: Request) {
-  // --- Auth guard（ブラウザ直叩き対策 & Vercel Cron用）---
   const url = new URL(req.url);
 
-  // ?secret=xxx で呼ぶ方式（VercelのCronで設定しやすい）
+  // ✅ Vercel Cron からの呼び出し判定（secret無しでも許可）
+  const isVercelCron = req.headers.get("x-vercel-cron") === "1";
+
+  // ?secret=xxx で呼ぶ方式（手動実行・外部Cron向け）
   const secret = url.searchParams.get("secret") ?? "";
   const expected = process.env.CRON_SECRET ?? "";
 
-  if (!expected) {
+  // secret を使う運用の場合は env 必須（Vercel Cron だけで回すなら無くても動くが、手動実行が詰む）
+  if (!expected && !isVercelCron) {
     console.error("[cron] CRON_SECRET is missing in env");
     return NextResponse.json(
       { error: "CRON_SECRET is missing in env" },
@@ -27,12 +30,13 @@ export async function GET(req: Request) {
     );
   }
 
-  if (secret !== expected) {
+  // ✅ Vercel Cron 以外は secret 必須
+  if (!isVercelCron && secret !== expected) {
     console.error("[cron] Unauthorized");
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  console.log("[cron] Cron triggered");
+  console.log("[cron] Cron triggered", { isVercelCron });
   console.log("### NEW VERSION ###");
 
   // --- 1) rules を取得 ---
