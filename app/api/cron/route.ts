@@ -39,6 +39,8 @@ export async function GET(req: Request) {
   console.log("[cron] Cron triggered", { isVercelCron });
   console.log("### NEW VERSION ###");
 
+  await supabaseAdmin.rpc("mark_stuck_runs", { p_minutes: 5 });
+
   // --- 1) rules を取得 ---
   // カラム名差異で詰まらないように、まずは * で取ってJS側でフィルタする
   const { data, error } = await supabaseAdmin.from("rules").select("*");
