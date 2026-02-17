@@ -26,7 +26,9 @@ export async function GET(req: Request) {
 
   if (!tokenRes.ok) {
     console.error("token exchange failed", token);
-    return NextResponse.redirect(new URL("/me?google=token_failed", url.origin));
+    return NextResponse.redirect(
+      new URL("/me?google=token_failed", url.origin)
+    );
   }
 
   const accessToken = token.access_token as string | undefined;
@@ -37,17 +39,21 @@ export async function GET(req: Request) {
     return NextResponse.redirect(new URL("/me?google=no_access", url.origin));
   }
 
-  const token_expiry_at =
-    expiresIn ? new Date(Date.now() + expiresIn * 1000).toISOString() : null;
+  const token_expiry_at = expiresIn
+    ? new Date(Date.now() + expiresIn * 1000).toISOString()
+    : null;
 
-  const { error } = await supabaseAdmin.from("google_connections").upsert({
-    user_id: userId,
-    access_token_enc: accessToken,
-    refresh_token_enc: refreshToken ?? null,
-    token_expiry_at,
-    last_verified_at: new Date().toISOString(),
-    scopes: token.scope ?? null,
-  });
+  const { error } = await supabaseAdmin.from("google_connections").upsert(
+    {
+      user_id: userId,
+      access_token_enc: accessToken,
+      refresh_token_enc: refreshToken ?? null,
+      token_expiry_at,
+      last_verified_at: new Date().toISOString(),
+      scopes: token.scope ?? null,
+    },
+    { onConflict: "user_id" } // ←これが必須
+  );
 
   if (error) {
     console.error("save google_connections failed", error);
