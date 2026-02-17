@@ -12,19 +12,31 @@ type RuleRow = {
 };
 
 export async function GET(req: Request) {
-  // app/api/cron/route.ts の Auth guard をこれに置き換え
+// --- Auth guard ---
+// Vercel Cron からの呼び出しはこのヘッダが付く（Cron Jobs）
+const isVercelCron =
+  req.headers.get("x-vercel-cron") === "1" ||
+  req.headers.get("x-vercel-cron") === "true";
 
-  const isVercelCron = req.headers.get("x-vercel-cron") === "1";
+const auth = req.headers.get("authorization") ?? "";
+const expected = process.env.CRON_SECRET
+  ? `Bearer ${process.env.CRON_SECRET}`
+  : "";
 
-  // もしローカル手動実行もしたいなら、token クエリも許可
-  const url = new URL(req.url);
-  const token = url.searchParams.get("token");
-  const okToken = process.env.CRON_SECRET && token === process.env.CRON_SECRET;
-
-  if (!isVercelCron && !okToken) {
+// Vercel Cron 以外（手動叩き等）は今まで通りシークレット必須
+if (!isVercelCron) {
+  if (!process.env.CRON_SECRET) {
+    console.error("[cron] CRON_SECRET is missing in env");
+    return NextResponse.json(
+      { error: "CRON_SECRET is missing in env" },
+      { status: 500 },
+    );
+  }
+  if (auth !== expected) {
     console.error("[cron] Unauthorized");
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+}
 
   console.log("[cron] Cron triggered");
   console.log("### NEW VERSION ###");
