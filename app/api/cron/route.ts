@@ -12,23 +12,17 @@ type RuleRow = {
 };
 
 export async function GET(req: Request) {
-  // --- Auth guard ---
-  // Vercel Cron からの実行は x-vercel-cron: 1 が付く
+  // app/api/cron/route.ts の Auth guard をこれに置き換え
+
   const isVercelCron = req.headers.get("x-vercel-cron") === "1";
 
-  // 手動実行や外部から叩く用に CRON_SECRET も許可（任意）
-  const auth = req.headers.get("authorization") ?? "";
-  const expected = process.env.CRON_SECRET
-    ? `Bearer ${process.env.CRON_SECRET}`
-    : "";
+  // もしローカル手動実行もしたいなら、token クエリも許可
+  const url = new URL(req.url);
+  const token = url.searchParams.get("token");
+  const okToken = process.env.CRON_SECRET && token === process.env.CRON_SECRET;
 
-  const ok = isVercelCron || (!!expected && auth === expected);
-
-  if (!ok) {
-    console.error("[cron] Unauthorized", {
-      auth: auth ? "present" : "missing",
-      x_vercel_cron: req.headers.get("x-vercel-cron"),
-    });
+  if (!isVercelCron && !okToken) {
+    console.error("[cron] Unauthorized");
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
