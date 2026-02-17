@@ -12,26 +12,25 @@ type RuleRow = {
 };
 
 export async function GET(req: Request) {
-// --- Auth guard ---
-// app/api/cron/route.ts
-export async function GET(req: Request) {
-    const url = new URL(req.url);
-  
-    const secret = url.searchParams.get("secret") ?? "";
-    const expected = process.env.CRON_SECRET ?? "";
-  
-    if (!expected) {
-      return NextResponse.json({ error: "CRON_SECRET is missing in env" }, { status: 500 });
-    }
-  
-    if (secret !== expected) {
-      console.error("[cron] Unauthorized");
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-  
-    // ここから先は今の処理のまま
+  // --- Auth guard（ブラウザ直叩き対策 & Vercel Cron用）---
+  const url = new URL(req.url);
+
+  // ?secret=xxx で呼ぶ方式（VercelのCronで設定しやすい）
+  const secret = url.searchParams.get("secret") ?? "";
+  const expected = process.env.CRON_SECRET ?? "";
+
+  if (!expected) {
+    console.error("[cron] CRON_SECRET is missing in env");
+    return NextResponse.json(
+      { error: "CRON_SECRET is missing in env" },
+      { status: 500 }
+    );
   }
-  
+
+  if (secret !== expected) {
+    console.error("[cron] Unauthorized");
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   console.log("[cron] Cron triggered");
   console.log("### NEW VERSION ###");
@@ -57,12 +56,7 @@ export async function GET(req: Request) {
     return v === undefined ? true : Boolean(v);
   });
 
-  console.log(
-    "[cron] total rules:",
-    rules.length,
-    "enabled:",
-    enabledRules.length
-  );
+  console.log("[cron] total rules:", rules.length, "enabled:", enabledRules.length);
 
   // --- 3) 逐次実行（安全優先） ---
   let ok = 0;
