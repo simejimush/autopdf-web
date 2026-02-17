@@ -12,6 +12,8 @@ export async function GET() {
   const clientId = process.env.GOOGLE_CLIENT_ID!;
   const redirectUri = process.env.GOOGLE_REDIRECT_URI!;
   console.log("GOOGLE redirect_uri =", redirectUri);
+  console.log("GOOGLE_CLIENT_ID =", clientId);
+  console.log("GOOGLE_REDIRECT_URI =", redirectUri);
 
   const scope = [
     "https://www.googleapis.com/auth/gmail.readonly",
