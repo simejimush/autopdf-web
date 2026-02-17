@@ -15,7 +15,10 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
 
   // ✅ Vercel Cron からの呼び出し判定（secret無しでも許可）
-  const isVercelCron = req.headers.get("x-vercel-cron") === "1";
+  const userAgent = req.headers.get("user-agent") ?? "";
+  const isVercelCron =
+    req.headers.get("x-vercel-cron") === "1" ||
+    userAgent.includes("vercel-cron");
 
   // ?secret=xxx で呼ぶ方式（手動実行・外部Cron向け）
   const secret = url.searchParams.get("secret") ?? "";
@@ -62,7 +65,12 @@ export async function GET(req: Request) {
     return v === undefined ? true : Boolean(v);
   });
 
-  console.log("[cron] total rules:", rules.length, "enabled:", enabledRules.length);
+  console.log(
+    "[cron] total rules:",
+    rules.length,
+    "enabled:",
+    enabledRules.length
+  );
 
   // --- 3) 逐次実行（安全優先） ---
   let ok = 0;
