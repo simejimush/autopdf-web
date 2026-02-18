@@ -12,20 +12,14 @@ type RuleRow = {
 };
 
 export async function GET(req: Request) {
+  // --- Auth guard（ブラウザ直叩き対策 & Vercel Cron用）---
   const url = new URL(req.url);
 
-  // ✅ Vercel Cron からの呼び出し判定（secret無しでも許可）
-  const userAgent = req.headers.get("user-agent") ?? "";
-  const isVercelCron =
-    req.headers.get("x-vercel-cron") === "1" ||
-    userAgent.includes("vercel-cron");
-
-  // ?secret=xxx で呼ぶ方式（手動実行・外部Cron向け）
+  // ?secret=xxx で呼ぶ方式（VercelのCronで設定しやすい）
   const secret = url.searchParams.get("secret") ?? "";
   const expected = process.env.CRON_SECRET ?? "";
 
-  // secret を使う運用の場合は env 必須（Vercel Cron だけで回すなら無くても動くが、手動実行が詰む）
-  if (!expected && !isVercelCron) {
+  if (!expected) {
     console.error("[cron] CRON_SECRET is missing in env");
     return NextResponse.json(
       { error: "CRON_SECRET is missing in env" },
@@ -33,16 +27,13 @@ export async function GET(req: Request) {
     );
   }
 
-  // ✅ Vercel Cron 以外は secret 必須
-  if (!isVercelCron && secret !== expected) {
+  if (secret !== expected) {
     console.error("[cron] Unauthorized");
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  console.log("[cron] Cron triggered", { isVercelCron });
+  console.log("[cron] Cron triggered");
   console.log("### NEW VERSION ###");
-
-  await supabaseAdmin.rpc("mark_stuck_runs", { p_minutes: 5 });
 
   // --- 1) rules を取得 ---
   // カラム名差異で詰まらないように、まずは * で取ってJS側でフィルタする
@@ -65,12 +56,7 @@ export async function GET(req: Request) {
     return v === undefined ? true : Boolean(v);
   });
 
-  console.log(
-    "[cron] total rules:",
-    rules.length,
-    "enabled:",
-    enabledRules.length
-  );
+  console.log("[cron] total rules:", rules.length, "enabled:", enabledRules.length);
 
   // --- 3) 逐次実行（安全優先） ---
   let ok = 0;
