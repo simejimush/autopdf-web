@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { searchGmail, getGmailMessage } from "@/lib/google/gmail";
 import { uploadPdfToDrive } from "@/lib/google/drive";
-import { PDFDocument, StandardFonts } from "pdf-lib";
+import { PDFDocument } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -47,12 +47,7 @@ let _jpFontBytes: Uint8Array | null = null;
 
 async function getJpFontBytes() {
   if (_jpFontBytes) return _jpFontBytes;
-  const p = path.join(
-    process.cwd(),
-    "public",
-    "fonts",
-    "NotoSansJP-Regular.ttf"
-  );
+  const p = path.join(process.cwd(), "public", "fonts", "NotoSansJP-Regular.ttf");
   const buf = await readFile(p);
   _jpFontBytes = new Uint8Array(buf);
   return _jpFontBytes;
@@ -75,13 +70,13 @@ async function buildEmailPdf(params: {
   const margin = 50;
 
   let page = pdfDoc.addPage();
-  let { width, height } = page.getSize();
+  let { height } = page.getSize();
   let y = height - margin;
 
   const drawLine = (line: string) => {
     if (y < margin) {
       page = pdfDoc.addPage();
-      ({ width, height } = page.getSize());
+      ({ height } = page.getSize());
       y = height - margin;
     }
     page.drawText(line, { x: margin, y, size: fontSize, font });
@@ -108,7 +103,7 @@ async function buildEmailPdf(params: {
 
 export async function POST(
   req: Request,
-  ctx: { params: Promise<{ id: string }> }
+  ctx: { params: Promise<{ id: string }> },
 ) {
   const startedAt = Date.now();
   const stepLog = (s: string, extra?: any) => {
@@ -131,18 +126,19 @@ export async function POST(
       .single();
 
     if (ruleErr) return ng("10 fetch rule", ruleErr, 500);
-    if (!rule)
+    if (!rule) {
       return ok(
         { ok: false, step: "10 fetch rule", message: "rule not found" },
-        404
+        404,
       );
+    }
 
     stepLog("11 fetch rule ok", {
       user_id: rule.user_id,
       gmail_query: rule.gmail_query,
     });
 
-    // ★ 追加①: runs を開始（rule取得直後）
+    // 2) runs を開始（rule取得直後）
     stepLog("12 insert run start");
     const { data: runRow, error: runInsertErr } = await supabaseAdmin
       .from("runs")
@@ -158,10 +154,10 @@ export async function POST(
       .single();
 
     if (runInsertErr) return ng("12 insert run", runInsertErr, 500);
-    runId = runRow.id as string;
+    runId = (runRow as any)?.id ?? null;
     stepLog("13 insert run ok", { runId });
 
-    // 2) google_connections 取得
+    // 3) google_connections 取得（接続チェック用途）
     stepLog("20 fetch google_connections start");
     const { data: conn, error: connErr } = await supabaseAdmin
       .from("google_connections")
@@ -170,67 +166,36 @@ export async function POST(
       .single();
 
     if (connErr) return ng("20 fetch google_connections", connErr, 500);
-    if (!conn)
+    if (!conn) {
       return ok(
         {
           ok: false,
           step: "20 fetch google_connections",
           message: "google_connections not found",
         },
-        400
+        400,
       );
+    }
 
     stepLog("21 fetch google_connections ok", {
-      has_refresh: !!conn.refresh_token_enc,
-      has_access: !!conn.access_token_enc,
+      has_refresh: !!(conn as any).refresh_token_enc,
+      has_access: !!(conn as any).access_token_enc,
     });
 
-    // 3) Gmail検索
+    // 4) Gmail検索
     const query = (rule.gmail_query ?? "").trim();
     stepLog("30 searchGmail start", { query });
 
-    let ids: string[] = [];
+    const ids = await searchGmail({
+      userId: rule.user_id,
+      query,
+      maxResults: 5,
+    });
 
-    try {
-      ids = await searchGmail({
-        userId: rule.user_id,
-        query,
-        maxResults: 5,
-      });
-
-      stepLog("31 searchGmail ok", { count: ids.length });
-    } catch (e: any) {
-      console.error("[run] 31 searchGmail ERROR", {
-        message: e?.message,
-        name: e?.name,
-        stack: e?.stack,
-        status: e?.response?.status,
-        data: e?.response?.data,
-      });
-
-      // runs を error で更新（runId がある場合）
-      try {
-        if (runId) {
-          await supabaseAdmin
-            .from("runs")
-            .update({
-              status: "error",
-              error_code: "GMAIL_SEARCH_FAILED",
-              message: e?.message ?? "searchGmail failed",
-              finished_at: new Date().toISOString(),
-            })
-            .eq("id", runId);
-        }
-      } catch (e2) {
-        console.error("[run] failed to update runs(error)", e2);
-      }
-
-      // ここで落としてOK（cron側が500を拾う）
-      throw e;
-    }
+    stepLog("31 searchGmail ok", { count: ids.length });
 
     if (ids.length === 0) {
-      // ★ 追加②: runs success 更新（0件でも成功）
+      // runs success 更新（0件でも成功）
       try {
         if (runId) {
           await supabaseAdmin
@@ -260,7 +225,7 @@ export async function POST(
       });
     }
 
-    // 4) 重複判定ループ（ids を全件処理）
+    // 5) 重複判定ループ（ids を全件処理）
     stepLog("35 dedup loop start", { ids_count: ids.length });
 
     let processed = 0;
@@ -272,11 +237,10 @@ export async function POST(
 
     // 保存先フォルダ（rules側に入ってる想定）
     const folderId = (rule.drive_folder_id ?? "").trim();
-    if (!folderId) {
-      throw new Error("drive_folder_id is empty on rules");
-    }
+    if (!folderId) throw new Error("drive_folder_id is empty on rules");
 
     for (const gmailMessageId of ids) {
+      // まずは重複防止用に insert（新規だけ進む）
       const { data: peRow, error: insertErr } = await supabaseAdmin
         .from("processed_emails")
         .insert({
@@ -327,37 +291,42 @@ export async function POST(
       const safeSubject = sanitizeFilename(subject || "email");
       const fileName = `${gmailMessageId}_${safeSubject}.pdf`;
 
-      // Drive保存（uploadPdfToDrive の引数名は Drive.ts に合わせて必要なら調整）
+      // Drive保存
       const uploaded: any = await uploadPdfToDrive({
         userId: rule.user_id,
         folderId,
         filename: fileName,
         pdfBytes,
       });
-      
+
       if (uploaded?.fileId) {
         drive_file_ids.push(uploaded.fileId);
-      
-        // ★ ここを追加 ★
+
+        // processed_emails に drive_file_id を保存
         if (peRow?.id) {
           const { error: updErr } = await supabaseAdmin
             .from("processed_emails")
             .update({ drive_file_id: uploaded.fileId })
             .eq("id", peRow.id);
-      
+
           if (updErr) {
-            console.error("[run] drive_file_id update error:", updErr);
+            console.error("[run] drive_file_id update error:", {
+              id: peRow.id,
+              drive_file_id: uploaded.fileId,
+              code: (updErr as any)?.code,
+              message: (updErr as any)?.message,
+            });
           }
         }
       }
-      
+
       saved++;
       processed++;
-      
+    } // ← ★ for ループを確実に閉じる（これが抜けてた）
 
     stepLog("36 dedup loop ok", { processed, skipped, saved });
 
-    // ★ 追加②: runs success 更新（通常）
+    // runs success 更新（通常）
     try {
       if (runId) {
         await supabaseAdmin
@@ -386,7 +355,7 @@ export async function POST(
       elapsed_ms: Date.now() - startedAt,
     });
   } catch (e) {
-    // ★ 追加③: runs error 更新
+    // runs error 更新
     try {
       if (runId) {
         await supabaseAdmin
@@ -399,8 +368,8 @@ export async function POST(
           })
           .eq("id", runId);
       }
-    } catch (ee) {
-      console.error("[run] failed to update runs(error)", ee);
+    } catch (e2) {
+      console.error("[run] failed to update runs(error)", e2);
     }
 
     return ng("99 catch", e, 500);
