@@ -277,13 +277,15 @@ export async function POST(
     }
 
     for (const gmailMessageId of ids) {
-      const { error: insertErr } = await supabaseAdmin
+      const { data: peRow, error: insertErr } = await supabaseAdmin
         .from("processed_emails")
         .insert({
           user_id: rule.user_id,
           rule_id: rule.id,
           gmail_message_id: gmailMessageId,
-        });
+        })
+        .select("id")
+        .single();
 
       if (insertErr) {
         if ((insertErr as any)?.code === "23505") {
