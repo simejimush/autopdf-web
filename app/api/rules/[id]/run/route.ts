@@ -334,11 +334,26 @@ export async function POST(
         filename: fileName,
         pdfBytes,
       });
-
-      if (uploaded?.fileId) drive_file_ids.push(uploaded.fileId);
+      
+      if (uploaded?.fileId) {
+        drive_file_ids.push(uploaded.fileId);
+      
+        // ★ ここを追加 ★
+        if (peRow?.id) {
+          const { error: updErr } = await supabaseAdmin
+            .from("processed_emails")
+            .update({ drive_file_id: uploaded.fileId })
+            .eq("id", peRow.id);
+      
+          if (updErr) {
+            console.error("[run] drive_file_id update error:", updErr);
+          }
+        }
+      }
+      
       saved++;
       processed++;
-    }
+      
 
     stepLog("36 dedup loop ok", { processed, skipped, saved });
 
