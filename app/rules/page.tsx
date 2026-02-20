@@ -34,7 +34,7 @@ function truncate(s: string, max = 80) {
 }
 
 export default async function RulesPage() {
-  const res = await fetch("http://localhost:3000/api/rules", {
+  const res = await fetch("/api/rules", {
     cache: "no-store",
   });
 
@@ -57,7 +57,7 @@ export default async function RulesPage() {
 
   const rules = json.data ?? [];
 
-  const latestRes = await fetch("http://localhost:3000/api/runs/latest", {
+  const latestRes = await fetch("/api/runs/latest", {
     cache: "no-store",
   });
   const latestJson = await latestRes.json();
