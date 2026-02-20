@@ -23,7 +23,6 @@ type Rule = {
   runs?: Run[]; // ← ? を付ける
 };
 
-
 function normalizeQuery(q: unknown) {
   const s = typeof q === "string" ? q.trim() : "";
   if (!s || s === "-") return null;
@@ -35,7 +34,7 @@ function truncate(s: string, max = 80) {
 }
 
 export default async function RulesPage() {
-  const h = headers();
+  const h = await headers();
   const host = h.get("host");
   const protocol = process.env.NODE_ENV === "production" ? "https" : "http";
   const baseUrl = `${protocol}://${host}`;
@@ -43,7 +42,6 @@ export default async function RulesPage() {
   const res = await fetch(`${baseUrl}/api/rules`, {
     cache: "no-store",
   });
-
 
   let json: { data: Rule[]; error?: string };
 
@@ -67,7 +65,7 @@ export default async function RulesPage() {
   const latestRes = await fetch(`${baseUrl}/api/runs/latest`, {
     cache: "no-store",
   });
-  
+
   const latestJson = await latestRes.json();
   const latestByRule = latestJson?.data ?? {};
 
