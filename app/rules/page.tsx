@@ -65,14 +65,24 @@ function badgeStyle(kind: "warn" | "muted" | "ok" | "err") {
 export default async function RulesPage() {
   // ---- rules ----
   const h = await headers();
+
+  const host = h.get("host");
+  const proto =
+    h.get("x-forwarded-proto") ??
+    (process.env.NODE_ENV === "production" ? "https" : "http");
+
+  const baseUrl = process.env.APP_URL ?? `${proto}://${host}`;
+
   const cookie = h.get("cookie") ?? "";
 
-  const res = await fetch("/api/rules", {
+  // ここが fetch 本体
+  const res = await fetch(`${baseUrl}/api/rules`, {
     cache: "no-store",
     headers: {
       cookie,
     },
   });
+
   if (res.status === 401) redirect("/login");
 
   let json: { data: Rule[]; error?: string };
