@@ -1,25 +1,22 @@
 // app/api/google-connections/upsert/route.ts
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase/admin";
-import { createClient } from "@supabase/supabase-js";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
-  // 1) Supabaseログイン中ユーザーを特定（cookieのJWTから）
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  const authHeader = req.headers.get("authorization") ?? "";
-
-  const supabase = createClient(supabaseUrl, anonKey, {
-    global: { headers: { Authorization: authHeader } },
-  });
-
+  // 1) cookie セッションからログインユーザー取得
+  const supabase = await createSupabaseServerClient();
   const { data: userRes, error: userErr } = await supabase.auth.getUser();
+
   if (userErr || !userRes?.user) {
-    return NextResponse.json({ ok: false, step: "getUser", userErr }, { status: 401 });
+    return NextResponse.json(
+      { ok: false, step: "getUser", error: userErr?.message ?? "Auth session missing" },
+      { status: 401 },
+    );
   }
 
+  // 2) body 取得（user_id は絶対に受け取らない）
   const body = await req.json().catch(() => ({}));
   const { provider_token, provider_refresh_token, expires_at, scopes } = body ?? {};
 
@@ -30,8 +27,8 @@ export async function POST(req: Request) {
     );
   }
 
-  // 2) google_connections を upsert
-  const { error: upsertErr } = await supabaseAdmin
+  // 3) google_connections を upsert（RLSで user_id=auth.uid() のみ許可）
+  const { error: upsertErr } = await supabase
     .from("google_connections")
     .upsert(
       {
@@ -47,7 +44,7 @@ export async function POST(req: Request) {
     );
 
   if (upsertErr) {
-    return NextResponse.json({ ok: false, step: "upsert", upsertErr }, { status: 500 });
+    return NextResponse.json({ ok: false, step: "upsert", error: upsertErr.message }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true });
