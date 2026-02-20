@@ -164,7 +164,7 @@ export default async function RulesPage() {
                     lastRun.processed_count || lastRun.saved_count
                       ? `${lastRun.saved_count}/${lastRun.processed_count}`
                       : null,
-                    lastRun.message ? truncate(lastRun.message, 40) : null,
+                    lastRun.message ? truncate(lastRun.message, 30) : null,
                   ]
                     .filter(Boolean)
                     .join(" · ")
@@ -259,7 +259,7 @@ export default async function RulesPage() {
                     }}
                     title={lastRunTitle}
                   >
-                    {lastRunTitle}
+                    {lastRunText}
                   </td>
 
                   <td style={td} title={r.updated_at ?? ""}>
