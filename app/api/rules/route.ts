@@ -2,7 +2,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-
 function jsonError(message: string, status = 500, details?: unknown) {
   return NextResponse.json({ error: message, details }, { status });
 }
@@ -19,6 +18,7 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // ✅ runs を join しない（一覧を軽くする）
   const { data, error } = await supabase
     .from("rules")
     .select(
@@ -28,27 +28,14 @@ export async function GET() {
       run_timing,
       drive_folder_id,
       gmail_query,
-      updated_at,
-      runs (
-        id,
-        status,
-        message,
-        error_code,
-        started_at,
-        finished_at,
-        processed_count,
-        saved_count
-      )
-    `,
+      updated_at
+    `
     )
-    .order("started_at", { foreignTable: "runs", ascending: false })
-    .limit(1, { foreignTable: "runs" })
     .order("updated_at", { ascending: false });
 
   if (error) return jsonError("Failed to load rules", 500, error);
   return NextResponse.json({ data: data ?? [] }, { status: 200 });
 }
-
 
 export async function POST(req: Request) {
   const supabase = await createSupabaseServerClient();
@@ -93,11 +80,12 @@ export async function POST(req: Request) {
   const { data, error } = await supabase
     .from("rules")
     .insert([insertRow])
-    .select("id, is_active, run_timing, drive_folder_id, gmail_query, updated_at")
+    .select(
+      "id, is_active, run_timing, drive_folder_id, gmail_query, updated_at"
+    )
     .single();
 
   if (error || !data) return jsonError("Failed to create rule", 500, error);
 
   return NextResponse.json({ data }, { status: 201 });
 }
-
