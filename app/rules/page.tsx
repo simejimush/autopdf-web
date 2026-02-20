@@ -158,17 +158,31 @@ export default async function RulesPage() {
               const lastRun = latestByRule[r.id] ?? null;
 
               const lastRunText = lastRun
-                ? `${lastRun.status}${
-                    lastRun.finished_at
-                      ? ` · ${fmtTokyo(lastRun.finished_at)}`
-                      : ""
-                  }${
+                ? [
+                    `${lastRun.status}`,
+                    lastRun.finished_at ? fmtTokyo(lastRun.finished_at) : null,
                     lastRun.processed_count || lastRun.saved_count
-                      ? ` · ${lastRun.saved_count}/${lastRun.processed_count}`
-                      : ""
-                  }${
-                    lastRun.message ? ` · ${truncate(lastRun.message, 60)}` : ""
-                  }`
+                      ? `${lastRun.saved_count}/${lastRun.processed_count}`
+                      : null,
+                    lastRun.message ? truncate(lastRun.message, 40) : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")
+                : "-";
+
+              // 表示は短く、hover で全文（title用）
+              const lastRunTitle = lastRun
+                ? [
+                    `${lastRun.status}`,
+                    lastRun.finished_at ? fmtTokyo(lastRun.finished_at) : null,
+                    lastRun.processed_count || lastRun.saved_count
+                      ? `${lastRun.saved_count}/${lastRun.processed_count}`
+                      : null,
+                    lastRun.message ? lastRun.message : null,
+                    lastRun.error_code ? `code=${lastRun.error_code}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")
                 : "-";
 
               const lastRunColor =
@@ -243,9 +257,9 @@ export default async function RulesPage() {
                       fontWeight: 700,
                       color: lastRun ? lastRunColor : "#9ca3af",
                     }}
-                    title={lastRunText}
+                    title={lastRunTitle}
                   >
-                    {lastRunText}
+                    {lastRunTitle}
                   </td>
 
                   <td style={td} title={r.updated_at ?? ""}>
