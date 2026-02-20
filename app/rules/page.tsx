@@ -63,17 +63,16 @@ function badgeStyle(kind: "warn" | "muted" | "ok" | "err") {
 }
 
 export default async function RulesPage() {
-  const h = await headers(); // ← await 必須
-  const host = h.get("host");
-
-  const proto =
-    h.get("x-forwarded-proto") ??
-    (process.env.NODE_ENV === "production" ? "https" : "http");
-
-  const baseUrl = process.env.APP_URL ?? `${proto}://${host}`;
-
   // ---- rules ----
-  const res = await fetch(`${baseUrl}/api/rules`, { cache: "no-store" });
+  const h = await headers();
+  const cookie = h.get("cookie") ?? "";
+
+  const res = await fetch("/api/rules", {
+    cache: "no-store",
+    headers: {
+      cookie,
+    },
+  });
   if (res.status === 401) redirect("/login");
 
   let json: { data: Rule[]; error?: string };
@@ -95,8 +94,11 @@ export default async function RulesPage() {
   const rules = json.data ?? [];
 
   // ---- latest runs (per rule) ----
-  const latestRes = await fetch(`${baseUrl}/api/runs/latest`, {
+  const latestRes = await fetch("/api/runs/latest", {
     cache: "no-store",
+    headers: {
+      cookie,
+    },
   });
   const latestJson = await latestRes.json();
   const latestByRule: Record<string, RunLite | null> = latestJson?.data ?? {};
