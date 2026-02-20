@@ -67,11 +67,18 @@ export default async function RulesPage() {
   const h = await headers();
 
   const host = h.get("host");
+  if (!host && !process.env.APP_URL && !process.env.VERCEL_URL) {
+    throw new Error("Missing host/APP_URL/VERCEL_URL");
+  }
   const proto =
     h.get("x-forwarded-proto") ??
     (process.env.NODE_ENV === "production" ? "https" : "http");
 
-  const baseUrl = process.env.APP_URL ?? `${proto}://${host}`;
+  const baseUrl =
+    process.env.APP_URL ??
+    (process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : `${proto}://${host}`);
 
   const cookie = h.get("cookie") ?? "";
 
