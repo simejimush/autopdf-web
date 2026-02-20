@@ -63,10 +63,14 @@ function badgeStyle(kind: "warn" | "muted" | "ok" | "err") {
 }
 
 export default async function RulesPage() {
-  const h = headers();
+  const h = await headers(); // ← await 必須
   const host = h.get("host");
-  const proto = h.get("x-forwarded-proto") ?? (process.env.NODE_ENV === "production" ? "https" : "http");
-  const baseUrl = `${proto}://${host}`;
+
+  const proto =
+    h.get("x-forwarded-proto") ??
+    (process.env.NODE_ENV === "production" ? "https" : "http");
+
+  const baseUrl = process.env.APP_URL ?? `${proto}://${host}`;
 
   // ---- rules ----
   const res = await fetch(`${baseUrl}/api/rules`, { cache: "no-store" });
@@ -91,13 +95,22 @@ export default async function RulesPage() {
   const rules = json.data ?? [];
 
   // ---- latest runs (per rule) ----
-  const latestRes = await fetch(`${baseUrl}/api/runs/latest`, { cache: "no-store" });
+  const latestRes = await fetch(`${baseUrl}/api/runs/latest`, {
+    cache: "no-store",
+  });
   const latestJson = await latestRes.json();
   const latestByRule: Record<string, RunLite | null> = latestJson?.data ?? {};
 
   return (
     <main style={{ padding: 24 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+        }}
+      >
         <h1 style={{ margin: 0 }}>Rules</h1>
         <a href="/rules/new">＋ New rule</a>
       </div>
@@ -126,15 +139,25 @@ export default async function RulesPage() {
               const lastRun = latestByRule[r.id] ?? null;
 
               const lastRunText = lastRun
-                ? `${lastRun.status}${lastRun.finished_at ? ` · ${fmtTokyo(lastRun.finished_at)}` : ""}${
+                ? `${lastRun.status}${
+                    lastRun.finished_at
+                      ? ` · ${fmtTokyo(lastRun.finished_at)}`
+                      : ""
+                  }${
                     lastRun.processed_count || lastRun.saved_count
                       ? ` · ${lastRun.saved_count}/${lastRun.processed_count}`
                       : ""
-                  }${lastRun.message ? ` · ${truncate(lastRun.message, 60)}` : ""}`
+                  }${
+                    lastRun.message ? ` · ${truncate(lastRun.message, 60)}` : ""
+                  }`
                 : "-";
 
               const lastRunColor =
-                lastRun?.status === "success" ? "#22c55e" : lastRun?.status === "error" ? "#ef4444" : "#e5e7eb";
+                lastRun?.status === "success"
+                  ? "#22c55e"
+                  : lastRun?.status === "error"
+                  ? "#ef4444"
+                  : "#e5e7eb";
 
               return (
                 <tr key={r.id} style={{ opacity: isMissing ? 0.55 : 1 }}>
@@ -144,15 +167,23 @@ export default async function RulesPage() {
                     {status.status === "needs_setup" && (
                       <span
                         style={badgeStyle("warn")}
-                        title={status.reasons?.length ? status.reasons.join(" / ") : ""}
+                        title={
+                          status.reasons?.length
+                            ? status.reasons.join(" / ")
+                            : ""
+                        }
                       >
                         未設定
                       </span>
                     )}
 
-                    {status.status === "disabled" && <span style={badgeStyle("muted")}>disabled</span>}
+                    {status.status === "disabled" && (
+                      <span style={badgeStyle("muted")}>disabled</span>
+                    )}
 
-                    {status.status === "ready" && <span style={badgeStyle("ok")}>ready</span>}
+                    {status.status === "ready" && (
+                      <span style={badgeStyle("ok")}>ready</span>
+                    )}
                   </td>
 
                   <td style={td}>{r.run_timing ?? "-"}</td>
@@ -160,10 +191,21 @@ export default async function RulesPage() {
                   <td style={tdMono}>
                     {isMissing ? (
                       <span
-                        title={status.reasons?.length ? status.reasons.join(" / ") : ""}
-                        style={{ color: "#f59e0b", fontWeight: 700, cursor: "help" }}
+                        title={
+                          status.reasons?.length
+                            ? status.reasons.join(" / ")
+                            : ""
+                        }
+                        style={{
+                          color: "#f59e0b",
+                          fontWeight: 700,
+                          cursor: "help",
+                        }}
                       >
-                        ⚠ 未設定{status.reasons?.length ? `（${status.reasons.join(" / ")}）` : ""}
+                        ⚠ 未設定
+                        {status.reasons?.length
+                          ? `（${status.reasons.join(" / ")}）`
+                          : ""}
                       </span>
                     ) : (
                       <span title={displayQuery} style={{ cursor: "help" }}>
@@ -176,7 +218,14 @@ export default async function RulesPage() {
                     {r.drive_folder_id ? truncate(r.drive_folder_id, 24) : "-"}
                   </td>
 
-                  <td style={{ ...td, fontWeight: 700, color: lastRun ? lastRunColor : "#9ca3af" }} title={lastRunText}>
+                  <td
+                    style={{
+                      ...td,
+                      fontWeight: 700,
+                      color: lastRun ? lastRunColor : "#9ca3af",
+                    }}
+                    title={lastRunText}
+                  >
                     {lastRunText}
                   </td>
 
@@ -185,8 +234,18 @@ export default async function RulesPage() {
                   </td>
 
                   <td style={td}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                      <RunButton ruleId={r.id} disabled={status.status !== "ready"} />
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <RunButton
+                        ruleId={r.id}
+                        disabled={status.status !== "ready"}
+                      />
                       <a href={`/rules/${r.id}`}>Edit</a>
                       <CopyButton text={displayQuery} />
                     </div>
@@ -228,7 +287,8 @@ const td: React.CSSProperties = {
 
 const tdMono: React.CSSProperties = {
   ...td,
-  fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+  fontFamily:
+    "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
   fontSize: 12,
   whiteSpace: "nowrap",
 };
