@@ -111,7 +111,7 @@ export default async function RulesPage() {
   const rules = json.data ?? [];
 
   // ---- latest runs (per rule) ----
-  const latestRes = await fetch("/api/runs/latest", {
+  const latestRes = await fetch(`${baseUrl}/api/runs/latest`, {
     cache: "no-store",
     headers: {
       cookie,
