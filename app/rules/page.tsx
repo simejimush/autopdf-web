@@ -64,7 +64,7 @@ export default async function RulesPage() {
 
   const rules = json.data ?? [];
 
-  cconst latestRes = await fetch(`${baseUrl}/api/runs/latest`, {
+  const latestRes = await fetch(`${baseUrl}/api/runs/latest`, {
     cache: "no-store",
   });
   
