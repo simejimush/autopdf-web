@@ -1,6 +1,7 @@
 import { getRuleStatus } from "../../src/lib/rules/status";
 import RunButton from "./RunButton";
 import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 
 type Run = {
   id: string;
@@ -42,6 +43,7 @@ export default async function RulesPage() {
   const res = await fetch(`${baseUrl}/api/rules`, {
     cache: "no-store",
   });
+  if (res.status === 401) redirect("/login");
 
   let json: { data: Rule[]; error?: string };
 
