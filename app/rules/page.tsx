@@ -1,5 +1,6 @@
 import { getRuleStatus } from "../../src/lib/rules/status";
 import RunButton from "./RunButton";
+import { headers } from "next/headers";
 
 type Run = {
   id: string;
@@ -34,9 +35,15 @@ function truncate(s: string, max = 80) {
 }
 
 export default async function RulesPage() {
-  const res = await fetch("/api/rules", {
+  const h = headers();
+  const host = h.get("host");
+  const protocol = process.env.NODE_ENV === "production" ? "https" : "http";
+  const baseUrl = `${protocol}://${host}`;
+
+  const res = await fetch(`${baseUrl}/api/rules`, {
     cache: "no-store",
   });
+
 
   let json: { data: Rule[]; error?: string };
 
@@ -57,9 +64,10 @@ export default async function RulesPage() {
 
   const rules = json.data ?? [];
 
-  const latestRes = await fetch("/api/runs/latest", {
+  cconst latestRes = await fetch(`${baseUrl}/api/runs/latest`, {
     cache: "no-store",
   });
+  
   const latestJson = await latestRes.json();
   const latestByRule = latestJson?.data ?? {};
 
