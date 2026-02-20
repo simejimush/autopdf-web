@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { searchGmail, getGmailMessage } from "@/lib/google/gmail";
 import { uploadPdfToDrive } from "@/lib/google/drive";
 import { PDFDocument } from "pdf-lib";
@@ -18,6 +19,12 @@ function ng(step: string, err: unknown, status = 500) {
       ? { name: err.name, message: err.message, stack: err.stack }
       : { err };
   return ok({ ok: false, step, ...e }, status);
+}
+
+function isUuid(v: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    v ?? "",
+  );
 }
 
 function sanitizeFilename(name: string) {
@@ -114,10 +121,28 @@ export async function POST(
   let runId: string | null = null;
 
   try {
-    const { id } = await ctx.params;
-    stepLog("00 params", { id });
+    // 0) Auth（未ログインは即終了）
+    const supabase = await createSupabaseServerClient();
+    const {
+      data: { user },
+      error: userErr,
+    } = await supabase.auth.getUser();
 
-    // 1) ルール取得
+    if (userErr || !user) {
+      return ok({ ok: false, step: "00 auth", message: "Unauthorized" }, 401);
+    }
+
+    const { id } = await ctx.params;
+    stepLog("00 params", { id, user_id: user.id });
+
+    if (!isUuid(id)) {
+      return ok(
+        { ok: false, step: "00 params", message: "invalid rule id" },
+        400,
+      );
+    }
+
+    // 1) ルール取得（service roleで取ってOK。ただし所有者チェック必須）
     stepLog("10 fetch rule start");
     const { data: rule, error: ruleErr } = await supabaseAdmin
       .from("rules")
@@ -130,6 +155,14 @@ export async function POST(
       return ok(
         { ok: false, step: "10 fetch rule", message: "rule not found" },
         404,
+      );
+    }
+
+    // ★認可：自分の rule 以外は実行不可
+    if (rule.user_id !== user.id) {
+      return ok(
+        { ok: false, step: "10 fetch rule", message: "Forbidden" },
+        403,
       );
     }
 
@@ -207,7 +240,8 @@ export async function POST(
               saved_count: 0,
               finished_at: new Date().toISOString(),
             })
-            .eq("id", runId);
+            .eq("id", runId)
+            .eq("user_id", user.id); // 念のため
         }
       } catch (e) {
         console.error("[run] failed to update runs(success/0)", e);
@@ -273,7 +307,6 @@ export async function POST(
       const subject = msg.subject ?? "";
       processed_subjects.push(subject);
 
-      // PDF生成（本文は msg.body / msg.snippet 等、あなたの実装に合わせて拾う）
       const bodyText =
         msg.body ?? msg.text ?? msg.snippet ?? JSON.stringify(msg, null, 2);
 
@@ -307,7 +340,8 @@ export async function POST(
           const { error: updErr } = await supabaseAdmin
             .from("processed_emails")
             .update({ drive_file_id: uploaded.fileId })
-            .eq("id", peRow.id);
+            .eq("id", peRow.id)
+            .eq("user_id", user.id); // 念のため
 
           if (updErr) {
             console.error("[run] drive_file_id update error:", {
@@ -322,7 +356,7 @@ export async function POST(
 
       saved++;
       processed++;
-    } // ← ★ for ループを確実に閉じる（これが抜けてた）
+    }
 
     stepLog("36 dedup loop ok", { processed, skipped, saved });
 
@@ -338,7 +372,8 @@ export async function POST(
             saved_count: saved,
             finished_at: new Date().toISOString(),
           })
-          .eq("id", runId);
+          .eq("id", runId)
+          .eq("user_id", user.id); // 念のため
       }
     } catch (e) {
       console.error("[run] failed to update runs(success)", e);
