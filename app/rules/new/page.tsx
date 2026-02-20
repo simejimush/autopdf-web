@@ -27,7 +27,7 @@ export default function NewRulePage() {
         subject_keywords: keywords.length ? keywords : null,
       };
 
-      const res = await fetch("/api/rules", {
+      const res = await fetch("${baseUrl}/api/rules", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
