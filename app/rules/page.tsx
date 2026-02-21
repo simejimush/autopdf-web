@@ -199,14 +199,6 @@ export default async function RulesPage() {
                   const status = getRuleStatus(r);
                   const reasonsText = reasonsTextOf(status);
 
-                  const status = getRuleStatus(r);
-                  const reasons =
-                    "reasons" in status
-                      ? ((status as any).reasons as string[] | undefined)
-                      : undefined;
-                  const reasonsText = reasons?.length
-                    ? reasons.join(" / ")
-                    : "";
                   const isMissing = status.status === "needs_setup";
                   const lastRun = latestByRule[r.id] ?? null;
 
@@ -341,7 +333,6 @@ export default async function RulesPage() {
               const status = getRuleStatus(r);
               const reasonsText = reasonsTextOf(status);
 
-              const status = getRuleStatus(r);
               const isMissing = status.status === "needs_setup";
               const lastRun = latestByRule[r.id] ?? null;
 
