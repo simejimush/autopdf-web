@@ -60,18 +60,21 @@ export default async function RootLayout({
         {children}
         <style>{`
   .ap-banner{
-    background:#FEF3C7;
-    border-bottom:1px solid #F59E0B;
-    padding:12px 20px;
-    display:flex;
-    justify-content:space-between;
-    align-items:center;
-    gap:12px;
-    font-size:14px;
-  }
+  background:#FEF3C7;
+  border-bottom:1px solid #F59E0B;
+  padding:12px 20px;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:12px;
+  font-size:14px;
+  color:#1F2937; /* ← 追加してもOK */
+}
   .ap-banner__text{
-    line-height:1.4;
-  }
+  line-height:1.4;
+  color:#1F2937; /* ← 追加（濃いグレー） */
+  font-weight:500;
+}
   .ap-banner__action{
     flex:0 0 auto;
   }
