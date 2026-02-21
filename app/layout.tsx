@@ -30,16 +30,29 @@ export default async function RootLayout({
   } = await supabase.auth.getUser();
 
   let isGoogleConnected = false;
+  let hasActiveRule = false;
 
   if (user) {
-    const { data } = await supabase
+    // Google接続判定
+    const { data: gc } = await supabase
       .from("google_connections")
       .select("id")
       .eq("user_id", user.id)
       .maybeSingle();
 
-    isGoogleConnected = !!data;
+    isGoogleConnected = !!gc;
+
+    // 有効ルール判定（まず is_active を採用）
+    const { data: rules } = await supabase
+      .from("rules")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("is_active", true)
+      .limit(1);
+
+    hasActiveRule = !!rules && rules.length > 0;
   }
+
   return (
     <html lang="en">
       <body
@@ -53,6 +66,19 @@ export default async function RootLayout({
 
             <a href="/api/google/connect" className="ap-banner__action">
               <button className="ap-banner__btn">Googleに接続</button>
+            </a>
+          </div>
+        )}
+        {user && isGoogleConnected && !hasActiveRule && (
+          <div className="ap-banner ap-banner--info">
+            <span className="ap-banner__text">
+              有効なルールがありません。まずはルールを作成してください。
+            </span>
+
+            <a href="/rules/new" className="ap-banner__action">
+              <button className="ap-banner__btn ap-banner__btn--info">
+                ルールを作成
+              </button>
             </a>
           </div>
         )}
@@ -88,6 +114,13 @@ export default async function RootLayout({
     font-weight:600;
     white-space:nowrap;
   }
+    .ap-banner--info{
+  background:#E0F2FE;
+  border-bottom:1px solid #38BDF8;
+}
+.ap-banner__btn--info{
+  background:#2563EB;
+}
 
   /* ✅ スマホだけ：テキストの下にボタン、ボタンは右寄せ（3枚目の配置） */
   @media (max-width: 640px){
