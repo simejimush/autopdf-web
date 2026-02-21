@@ -1,3 +1,5 @@
+// app/rules/page.tsx
+import React from "react";
 import { getRuleStatus } from "../../src/lib/rules/status";
 import RunButton from "./RunButton";
 import CopyButton from "./CopyButton";
@@ -22,10 +24,26 @@ type Rule = {
   drive_folder_id: string | null;
   gmail_query: string | null;
   updated_at: string | null;
-
   // ✅ 一覧は runs を持たない（重くなるので）
   runs?: never;
 };
+
+// ---- 日本語ラベル（固定）----
+const LABEL = {
+  title: "ルール",
+  newRule: "＋ ルールを作成",
+  active: "有効",
+  runTiming: "実行タイミング",
+  gmailQuery: "検索条件",
+  driveFolder: "保存先フォルダ",
+  lastRun: "最終実行",
+  updated: "更新日時",
+  action: "操作",
+  edit: "編集",
+  run: "実行",
+  copy: "コピー",
+  none: "まだルールがありません",
+} as const;
 
 function normalizeQuery(q: unknown) {
   const s = typeof q === "string" ? q.trim() : "";
@@ -46,26 +64,41 @@ function fmtTokyo(iso: string | null | undefined) {
   }
 }
 
-function badgeStyle(kind: "warn" | "muted" | "ok" | "err") {
+function statusJa(s: string) {
+  if (s === "ready") return "準備完了";
+  if (s === "disabled") return "無効";
+  if (s === "needs_setup") return "未設定";
+  if (s === "success") return "成功";
+  if (s === "error") return "エラー";
+  return s;
+}
+
+function pill(kind: "muted" | "warn" | "ok" | "err") {
   const base: React.CSSProperties = {
-    marginLeft: 8,
-    padding: "2px 8px",
-    fontSize: 11,
+    padding: "2px 10px",
+    fontSize: 12,
     borderRadius: 999,
-    color: "#fff",
-    display: "inline-block",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
     lineHeight: 1.6,
+    border: "1px solid var(--border)",
+    background: "var(--surface)",
+    color: "var(--text)",
+    whiteSpace: "nowrap",
   };
-  if (kind === "warn") return { ...base, background: "#f59e0b" };
-  if (kind === "ok") return { ...base, background: "#22c55e" };
-  if (kind === "err") return { ...base, background: "#ef4444" };
-  return { ...base, background: "#444" };
+  if (kind === "warn")
+    return { ...base, borderColor: "#f59e0b", color: "#b45309" };
+  if (kind === "ok")
+    return { ...base, borderColor: "#22c55e", color: "#15803d" };
+  if (kind === "err")
+    return { ...base, borderColor: "#ef4444", color: "#b91c1c" };
+  return base;
 }
 
 export default async function RulesPage() {
   // ---- rules ----
   const h = await headers();
-
   const host = h.get("host");
   if (!host && !process.env.APP_URL && !process.env.VERCEL_URL) {
     throw new Error("Missing host/APP_URL/VERCEL_URL");
@@ -82,12 +115,9 @@ export default async function RulesPage() {
 
   const cookie = h.get("cookie") ?? "";
 
-  // ここが fetch 本体
   const res = await fetch(`${baseUrl}/api/rules`, {
     cache: "no-store",
-    headers: {
-      cookie,
-    },
+    headers: { cookie },
   });
 
   if (res.status === 401) redirect("/login");
@@ -101,9 +131,12 @@ export default async function RulesPage() {
 
   if (json.error) {
     return (
-      <main style={{ padding: 24 }}>
-        <h1>Rules</h1>
-        <pre>error: {json.error}</pre>
+      <main className="page">
+        <style>{styles}</style>
+        <div className="container">
+          <h1 className="h1">{LABEL.title}</h1>
+          <pre className="error">error: {json.error}</pre>
+        </div>
       </main>
     );
   }
@@ -113,42 +146,189 @@ export default async function RulesPage() {
   // ---- latest runs (per rule) ----
   const latestRes = await fetch(`${baseUrl}/api/runs/latest`, {
     cache: "no-store",
-    headers: {
-      cookie,
-    },
+    headers: { cookie },
   });
   const latestJson = await latestRes.json();
   const latestByRule: Record<string, RunLite | null> = latestJson?.data ?? {};
 
   return (
-    <main style={{ padding: 24 }}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 12,
-        }}
-      >
-        <h1 style={{ margin: 0 }}>Rules</h1>
-        <a href="/rules/new">＋ New rule</a>
-      </div>
+    <main className="page">
+      <style>{styles}</style>
 
-      <div style={{ marginTop: 16, overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr>
-              <th style={th}>Active</th>
-              <th style={th}>Run timing</th>
-              <th style={th}>Gmail query</th>
-              <th style={th}>Drive folder</th>
-              <th style={th}>Last run</th>
-              <th style={th}>Updated</th>
-              <th style={th}>Action</th>
-            </tr>
-          </thead>
+      <div className="container">
+        <div className="header">
+          <h1 className="h1">{LABEL.title}</h1>
+          <a className="btnPrimary" href="/rules/new">
+            {LABEL.newRule}
+          </a>
+        </div>
 
-          <tbody>
+        {/* PC: テーブル */}
+        <div className="onlyDesktop">
+          <div className="tableWrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>{LABEL.active}</th>
+                  <th>{LABEL.runTiming}</th>
+                  <th>{LABEL.gmailQuery}</th>
+                  <th>{LABEL.driveFolder}</th>
+                  <th>{LABEL.lastRun}</th>
+                  <th>{LABEL.updated}</th>
+                  <th>{LABEL.action}</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {rules.map((r) => {
+                  const q = normalizeQuery(r.gmail_query);
+                  const displayQuery = q ?? "(generated)";
+
+                  const status = getRuleStatus(r);
+                  const isMissing = status.status === "needs_setup";
+                  const lastRun = latestByRule[r.id] ?? null;
+
+                  const lastRunText = lastRun
+                    ? [
+                        statusJa(lastRun.status),
+                        lastRun.finished_at
+                          ? fmtTokyo(lastRun.finished_at)
+                          : null,
+                        lastRun.processed_count || lastRun.saved_count
+                          ? `${lastRun.saved_count}/${lastRun.processed_count}`
+                          : null,
+                        lastRun.message ? truncate(lastRun.message, 30) : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")
+                    : "-";
+
+                  const lastRunTitle = lastRun
+                    ? [
+                        statusJa(lastRun.status),
+                        lastRun.finished_at
+                          ? fmtTokyo(lastRun.finished_at)
+                          : null,
+                        lastRun.processed_count || lastRun.saved_count
+                          ? `${lastRun.saved_count}/${lastRun.processed_count}`
+                          : null,
+                        lastRun.message ? lastRun.message : null,
+                        lastRun.error_code
+                          ? `code=${lastRun.error_code}`
+                          : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")
+                    : "-";
+
+                  const lastRunKind =
+                    lastRun?.status === "success"
+                      ? "ok"
+                      : lastRun?.status === "error"
+                      ? "err"
+                      : "muted";
+
+                  const readyKind =
+                    status.status === "ready"
+                      ? "ok"
+                      : status.status === "needs_setup"
+                      ? "warn"
+                      : "muted";
+
+                  return (
+                    <tr key={r.id} className={isMissing ? "rowDim" : ""}>
+                      <td>
+                        <span
+                          style={
+                            r.is_active && !isMissing
+                              ? pill("ok")
+                              : pill("muted")
+                          }
+                        >
+                          {r.is_active && !isMissing ? "有効" : "無効"}
+                        </span>
+
+                        <span
+                          style={pill(readyKind)}
+                          title={
+                            status.reasons?.length
+                              ? status.reasons.join(" / ")
+                              : ""
+                          }
+                        >
+                          {statusJa(status.status)}
+                        </span>
+                      </td>
+
+                      <td className="mono">{r.run_timing ?? "-"}</td>
+
+                      <td className="mono">
+                        {isMissing ? (
+                          <span
+                            title={
+                              status.reasons?.length
+                                ? status.reasons.join(" / ")
+                                : ""
+                            }
+                            className="warnText"
+                          >
+                            ⚠ 未設定
+                            {status.reasons?.length
+                              ? `（${status.reasons.join(" / ")}）`
+                              : ""}
+                          </span>
+                        ) : (
+                          <span title={displayQuery} className="help">
+                            {truncate(displayQuery, 90)}
+                          </span>
+                        )}
+                      </td>
+
+                      <td className="mono" title={r.drive_folder_id ?? ""}>
+                        {r.drive_folder_id
+                          ? truncate(r.drive_folder_id, 24)
+                          : "-"}
+                      </td>
+
+                      <td title={lastRunTitle}>
+                        <span style={pill(lastRunKind)}>{lastRunText}</span>
+                      </td>
+
+                      <td title={r.updated_at ?? ""} className="muted">
+                        {fmtTokyo(r.updated_at)}
+                      </td>
+
+                      <td>
+                        <div className="actions">
+                          <RunButton
+                            ruleId={r.id}
+                            disabled={status.status !== "ready"}
+                          />
+                          <a className="link" href={`/rules/${r.id}`}>
+                            {LABEL.edit}
+                          </a>
+                          <CopyButton text={displayQuery} />
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+
+                {rules.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="emptyCell">
+                      {LABEL.none}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* スマホ: カード */}
+        <div className="onlyMobile">
+          <div className="cards">
             {rules.map((r) => {
               const q = normalizeQuery(r.gmail_query);
               const displayQuery = q ?? "(generated)";
@@ -159,169 +339,385 @@ export default async function RulesPage() {
 
               const lastRunText = lastRun
                 ? [
-                    `${lastRun.status}`,
+                    statusJa(lastRun.status),
                     lastRun.finished_at ? fmtTokyo(lastRun.finished_at) : null,
                     lastRun.processed_count || lastRun.saved_count
                       ? `${lastRun.saved_count}/${lastRun.processed_count}`
                       : null,
-                    lastRun.message ? truncate(lastRun.message, 30) : null,
                   ]
                     .filter(Boolean)
                     .join(" · ")
                 : "-";
 
-              // 表示は短く、hover で全文（title用）
-              const lastRunTitle = lastRun
-                ? [
-                    `${lastRun.status}`,
-                    lastRun.finished_at ? fmtTokyo(lastRun.finished_at) : null,
-                    lastRun.processed_count || lastRun.saved_count
-                      ? `${lastRun.saved_count}/${lastRun.processed_count}`
-                      : null,
-                    lastRun.message ? lastRun.message : null,
-                    lastRun.error_code ? `code=${lastRun.error_code}` : null,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")
-                : "-";
+              const readyKind =
+                status.status === "ready"
+                  ? "ok"
+                  : status.status === "needs_setup"
+                  ? "warn"
+                  : "muted";
 
-              const lastRunColor =
+              const runKind =
                 lastRun?.status === "success"
-                  ? "#22c55e"
+                  ? "ok"
                   : lastRun?.status === "error"
-                  ? "#ef4444"
-                  : "#e5e7eb";
+                  ? "err"
+                  : "muted";
 
               return (
-                <tr key={r.id} style={{ opacity: isMissing ? 0.55 : 1 }}>
-                  <td style={td}>
-                    {isMissing ? "OFF" : r.is_active ? "ON" : "OFF"}
-
-                    {status.status === "needs_setup" && (
+                <div
+                  key={r.id}
+                  className={`card ${isMissing ? "cardDim" : ""}`}
+                >
+                  <div className="cardTop">
+                    <div className="cardPills">
                       <span
-                        style={badgeStyle("warn")}
+                        style={
+                          r.is_active && !isMissing ? pill("ok") : pill("muted")
+                        }
+                      >
+                        {r.is_active && !isMissing ? "有効" : "無効"}
+                      </span>
+                      <span
+                        style={pill(readyKind)}
                         title={
                           status.reasons?.length
                             ? status.reasons.join(" / ")
                             : ""
                         }
                       >
-                        未設定
+                        {statusJa(status.status)}
                       </span>
-                    )}
-
-                    {status.status === "disabled" && (
-                      <span style={badgeStyle("muted")}>disabled</span>
-                    )}
-
-                    {status.status === "ready" && (
-                      <span style={badgeStyle("ok")}>ready</span>
-                    )}
-                  </td>
-
-                  <td style={td}>{r.run_timing ?? "-"}</td>
-
-                  <td style={tdMono}>
-                    {isMissing ? (
-                      <span
-                        title={
-                          status.reasons?.length
-                            ? status.reasons.join(" / ")
-                            : ""
-                        }
-                        style={{
-                          color: "#f59e0b",
-                          fontWeight: 700,
-                          cursor: "help",
-                        }}
-                      >
-                        ⚠ 未設定
-                        {status.reasons?.length
-                          ? `（${status.reasons.join(" / ")}）`
-                          : ""}
-                      </span>
-                    ) : (
-                      <span title={displayQuery} style={{ cursor: "help" }}>
-                        {truncate(displayQuery, 90)}
-                      </span>
-                    )}
-                  </td>
-
-                  <td style={tdMono} title={r.drive_folder_id ?? ""}>
-                    {r.drive_folder_id ? truncate(r.drive_folder_id, 24) : "-"}
-                  </td>
-
-                  <td
-                    style={{
-                      ...td,
-                      fontWeight: 700,
-                      color: lastRun ? lastRunColor : "#9ca3af",
-                    }}
-                    title={lastRunTitle}
-                  >
-                    {lastRunText}
-                  </td>
-
-                  <td style={td} title={r.updated_at ?? ""}>
-                    {fmtTokyo(r.updated_at)}
-                  </td>
-
-                  <td style={td}>
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 10,
-                        flexWrap: "wrap",
-                      }}
-                    >
-                      <RunButton
-                        ruleId={r.id}
-                        disabled={status.status !== "ready"}
-                      />
-                      <a href={`/rules/${r.id}`}>Edit</a>
-                      <CopyButton text={displayQuery} />
                     </div>
-                  </td>
-                </tr>
+                    <div className="cardMeta">
+                      <div className="metaLine">
+                        <span className="metaKey">{LABEL.lastRun}</span>
+                        <span style={pill(runKind)}>{lastRunText}</span>
+                      </div>
+                      <div className="metaLine">
+                        <span className="metaKey">{LABEL.updated}</span>
+                        <span className="muted">{fmtTokyo(r.updated_at)}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="cardBody">
+                    <div className="field">
+                      <div className="fieldKey">{LABEL.runTiming}</div>
+                      <div className="fieldVal mono">{r.run_timing ?? "-"}</div>
+                    </div>
+
+                    <div className="field">
+                      <div className="fieldKey">{LABEL.gmailQuery}</div>
+                      <div className="fieldVal mono">
+                        {isMissing ? (
+                          <span
+                            title={
+                              status.reasons?.length
+                                ? status.reasons.join(" / ")
+                                : ""
+                            }
+                            className="warnText"
+                          >
+                            ⚠ 未設定
+                            {status.reasons?.length
+                              ? `（${status.reasons.join(" / ")}）`
+                              : ""}
+                          </span>
+                        ) : (
+                          <span title={displayQuery} className="help">
+                            {truncate(displayQuery, 120)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="field">
+                      <div className="fieldKey">{LABEL.driveFolder}</div>
+                      <div
+                        className="fieldVal mono"
+                        title={r.drive_folder_id ?? ""}
+                      >
+                        {r.drive_folder_id
+                          ? truncate(r.drive_folder_id, 40)
+                          : "-"}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="cardActions">
+                    <RunButton
+                      ruleId={r.id}
+                      disabled={status.status !== "ready"}
+                    />
+                    <a className="btnGhost" href={`/rules/${r.id}`}>
+                      {LABEL.edit}
+                    </a>
+                    <CopyButton text={displayQuery} />
+                  </div>
+                </div>
               );
             })}
 
             {rules.length === 0 && (
-              <tr>
-                <td style={td} colSpan={7}>
-                  No rules yet
-                </td>
-              </tr>
+              <div className="emptyCard">{LABEL.none}</div>
             )}
-          </tbody>
-        </table>
-      </div>
+          </div>
+        </div>
 
-      <p style={{ marginTop: 12, opacity: 0.7, fontSize: 12 }}>
-        ※ いまは service role で取得（ログイン導線は後で置き換え）
-      </p>
+        <p className="footnote">
+          ※ いまは service role で取得（ログイン導線は後で置き換え）
+        </p>
+      </div>
     </main>
   );
 }
 
-const th: React.CSSProperties = {
-  textAlign: "left",
-  padding: "10px 8px",
-  borderBottom: "1px solid #333",
-  fontWeight: 600,
-};
+const styles = `
+:root{
+  --bg:#f7f8fb;
+  --surface:#ffffff;
+  --border:#e5e7eb;
+  --text:#111827;
+  --muted:#6b7280;
+  --primary:#2563eb;
+}
 
-const td: React.CSSProperties = {
-  padding: "10px 8px",
-  borderBottom: "1px solid #222",
-  verticalAlign: "top",
-};
+.page{
+  min-height:100vh;
+  background:var(--bg);
+  color:var(--text);
+}
 
-const tdMono: React.CSSProperties = {
-  ...td,
-  fontFamily:
-    "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-  fontSize: 12,
-  whiteSpace: "nowrap",
-};
+.container{
+  max-width:1100px;
+  margin:0 auto;
+  padding:24px 16px 40px;
+}
+
+.header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+}
+
+.h1{
+  margin:0;
+  font-size:22px;
+  letter-spacing:-0.02em;
+}
+
+.btnPrimary{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding:10px 12px;
+  border-radius:12px;
+  background:var(--primary);
+  color:#fff;
+  font-weight:700;
+  text-decoration:none;
+  border:1px solid rgba(0,0,0,0.08);
+}
+
+.tableWrap{
+  margin-top:16px;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:14px;
+  overflow:auto;
+  box-shadow:0 1px 2px rgba(0,0,0,0.04);
+}
+
+.table{
+  width:100%;
+  border-collapse:separate;
+  border-spacing:0;
+  min-width:980px;
+}
+
+.table thead th{
+  text-align:left;
+  padding:12px 12px;
+  font-size:12px;
+  color:var(--muted);
+  font-weight:700;
+  border-bottom:1px solid var(--border);
+  background:var(--surface);
+  position:sticky;
+  top:0;
+}
+
+.table tbody td{
+  padding:12px 12px;
+  border-bottom:1px solid var(--border);
+  vertical-align:top;
+}
+
+.rowDim{ opacity:0.65; }
+
+.actions{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  flex-wrap:wrap;
+}
+
+.link{
+  color:var(--primary);
+  font-weight:700;
+  text-decoration:none;
+}
+
+.link:hover{ text-decoration:underline; }
+
+.mono{
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size:12px;
+  white-space:nowrap;
+}
+
+.muted{ color:var(--muted); }
+
+.help{ cursor:help; }
+
+.warnText{
+  color:#b45309;
+  font-weight:700;
+}
+
+.emptyCell{
+  padding:16px 12px;
+  color:var(--muted);
+}
+
+.cards{
+  margin-top:16px;
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+
+.card{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:14px;
+  padding:14px;
+  box-shadow:0 1px 2px rgba(0,0,0,0.04);
+}
+
+.cardDim{ opacity:0.7; }
+
+.cardTop{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+
+.cardPills{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+}
+
+.cardMeta{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+
+.metaLine{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+}
+
+.metaKey{
+  color:var(--muted);
+  font-size:12px;
+  font-weight:700;
+  white-space:nowrap;
+}
+
+.cardBody{
+  margin-top:12px;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+
+.field{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+}
+
+.fieldKey{
+  color:var(--muted);
+  font-size:12px;
+  font-weight:700;
+}
+
+.fieldVal{
+  font-size:13px;
+  line-height:1.5;
+}
+
+.cardActions{
+  margin-top:14px;
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+}
+
+.btnGhost{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding:10px 12px;
+  border-radius:12px;
+  background:var(--surface);
+  border:1px solid var(--border);
+  color:var(--primary);
+  font-weight:800;
+  text-decoration:none;
+}
+
+.btnGhost:hover{ background:#f3f4f6; }
+
+.emptyCard{
+  background:var(--surface);
+  border:1px dashed var(--border);
+  border-radius:14px;
+  padding:18px;
+  color:var(--muted);
+  text-align:center;
+}
+
+.footnote{
+  margin-top:12px;
+  opacity:0.7;
+  font-size:12px;
+}
+
+.error{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:12px;
+  padding:12px;
+  margin-top:12px;
+  overflow:auto;
+}
+
+/* --- responsive --- */
+.onlyDesktop{ display:block; }
+.onlyMobile{ display:none; }
+
+@media (max-width: 768px){
+  .onlyDesktop{ display:none; }
+  .onlyMobile{ display:block; }
+  .container{ padding:18px 12px 32px; }
+  .h1{ font-size:20px; }
+}
+`;

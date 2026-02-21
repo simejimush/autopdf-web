@@ -2,35 +2,67 @@
 
 import * as React from "react";
 
-export default function CopyButton(props: { text: string }) {
+export default function CopyButton({ text }: { text: string }) {
   const [ok, setOk] = React.useState(false);
 
   async function onCopy() {
     try {
-      await navigator.clipboard.writeText(props.text);
+      await navigator.clipboard.writeText(text);
       setOk(true);
-      setTimeout(() => setOk(false), 900);
+      setTimeout(() => setOk(false), 1200);
     } catch {
-      // 失敗時は何もしない（必要なら alert に変えてOK）
+      alert("コピーに失敗しました");
     }
   }
 
   return (
-    <button
-      type="button"
-      onClick={onCopy}
-      style={{
-        padding: "6px 10px",
-        borderRadius: 8,
-        border: "1px solid #333",
-        background: ok ? "#22c55e" : "#111",
-        color: "#fff",
-        cursor: "pointer",
-        fontSize: 12,
-      }}
-      title="Copy Gmail query"
-    >
-      {ok ? "Copied" : "Copy"}
-    </button>
+    <>
+      <style>{styles}</style>
+
+      <button
+        type="button"
+        onClick={onCopy}
+        className={`copyBtn ${ok ? "copySuccess" : ""}`}
+        title="検索条件をコピー"
+      >
+        {ok ? "コピー完了" : "コピー"}
+      </button>
+    </>
   );
 }
+
+const styles = `
+.copyBtn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding:8px 14px;
+  font-size:13px;
+  font-weight:700;
+  border-radius:12px;
+  border:1px solid var(--border);
+  background:var(--surface);
+  color:var(--primary);
+  cursor:pointer;
+  transition:all .15s ease;
+  white-space:nowrap;
+}
+
+.copyBtn:hover{
+  background:#f3f4f6;
+  transform:translateY(-1px);
+}
+
+.copySuccess{
+  background:#22c55e;
+  border-color:#22c55e;
+  color:#fff;
+}
+
+@media (max-width:768px){
+  .copyBtn{
+    padding:10px 14px;
+    font-size:14px;
+  }
+}
+`;
