@@ -43,10 +43,16 @@ export default function AppTopbar() {
         </a>
 
         <nav className="navDesktop" aria-label="primary">
-          <a className={`navLink ${isActive("/dashboard") ? "navActive" : ""}`} href="/dashboard">
+          <a
+            className={`navLink ${isActive("/dashboard") ? "navActive" : ""}`}
+            href="/dashboard"
+          >
             ダッシュボード
           </a>
-          <a className={`navLink ${isActive("/rules") ? "navActive" : ""}`} href="/rules">
+          <a
+            className={`navLink ${isActive("/rules") ? "navActive" : ""}`}
+            href="/rules"
+          >
             ルール
           </a>
         </nav>
@@ -74,10 +80,18 @@ export default function AppTopbar() {
 
       {menuOpen && (
         <div className="navMobile">
-          <a className="navMobileLink" href="/dashboard" onClick={() => setMenuOpen(false)}>
+          <a
+            className="navMobileLink"
+            href="/dashboard"
+            onClick={() => setMenuOpen(false)}
+          >
             ダッシュボード
           </a>
-          <a className="navMobileLink" href="/rules" onClick={() => setMenuOpen(false)}>
+          <a
+            className="navMobileLink"
+            href="/rules"
+            onClick={() => setMenuOpen(false)}
+          >
             ルール
           </a>
           <button className="navMobileBtn" onClick={signOut}>
@@ -163,7 +177,7 @@ const styles = `
   display:flex;
   align-items:center;
   gap:8px;
-  padding:8px 10px;
+  padding:7px 10px; /* 8px -> 7px */
   border:1px solid var(--border);
   background:var(--surface);
   border-radius:999px;
@@ -187,16 +201,20 @@ const styles = `
 }
 
 .btnGhost{
-  padding:8px 10px;
-  border-radius:12px;
+  padding:6px 10px;          /* 小さく */
+  border-radius:999px;       /* 半円 */
   border:1px solid var(--border);
   background:var(--surface);
-  color:var(--primary);
+  color:var(--muted);        /* 目立ちすぎ防止 */
   font-weight:900;
+  font-size:12px;
   cursor:pointer;
 }
 
-.btnGhost:hover{ background:#f3f4f6; }
+.btnGhost:hover{
+  background:#f3f4f6;
+  color:var(--text);
+}
 
 .menuBtn{
   display:none;

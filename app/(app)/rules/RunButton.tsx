@@ -11,108 +11,58 @@ export default function RunButton({
 }) {
   const [loading, setLoading] = useState(false);
 
-  const isDisabled = loading || disabled;
-
   return (
-    <>
-      <style>{buttonStyles}</style>
-
-      <button
-        disabled={isDisabled}
-        className={`runBtn ${isDisabled ? "runBtnDisabled" : "runBtnPrimary"}`}
-        onClick={async () => {
-          if (isDisabled) return;
-
-          setLoading(true);
-
-          try {
-            const res = await fetch(`/api/rules/${ruleId}/run`, {
-              method: "POST",
-            });
-
-            const data = await res.json();
-
-            if (!res.ok) {
-              alert(data.error ?? "実行に失敗しました");
-            } else {
-              alert(data.message ?? "実行が完了しました");
-            }
-          } catch {
-            alert("通信エラーが発生しました");
-          }
-
+    <button
+      disabled={loading || disabled}
+      className={`pillBtn ${disabled ? "isDisabled" : ""} ${loading ? "isLoading" : ""}`}
+      onClick={async () => {
+        setLoading(true);
+        try {
+          const res = await fetch(`/api/rules/${ruleId}/run`, {
+            method: "POST",
+          });
+          const data = await res.json();
+          if (!res.ok) alert(data.error ?? "Run failed");
+          else alert(data.message ?? "Run finished");
+        } finally {
           setLoading(false);
-        }}
-      >
-        {loading ? (
-          <span className="spinnerWrap">
-            <span className="spinner" />
-            実行中…
-          </span>
-        ) : (
-          "実行"
-        )}
-      </button>
-    </>
+        }
+      }}
+    >
+      {loading ? "実行中…" : "実行"}
+      <style>{styles}</style>
+    </button>
   );
 }
 
-const buttonStyles = `
-.runBtn{
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  gap:8px;
-  padding:8px 14px;
-  font-size:13px;
-  font-weight:700;
-  border-radius:12px;
-  border:1px solid transparent;
-  transition:all .15s ease;
+const styles = `
+.pillBtn{
+  padding:6px 12px;
+  border-radius:999px;
+  border:1px solid var(--border);
+  background:var(--primary);
+  color:#fff;
+  font-weight:900;
+  font-size:12px;
+  cursor:pointer;
   white-space:nowrap;
 }
 
-.runBtnPrimary{
-  background:var(--primary);
-  color:#fff;
-  box-shadow:0 1px 2px rgba(0,0,0,0.05);
-}
-
-.runBtnPrimary:hover{
+.pillBtn:hover{
   transform:translateY(-1px);
-  box-shadow:0 3px 8px rgba(0,0,0,0.08);
+  box-shadow:0 8px 18px rgba(37,99,235,0.18);
 }
 
-.runBtnDisabled{
-  background:#e5e7eb;
-  color:#9ca3af;
+.pillBtn.isDisabled{
+  background:var(--surface);
+  color:var(--muted);
   cursor:not-allowed;
+  opacity:0.75;
+  box-shadow:none;
+  transform:none;
 }
 
-.spinnerWrap{
-  display:flex;
-  align-items:center;
-  gap:6px;
-}
-
-.spinner{
-  width:14px;
-  height:14px;
-  border:2px solid rgba(255,255,255,0.4);
-  border-top-color:#fff;
-  border-radius:50%;
-  animation:spin .8s linear infinite;
-}
-
-@keyframes spin{
-  to{ transform:rotate(360deg); }
-}
-
-/* モバイル最適化 */
-@media (max-width:768px){
-  .runBtn{
-    padding:10px 14px;
-    font-size:14px;
-  }
+.pillBtn.isLoading{
+  opacity:0.9;
 }
 `;

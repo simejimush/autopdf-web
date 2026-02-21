@@ -46,39 +46,58 @@ export default async function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         {user && !isGoogleConnected && (
-          <div
-            style={{
-              background: "#FEF3C7",
-              borderBottom: "1px solid #F59E0B",
-              padding: "12px 20px",
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              fontSize: "14px",
-            }}
-          >
-            <span>
+          <div className="ap-banner">
+            <span className="ap-banner__text">
               Googleアカウントが未接続です。自動実行を利用するには接続が必要です。
             </span>
 
-            <a href="/api/google/connect">
-              <button
-                style={{
-                  background: "#111827",
-                  color: "#fff",
-                  padding: "8px 14px",
-                  borderRadius: "999px",
-                  border: "none",
-                  cursor: "pointer",
-                }}
-              >
-                Googleを接続
-              </button>
+            <a href="/api/google/connect" className="ap-banner__action">
+              <button className="ap-banner__btn">Googleに接続</button>
             </a>
           </div>
         )}
 
         {children}
+        <style>{`
+  .ap-banner{
+    background:#FEF3C7;
+    border-bottom:1px solid #F59E0B;
+    padding:12px 20px;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:12px;
+    font-size:14px;
+  }
+  .ap-banner__text{
+    line-height:1.4;
+  }
+  .ap-banner__action{
+    flex:0 0 auto;
+  }
+  .ap-banner__btn{
+    background:#4F46E5;
+    color:#fff;
+    padding:8px 14px;
+    border-radius:999px;
+    border:none;
+    cursor:pointer;
+    font-weight:600;
+    white-space:nowrap;
+  }
+
+  /* ✅ スマホだけ：テキストの下にボタン、ボタンは右寄せ（3枚目の配置） */
+  @media (max-width: 640px){
+    .ap-banner{
+      flex-direction:column;
+      align-items:stretch;
+    }
+    .ap-banner__action{
+      display:flex;
+      justify-content:flex-end;
+    }
+  }
+`}</style>
       </body>
     </html>
   );
