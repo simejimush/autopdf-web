@@ -73,6 +73,19 @@ function statusJa(s: string) {
   return s;
 }
 
+function reasonsTextOf(status: unknown) {
+  if (
+    status &&
+    typeof status === "object" &&
+    "reasons" in status &&
+    Array.isArray((status as any).reasons)
+  ) {
+    const arr = (status as any).reasons as string[];
+    return arr.length ? arr.join(" / ") : "";
+  }
+  return "";
+}
+
 function pill(kind: "muted" | "warn" | "ok" | "err") {
   const base: React.CSSProperties = {
     padding: "2px 10px",
@@ -183,8 +196,17 @@ export default async function RulesPage() {
                 {rules.map((r) => {
                   const q = normalizeQuery(r.gmail_query);
                   const displayQuery = q ?? "(generated)";
+                  const status = getRuleStatus(r);
+                  const reasonsText = reasonsTextOf(status);
 
                   const status = getRuleStatus(r);
+                  const reasons =
+                    "reasons" in status
+                      ? ((status as any).reasons as string[] | undefined)
+                      : undefined;
+                  const reasonsText = reasons?.length
+                    ? reasons.join(" / ")
+                    : "";
                   const isMissing = status.status === "needs_setup";
                   const lastRun = latestByRule[r.id] ?? null;
 
@@ -248,14 +270,7 @@ export default async function RulesPage() {
                           {r.is_active && !isMissing ? "有効" : "無効"}
                         </span>
 
-                        <span
-                          style={pill(readyKind)}
-                          title={
-                            status.reasons?.length
-                              ? status.reasons.join(" / ")
-                              : ""
-                          }
-                        >
+                        <span style={pill(readyKind)} title={reasonsText}>
                           {statusJa(status.status)}
                         </span>
                       </td>
@@ -264,18 +279,9 @@ export default async function RulesPage() {
 
                       <td className="mono">
                         {isMissing ? (
-                          <span
-                            title={
-                              status.reasons?.length
-                                ? status.reasons.join(" / ")
-                                : ""
-                            }
-                            className="warnText"
-                          >
+                          <span title={reasonsText} className="warnText">
                             ⚠ 未設定
-                            {status.reasons?.length
-                              ? `（${status.reasons.join(" / ")}）`
-                              : ""}
+                            {reasonsText ? `（${reasonsText}）` : ""}
                           </span>
                         ) : (
                           <span title={displayQuery} className="help">
@@ -332,6 +338,8 @@ export default async function RulesPage() {
             {rules.map((r) => {
               const q = normalizeQuery(r.gmail_query);
               const displayQuery = q ?? "(generated)";
+              const status = getRuleStatus(r);
+              const reasonsText = reasonsTextOf(status);
 
               const status = getRuleStatus(r);
               const isMissing = status.status === "needs_setup";
@@ -377,14 +385,7 @@ export default async function RulesPage() {
                       >
                         {r.is_active && !isMissing ? "有効" : "無効"}
                       </span>
-                      <span
-                        style={pill(readyKind)}
-                        title={
-                          status.reasons?.length
-                            ? status.reasons.join(" / ")
-                            : ""
-                        }
-                      >
+                      <span style={pill(readyKind)} title={reasonsText}>
                         {statusJa(status.status)}
                       </span>
                     </div>
@@ -410,18 +411,9 @@ export default async function RulesPage() {
                       <div className="fieldKey">{LABEL.gmailQuery}</div>
                       <div className="fieldVal mono">
                         {isMissing ? (
-                          <span
-                            title={
-                              status.reasons?.length
-                                ? status.reasons.join(" / ")
-                                : ""
-                            }
-                            className="warnText"
-                          >
+                          <span title={reasonsText} className="warnText">
                             ⚠ 未設定
-                            {status.reasons?.length
-                              ? `（${status.reasons.join(" / ")}）`
-                              : ""}
+                            {reasonsText ? `（${reasonsText}）` : ""}
                           </span>
                         ) : (
                           <span title={displayQuery} className="help">
