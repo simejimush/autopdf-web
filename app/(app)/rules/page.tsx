@@ -1,6 +1,6 @@
 // app/rules/page.tsx
 import React from "react";
-import { getRuleStatus } from "../../src/lib/rules/status";
+import { getRuleStatus } from "../../../src/lib/rules/status";
 import RunButton from "./RunButton";
 import CopyButton from "./CopyButton";
 import { headers } from "next/headers";
