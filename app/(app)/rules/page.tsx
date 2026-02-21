@@ -1,6 +1,5 @@
-// app/rules/page.tsx
-import React from "react";
-import { getRuleStatus } from "../../../src/lib/rules/status";
+// app/(app)/rules/page.tsx
+import { getRuleStatus } from "@/src/lib/rules/status";
 import RunButton from "./RunButton";
 import CopyButton from "./CopyButton";
 import { headers } from "next/headers";
@@ -24,14 +23,11 @@ type Rule = {
   drive_folder_id: string | null;
   gmail_query: string | null;
   updated_at: string | null;
-  // ✅ 一覧は runs を持たない（重くなるので）
   runs?: never;
 };
 
-// ---- 日本語ラベル（固定）----
 const LABEL = {
-  title: "ルール",
-  newRule: "＋ ルールを作成",
+  rules: "ルール",
   active: "有効",
   runTiming: "実行タイミング",
   gmailQuery: "検索条件",
@@ -39,11 +35,16 @@ const LABEL = {
   lastRun: "最終実行",
   updated: "更新日時",
   action: "操作",
+  newRule: "＋ ルールを作成",
   edit: "編集",
-  run: "実行",
   copy: "コピー",
-  none: "まだルールがありません",
-} as const;
+  empty: "まだルールがありません",
+  ready: "準備完了",
+  disabled: "無効",
+  needsSetup: "未設定",
+  success: "成功",
+  error: "エラー",
+};
 
 function normalizeQuery(q: unknown) {
   const s = typeof q === "string" ? q.trim() : "";
@@ -65,11 +66,11 @@ function fmtTokyo(iso: string | null | undefined) {
 }
 
 function statusJa(s: string) {
-  if (s === "ready") return "準備完了";
-  if (s === "disabled") return "無効";
-  if (s === "needs_setup") return "未設定";
-  if (s === "success") return "成功";
-  if (s === "error") return "エラー";
+  if (s === "ready") return LABEL.ready;
+  if (s === "disabled") return LABEL.disabled;
+  if (s === "needs_setup") return LABEL.needsSetup;
+  if (s === "success") return LABEL.success;
+  if (s === "error") return LABEL.error;
   return s;
 }
 
@@ -86,32 +87,16 @@ function reasonsTextOf(status: unknown) {
   return "";
 }
 
-function pill(kind: "muted" | "warn" | "ok" | "err") {
-  const base: React.CSSProperties = {
-    padding: "2px 10px",
-    fontSize: 12,
-    borderRadius: 999,
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 6,
-    lineHeight: 1.6,
-    border: "1px solid var(--border)",
-    background: "var(--surface)",
-    color: "var(--text)",
-    whiteSpace: "nowrap",
-  };
-  if (kind === "warn")
-    return { ...base, borderColor: "#f59e0b", color: "#b45309" };
-  if (kind === "ok")
-    return { ...base, borderColor: "#22c55e", color: "#15803d" };
-  if (kind === "err")
-    return { ...base, borderColor: "#ef4444", color: "#b91c1c" };
-  return base;
+function badgeKind(status: ReturnType<typeof getRuleStatus>) {
+  if (status.status === "needs_setup") return "warn";
+  if (status.status === "ready") return "ok";
+  if (status.status === "disabled") return "muted";
+  return "muted";
 }
 
 export default async function RulesPage() {
-  // ---- rules ----
   const h = await headers();
+
   const host = h.get("host");
   if (!host && !process.env.APP_URL && !process.env.VERCEL_URL) {
     throw new Error("Missing host/APP_URL/VERCEL_URL");
@@ -142,21 +127,8 @@ export default async function RulesPage() {
     json = { data: [], error: "Invalid JSON response" };
   }
 
-  if (json.error) {
-    return (
-      <main className="page">
-        <style>{styles}</style>
-        <div className="container">
-          <h1 className="h1">{LABEL.title}</h1>
-          <pre className="error">error: {json.error}</pre>
-        </div>
-      </main>
-    );
-  }
-
   const rules = json.data ?? [];
 
-  // ---- latest runs (per rule) ----
   const latestRes = await fetch(`${baseUrl}/api/runs/latest`, {
     cache: "no-store",
     headers: { cookie },
@@ -164,20 +136,46 @@ export default async function RulesPage() {
   const latestJson = await latestRes.json();
   const latestByRule: Record<string, RunLite | null> = latestJson?.data ?? {};
 
-  return (
-    <main className="page">
-      <style>{styles}</style>
-
-      <div className="container">
-        <div className="header">
-          <h1 className="h1">{LABEL.title}</h1>
+  if (json.error) {
+    return (
+      <div className="rulesPage">
+        <style>{styles}</style>
+        <div className="hero">
+          <div>
+            <h1 className="h1">{LABEL.rules}</h1>
+            <p className="sub">自動実行のルールを管理します。</p>
+          </div>
           <a className="btnPrimary" href="/rules/new">
             {LABEL.newRule}
           </a>
         </div>
 
-        {/* PC: テーブル */}
-        <div className="onlyDesktop">
+        <div className="error" role="alert">
+          <div className="errorTitle">エラー</div>
+          <div className="errorMsg">{json.error}</div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rulesPage">
+      <style>{styles}</style>
+
+      <div className="hero">
+        <div>
+          <h1 className="h1">{LABEL.rules}</h1>
+          <p className="sub">自動実行のルールを管理します。</p>
+        </div>
+
+        <a className="btnPrimary" href="/rules/new">
+          {LABEL.newRule}
+        </a>
+      </div>
+
+      {/* PC: table */}
+      <div className="onlyDesktop">
+        <div className="card">
           <div className="tableWrap">
             <table className="table">
               <thead>
@@ -196,9 +194,9 @@ export default async function RulesPage() {
                 {rules.map((r) => {
                   const q = normalizeQuery(r.gmail_query);
                   const displayQuery = q ?? "(generated)";
+
                   const status = getRuleStatus(r);
                   const reasonsText = reasonsTextOf(status);
-
                   const isMissing = status.status === "needs_setup";
                   const lastRun = latestByRule[r.id] ?? null;
 
@@ -235,44 +233,38 @@ export default async function RulesPage() {
                         .join(" · ")
                     : "-";
 
-                  const lastRunKind =
+                  const lastRunColor =
                     lastRun?.status === "success"
-                      ? "ok"
+                      ? "var(--ok)"
                       : lastRun?.status === "error"
-                      ? "err"
-                      : "muted";
-
-                  const readyKind =
-                    status.status === "ready"
-                      ? "ok"
-                      : status.status === "needs_setup"
-                      ? "warn"
-                      : "muted";
+                        ? "var(--err)"
+                        : "var(--muted)";
 
                   return (
                     <tr key={r.id} className={isMissing ? "rowDim" : ""}>
                       <td>
-                        <span
-                          style={
-                            r.is_active && !isMissing
-                              ? pill("ok")
-                              : pill("muted")
-                          }
-                        >
-                          {r.is_active && !isMissing ? "有効" : "無効"}
-                        </span>
+                        <div className="cellActive">
+                          <span
+                            className={`toggle ${r.is_active ? "on" : "off"}`}
+                          >
+                            {r.is_active ? "ON" : "OFF"}
+                          </span>
 
-                        <span style={pill(readyKind)} title={reasonsText}>
-                          {statusJa(status.status)}
-                        </span>
+                          <span
+                            className={`pill ${badgeKind(status)}`}
+                            title={reasonsText}
+                          >
+                            {statusJa(status.status)}
+                          </span>
+                        </div>
                       </td>
 
                       <td className="mono">{r.run_timing ?? "-"}</td>
 
                       <td className="mono">
                         {isMissing ? (
-                          <span title={reasonsText} className="warnText">
-                            ⚠ 未設定
+                          <span className="warnText" title={reasonsText}>
+                            ⚠ {LABEL.needsSetup}
                             {reasonsText ? `（${reasonsText}）` : ""}
                           </span>
                         ) : (
@@ -284,15 +276,21 @@ export default async function RulesPage() {
 
                       <td className="mono" title={r.drive_folder_id ?? ""}>
                         {r.drive_folder_id
-                          ? truncate(r.drive_folder_id, 24)
+                          ? truncate(r.drive_folder_id, 28)
                           : "-"}
                       </td>
 
-                      <td title={lastRunTitle}>
-                        <span style={pill(lastRunKind)}>{lastRunText}</span>
+                      <td
+                        className="lastRun"
+                        style={{
+                          color: lastRun ? lastRunColor : "var(--muted)",
+                        }}
+                        title={lastRunTitle}
+                      >
+                        {lastRunText}
                       </td>
 
-                      <td title={r.updated_at ?? ""} className="muted">
+                      <td className="muted" title={r.updated_at ?? ""}>
                         {fmtTokyo(r.updated_at)}
                       </td>
 
@@ -314,8 +312,14 @@ export default async function RulesPage() {
 
                 {rules.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="emptyCell">
-                      {LABEL.none}
+                    <td colSpan={7} className="empty">
+                      <div className="emptyTitle">{LABEL.empty}</div>
+                      <div className="emptySub">
+                        まずはルールを作成してください。
+                      </div>
+                      <a className="btnGhost" href="/rules/new">
+                        {LABEL.newRule}
+                      </a>
                     </td>
                   </tr>
                 )}
@@ -323,171 +327,152 @@ export default async function RulesPage() {
             </table>
           </div>
         </div>
+      </div>
 
-        {/* スマホ: カード */}
-        <div className="onlyMobile">
-          <div className="cards">
-            {rules.map((r) => {
-              const q = normalizeQuery(r.gmail_query);
-              const displayQuery = q ?? "(generated)";
-              const status = getRuleStatus(r);
-              const reasonsText = reasonsTextOf(status);
+      {/* Mobile: cards */}
+      <div className="onlyMobile">
+        <div className="cards">
+          {rules.map((r) => {
+            const q = normalizeQuery(r.gmail_query);
+            const displayQuery = q ?? "(generated)";
 
-              const isMissing = status.status === "needs_setup";
-              const lastRun = latestByRule[r.id] ?? null;
+            const status = getRuleStatus(r);
+            const reasonsText = reasonsTextOf(status);
+            const isMissing = status.status === "needs_setup";
+            const lastRun = latestByRule[r.id] ?? null;
 
-              const lastRunText = lastRun
-                ? [
-                    statusJa(lastRun.status),
-                    lastRun.finished_at ? fmtTokyo(lastRun.finished_at) : null,
-                    lastRun.processed_count || lastRun.saved_count
-                      ? `${lastRun.saved_count}/${lastRun.processed_count}`
-                      : null,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")
-                : "-";
+            const lastRunText = lastRun
+              ? [
+                  statusJa(lastRun.status),
+                  lastRun.finished_at ? fmtTokyo(lastRun.finished_at) : null,
+                  lastRun.processed_count || lastRun.saved_count
+                    ? `${lastRun.saved_count}/${lastRun.processed_count}`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")
+              : "-";
 
-              const readyKind =
-                status.status === "ready"
-                  ? "ok"
-                  : status.status === "needs_setup"
-                  ? "warn"
-                  : "muted";
+            return (
+              <div key={r.id} className={`card ${isMissing ? "rowDim" : ""}`}>
+                <div className="cardTop">
+                  <div className="cellActive">
+                    <span className={`toggle ${r.is_active ? "on" : "off"}`}>
+                      {r.is_active ? "ON" : "OFF"}
+                    </span>
+                    <span
+                      className={`pill ${badgeKind(status)}`}
+                      title={reasonsText}
+                    >
+                      {statusJa(status.status)}
+                    </span>
+                  </div>
 
-              const runKind =
-                lastRun?.status === "success"
-                  ? "ok"
-                  : lastRun?.status === "error"
-                  ? "err"
-                  : "muted";
+                  <a className="link" href={`/rules/${r.id}`}>
+                    {LABEL.edit}
+                  </a>
+                </div>
 
-              return (
-                <div
-                  key={r.id}
-                  className={`card ${isMissing ? "cardDim" : ""}`}
-                >
-                  <div className="cardTop">
-                    <div className="cardPills">
-                      <span
-                        style={
-                          r.is_active && !isMissing ? pill("ok") : pill("muted")
-                        }
-                      >
-                        {r.is_active && !isMissing ? "有効" : "無効"}
-                      </span>
-                      <span style={pill(readyKind)} title={reasonsText}>
-                        {statusJa(status.status)}
-                      </span>
-                    </div>
-                    <div className="cardMeta">
-                      <div className="metaLine">
-                        <span className="metaKey">{LABEL.lastRun}</span>
-                        <span style={pill(runKind)}>{lastRunText}</span>
-                      </div>
-                      <div className="metaLine">
-                        <span className="metaKey">{LABEL.updated}</span>
-                        <span className="muted">{fmtTokyo(r.updated_at)}</span>
-                      </div>
+                <div className="kv">
+                  <div className="kvRow">
+                    <div className="kvKey">{LABEL.runTiming}</div>
+                    <div className="kvVal mono">{r.run_timing ?? "-"}</div>
+                  </div>
+
+                  <div className="kvRow">
+                    <div className="kvKey">{LABEL.gmailQuery}</div>
+                    <div className="kvVal">
+                      {isMissing ? (
+                        <span className="warnText" title={reasonsText}>
+                          ⚠ {LABEL.needsSetup}
+                          {reasonsText ? `（${reasonsText}）` : ""}
+                        </span>
+                      ) : (
+                        <span className="mono help" title={displayQuery}>
+                          {truncate(displayQuery, 90)}
+                        </span>
+                      )}
                     </div>
                   </div>
 
-                  <div className="cardBody">
-                    <div className="field">
-                      <div className="fieldKey">{LABEL.runTiming}</div>
-                      <div className="fieldVal mono">{r.run_timing ?? "-"}</div>
-                    </div>
-
-                    <div className="field">
-                      <div className="fieldKey">{LABEL.gmailQuery}</div>
-                      <div className="fieldVal mono">
-                        {isMissing ? (
-                          <span title={reasonsText} className="warnText">
-                            ⚠ 未設定
-                            {reasonsText ? `（${reasonsText}）` : ""}
-                          </span>
-                        ) : (
-                          <span title={displayQuery} className="help">
-                            {truncate(displayQuery, 120)}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="field">
-                      <div className="fieldKey">{LABEL.driveFolder}</div>
-                      <div
-                        className="fieldVal mono"
-                        title={r.drive_folder_id ?? ""}
-                      >
-                        {r.drive_folder_id
-                          ? truncate(r.drive_folder_id, 40)
-                          : "-"}
-                      </div>
+                  <div className="kvRow">
+                    <div className="kvKey">{LABEL.driveFolder}</div>
+                    <div className="kvVal mono" title={r.drive_folder_id ?? ""}>
+                      {r.drive_folder_id
+                        ? truncate(r.drive_folder_id, 28)
+                        : "-"}
                     </div>
                   </div>
 
-                  <div className="cardActions">
-                    <RunButton
-                      ruleId={r.id}
-                      disabled={status.status !== "ready"}
-                    />
-                    <a className="btnGhost" href={`/rules/${r.id}`}>
-                      {LABEL.edit}
-                    </a>
-                    <CopyButton text={displayQuery} />
+                  <div className="kvRow">
+                    <div className="kvKey">{LABEL.lastRun}</div>
+                    <div className="kvVal lastRun">{lastRunText}</div>
+                  </div>
+
+                  <div className="kvRow">
+                    <div className="kvKey">{LABEL.updated}</div>
+                    <div className="kvVal muted">{fmtTokyo(r.updated_at)}</div>
                   </div>
                 </div>
-              );
-            })}
 
-            {rules.length === 0 && (
-              <div className="emptyCard">{LABEL.none}</div>
-            )}
-          </div>
+                <div className="actionsMobile">
+                  <RunButton
+                    ruleId={r.id}
+                    disabled={status.status !== "ready"}
+                  />
+                  <CopyButton text={displayQuery} />
+                </div>
+              </div>
+            );
+          })}
+
+          {rules.length === 0 && (
+            <div className="card emptyCard">
+              <div className="emptyTitle">{LABEL.empty}</div>
+              <div className="emptySub">まずはルールを作成してください。</div>
+              <a className="btnPrimary" href="/rules/new">
+                {LABEL.newRule}
+              </a>
+            </div>
+          )}
         </div>
-
-        <p className="footnote">
-          ※ いまは service role で取得（ログイン導線は後で置き換え）
-        </p>
       </div>
-    </main>
+
+      <p className="footnote">
+        ※ いまは service role で取得（ログイン導線は後で置き換え）
+      </p>
+    </div>
   );
 }
 
 const styles = `
 :root{
-  --bg:#f7f8fb;
-  --surface:#ffffff;
-  --border:#e5e7eb;
-  --text:#111827;
-  --muted:#6b7280;
-  --primary:#2563eb;
+  --ok:#16a34a;
+  --err:#ef4444;
 }
 
-.page{
-  min-height:100vh;
-  background:var(--bg);
-  color:var(--text);
-}
+.rulesPage{}
 
-.container{
-  max-width:1100px;
-  margin:0 auto;
-  padding:24px 16px 40px;
-}
-
-.header{
+/* hero */
+.hero{
   display:flex;
-  align-items:center;
+  align-items:flex-end;
   justify-content:space-between;
   gap:12px;
+  margin-top:10px;
 }
 
 .h1{
   margin:0;
   font-size:22px;
   letter-spacing:-0.02em;
+}
+
+.sub{
+  margin:6px 0 0;
+  color:var(--muted);
+  font-size:13px;
+  line-height:1.6;
 }
 
 .btnPrimary{
@@ -498,46 +483,125 @@ const styles = `
   border-radius:12px;
   background:var(--primary);
   color:#fff;
-  font-weight:700;
+  font-weight:900;
   text-decoration:none;
   border:1px solid rgba(0,0,0,0.08);
 }
 
-.tableWrap{
-  margin-top:16px;
+.btnPrimary:hover{
+  transform:translateY(-1px);
+  box-shadow:0 8px 18px rgba(37,99,235,0.20);
+}
+
+.btnGhost{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding:10px 12px;
+  border-radius:12px;
+  border:1px solid var(--border);
+  background:var(--surface);
+  color:var(--primary);
+  font-weight:900;
+  text-decoration:none;
+}
+
+.btnGhost:hover{ background:#f3f4f6; }
+
+/* card/table */
+.card{
   background:var(--surface);
   border:1px solid var(--border);
   border-radius:14px;
-  overflow:auto;
+  padding:14px;
   box-shadow:0 1px 2px rgba(0,0,0,0.04);
 }
+
+.tableWrap{ overflow-x:auto; }
 
 .table{
   width:100%;
   border-collapse:separate;
   border-spacing:0;
-  min-width:980px;
+  min-width:920px;
 }
 
 .table thead th{
   text-align:left;
-  padding:12px 12px;
   font-size:12px;
   color:var(--muted);
-  font-weight:700;
+  font-weight:900;
+  padding:10px 10px;
   border-bottom:1px solid var(--border);
-  background:var(--surface);
-  position:sticky;
-  top:0;
+  white-space:nowrap;
 }
 
 .table tbody td{
-  padding:12px 12px;
+  padding:12px 10px;
   border-bottom:1px solid var(--border);
   vertical-align:top;
+  font-size:13px;
 }
 
-.rowDim{ opacity:0.65; }
+.table tbody tr:hover{
+  background:#fafafa;
+}
+
+.rowDim{ opacity:0.6; }
+
+.mono{
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size:12px;
+}
+
+.muted{ color:var(--muted); }
+
+.lastRun{
+  font-weight:900;
+}
+
+.cellActive{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+}
+
+.toggle{
+  display:inline-flex;
+  align-items:center;
+  padding:3px 10px;
+  border-radius:999px;
+  border:1px solid var(--border);
+  font-weight:900;
+  font-size:12px;
+  background:var(--surface);
+}
+
+.toggle.on{ color:var(--ok); }
+.toggle.off{ color:var(--muted); }
+
+.pill{
+  display:inline-flex;
+  align-items:center;
+  padding:3px 10px;
+  border-radius:999px;
+  font-weight:900;
+  font-size:12px;
+  border:1px solid var(--border);
+  background:var(--surface);
+}
+
+.pill.ok{ color:var(--ok); border-color:rgba(34,197,94,0.35); }
+.pill.warn{ color:#b45309; border-color:rgba(245,158,11,0.35); }
+.pill.muted{ color:var(--muted); }
+
+.warnText{
+  color:#b45309;
+  font-weight:900;
+}
+
+.help{ cursor:help; }
 
 .actions{
   display:flex;
@@ -548,133 +612,79 @@ const styles = `
 
 .link{
   color:var(--primary);
-  font-weight:700;
+  font-weight:900;
   text-decoration:none;
 }
 
 .link:hover{ text-decoration:underline; }
 
-.mono{
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size:12px;
-  white-space:nowrap;
+/* empty */
+.empty{
+  padding:26px 10px;
+  text-align:center;
 }
 
-.muted{ color:var(--muted); }
-
-.help{ cursor:help; }
-
-.warnText{
-  color:#b45309;
-  font-weight:700;
+.emptyTitle{
+  font-size:14px;
+  font-weight:900;
 }
 
-.emptyCell{
-  padding:16px 12px;
+.emptySub{
+  margin-top:6px;
   color:var(--muted);
+  font-size:12px;
 }
 
+/* mobile */
 .cards{
-  margin-top:16px;
   display:flex;
   flex-direction:column;
   gap:12px;
+  margin-top:14px;
 }
-
-.card{
-  background:var(--surface);
-  border:1px solid var(--border);
-  border-radius:14px;
-  padding:14px;
-  box-shadow:0 1px 2px rgba(0,0,0,0.04);
-}
-
-.cardDim{ opacity:0.7; }
 
 .cardTop{
-  display:flex;
-  flex-direction:column;
-  gap:10px;
-}
-
-.cardPills{
-  display:flex;
-  flex-wrap:wrap;
-  gap:8px;
-}
-
-.cardMeta{
-  display:flex;
-  flex-direction:column;
-  gap:6px;
-}
-
-.metaLine{
   display:flex;
   align-items:center;
   justify-content:space-between;
   gap:10px;
+  margin-bottom:10px;
 }
 
-.metaKey{
-  color:var(--muted);
-  font-size:12px;
-  font-weight:700;
-  white-space:nowrap;
-}
-
-.cardBody{
-  margin-top:12px;
+.kv{
   display:flex;
   flex-direction:column;
   gap:10px;
 }
 
-.field{
-  display:flex;
-  flex-direction:column;
-  gap:4px;
+.kvRow{
+  border:1px solid var(--border);
+  border-radius:12px;
+  padding:10px 12px;
+  background:var(--surface);
 }
 
-.fieldKey{
+.kvKey{
   color:var(--muted);
   font-size:12px;
-  font-weight:700;
+  font-weight:900;
+  margin-bottom:4px;
 }
 
-.fieldVal{
+.kvVal{
   font-size:13px;
-  line-height:1.5;
+  font-weight:900;
 }
 
-.cardActions{
-  margin-top:14px;
+.actionsMobile{
+  margin-top:12px;
   display:flex;
+  align-items:center;
   gap:10px;
   flex-wrap:wrap;
 }
 
-.btnGhost{
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  padding:10px 12px;
-  border-radius:12px;
-  background:var(--surface);
-  border:1px solid var(--border);
-  color:var(--primary);
-  font-weight:800;
-  text-decoration:none;
-}
-
-.btnGhost:hover{ background:#f3f4f6; }
-
 .emptyCard{
-  background:var(--surface);
-  border:1px dashed var(--border);
-  border-radius:14px;
-  padding:18px;
-  color:var(--muted);
   text-align:center;
 }
 
@@ -684,23 +694,14 @@ const styles = `
   font-size:12px;
 }
 
-.error{
-  background:var(--surface);
-  border:1px solid var(--border);
-  border-radius:12px;
-  padding:12px;
-  margin-top:12px;
-  overflow:auto;
-}
-
-/* --- responsive --- */
-.onlyDesktop{ display:block; }
+/* responsive switches */
+.onlyDesktop{ display:block; margin-top:14px; }
 .onlyMobile{ display:none; }
 
 @media (max-width: 768px){
+  .hero{ flex-direction:column; align-items:stretch; }
+  .btnPrimary{ width:100%; }
   .onlyDesktop{ display:none; }
   .onlyMobile{ display:block; }
-  .container{ padding:18px 12px 32px; }
-  .h1{ font-size:20px; }
 }
 `;
