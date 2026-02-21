@@ -1,8 +1,22 @@
 // app/(app)/layout.tsx
 import React from "react";
+import { redirect } from "next/navigation";
 import AppTopbar from "./AppTopbar";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-export default function AppLayout({ children }: { children: React.ReactNode }) {
+export default async function AppLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const supabase = await createSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  // ✅ 未ログインならログインへ
+  if (!user) redirect("/login");
+
   return (
     <div className="appPage">
       <style>{styles}</style>
