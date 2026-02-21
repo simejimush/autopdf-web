@@ -1,4 +1,4 @@
-// app/dashboard/page.tsx
+// app/(app)/dashboard/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -22,7 +22,6 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -68,345 +67,140 @@ export default function DashboardPage() {
   };
 
   const mockPdfs: PdfItem[] = [
-    { id: "pdf_001", title: "見積書_山田様", createdAt: "2026-01-30 18:10", status: "完了" },
-    { id: "pdf_002", title: "請求書_佐藤様", createdAt: "2026-01-30 17:42", status: "完了" },
-    { id: "pdf_003", title: "作業報告_現場A", createdAt: "2026-01-30 16:05", status: "処理中" },
+    {
+      id: "pdf_001",
+      title: "見積書_山田様",
+      createdAt: "2026-01-30 18:10",
+      status: "完了",
+    },
+    {
+      id: "pdf_002",
+      title: "請求書_佐藤様",
+      createdAt: "2026-01-30 17:42",
+      status: "完了",
+    },
+    {
+      id: "pdf_003",
+      title: "作業報告_現場A",
+      createdAt: "2026-01-30 16:05",
+      status: "処理中",
+    },
   ];
 
   return (
-    <div className="page">
+    <div className="dash">
       <style>{styles}</style>
 
-      {/* Topbar */}
-      <header className="topbar">
-        <div className="topbarInner">
-          <a className="brand" href="/dashboard">
-            <span className="brandMark" aria-hidden="true" />
-            <span className="brandName">AutoPDF</span>
-          </a>
+      <div className="hero">
+        <div>
+          <h1 className="h1">ダッシュボード</h1>
+          <p className="sub">
+            最近作成したPDFと、ルール設定の状況を確認できます。
+          </p>
+        </div>
 
-          <nav className="navDesktop" aria-label="primary">
-            <a className="navLink navActive" href="/dashboard">
-              ダッシュボード
-            </a>
-            <a className="navLink" href="/rules">
-              ルール
-            </a>
-          </nav>
+        <a className="btnPrimary" href="/rules">
+          ルールを開く
+        </a>
+      </div>
 
-          <div className="right">
-            <div className="userPill" title={user?.email ?? ""}>
-              <span className="dot" />
-              <span className="userEmail">
-                {user?.email ?? "ログイン中"}
-              </span>
+      {loading ? (
+        <div className="loading">
+          <span className="spinner" />
+          読み込み中…
+        </div>
+      ) : (
+        <>
+          {errorMsg && (
+            <div className="error" role="alert">
+              <div className="errorTitle">エラー</div>
+              <div className="errorMsg">{errorMsg}</div>
+            </div>
+          )}
+
+          <section className="grid">
+            {/* 最近作成したPDF */}
+            <div className="card">
+              <div className="cardHead">
+                <h2 className="h2">最近作成したPDF</h2>
+                <span className="muted">{mockPdfs.length} 件</span>
+              </div>
+
+              <div className="list">
+                {mockPdfs.map((pdf) => (
+                  <div key={pdf.id} className="row">
+                    <div className="rowMain">
+                      <div className="rowTitle">{pdf.title}</div>
+                      <div className="rowMeta">
+                        <span>{pdf.createdAt}</span>
+                        <span className="sep">•</span>
+                        <span
+                          className={
+                            pdf.status === "完了" ? "badgeOk" : "badgeWarn"
+                          }
+                        >
+                          {pdf.status}
+                        </span>
+                      </div>
+                    </div>
+
+                    <button
+                      className="btnMini"
+                      onClick={() =>
+                        alert("ここは後で「Driveを開く」などにする")
+                      }
+                    >
+                      詳細
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              <div className="cardFoot">
+                <span className="muted">
+                  ※ いまは仮データ。Drive連携後に実データへ差し替え。
+                </span>
+              </div>
             </div>
 
-            <button className="btnGhost" onClick={signOut}>
-              ログアウト
-            </button>
-
-            {/* mobile menu button */}
-            <button
-              className="menuBtn"
-              onClick={() => setMenuOpen((v) => !v)}
-              aria-expanded={menuOpen}
-              aria-label="メニュー"
-            >
-              ☰
-            </button>
-          </div>
-        </div>
-
-        {/* Mobile nav */}
-        {menuOpen && (
-          <div className="navMobile">
-            <a className="navMobileLink" href="/dashboard">
-              ダッシュボード
-            </a>
-            <a className="navMobileLink" href="/rules">
-              ルール
-            </a>
-            <button className="navMobileBtn" onClick={signOut}>
-              ログアウト
-            </button>
-          </div>
-        )}
-      </header>
-
-      {/* Content */}
-      <main className="container">
-        <div className="hero">
-          <div>
-            <h1 className="h1">ダッシュボード</h1>
-            <p className="sub">
-              最近作成したPDFと、ルール設定の状況を確認できます。
-            </p>
-          </div>
-
-          <a className="btnPrimary" href="/rules">
-            ルールを開く
-          </a>
-        </div>
-
-        {loading ? (
-          <div className="loading">
-            <span className="spinner" />
-            読み込み中…
-          </div>
-        ) : (
-          <>
-            {errorMsg && (
-              <div className="error" role="alert">
-                <div className="errorTitle">エラー</div>
-                <div className="errorMsg">{errorMsg}</div>
+            {/* アカウント */}
+            <div className="card">
+              <div className="cardHead">
+                <h2 className="h2">アカウント</h2>
               </div>
-            )}
 
-            <section className="grid">
-              <div className="card">
-                <div className="cardHead">
-                  <h2 className="h2">最近作成したPDF</h2>
-                  <span className="muted">{mockPdfs.length} 件</span>
+              <div className="kv">
+                <div className="kvRow">
+                  <div className="kvKey">メール</div>
+                  <div className="kvVal">{user?.email ?? "(emailなし)"}</div>
                 </div>
 
-                <div className="list">
-                  {mockPdfs.map((pdf) => (
-                    <div key={pdf.id} className="row">
-                      <div className="rowMain">
-                        <div className="rowTitle">{pdf.title}</div>
-                        <div className="rowMeta">
-                          <span>{pdf.createdAt}</span>
-                          <span className="sep">•</span>
-                          <span className={pdf.status === "完了" ? "badgeOk" : "badgeWarn"}>
-                            {pdf.status}
-                          </span>
-                        </div>
-                      </div>
-
-                      <button
-                        className="btnMini"
-                        onClick={() => alert("ここは後で「Driveを開く」などにする")}
-                      >
-                        詳細
-                      </button>
-                    </div>
-                  ))}
+                <div className="kvRow">
+                  <div className="kvKey">UID</div>
+                  <div className="kvVal mono">{user?.id}</div>
                 </div>
               </div>
 
-              <div className="card">
-                <div className="cardHead">
-                  <h2 className="h2">アカウント</h2>
-                </div>
-
-                <div className="kv">
-                  <div className="kvRow">
-                    <div className="kvKey">メール</div>
-                    <div className="kvVal">{user?.email ?? "(emailなし)"}</div>
-                  </div>
-                  <div className="kvRow">
-                    <div className="kvKey">UID</div>
-                    <div className="kvVal mono">{user?.id}</div>
-                  </div>
-                </div>
-
-                <div className="actions">
-                  <a className="btnGhostFull" href="/rules">
-                    ルール設定へ
-                  </a>
-                  <button className="btnDangerFull" onClick={signOut}>
-                    ログアウト
-                  </button>
-                </div>
+              <div className="actions">
+                <a className="btnGhostFull" href="/rules">
+                  ルール設定へ
+                </a>
+                <button className="btnDangerFull" onClick={signOut}>
+                  ログアウト
+                </button>
               </div>
-            </section>
-
-            <p className="footnote">
-              ※ ダッシュボードは今は仮データ（PDF一覧）です。Drive連携ができたら実データに差し替えます。
-            </p>
-          </>
-        )}
-      </main>
+            </div>
+          </section>
+        </>
+      )}
     </div>
   );
 }
 
 const styles = `
-:root{
-  --bg:#f7f8fb;
-  --surface:#ffffff;
-  --border:#e5e7eb;
-  --text:#111827;
-  --muted:#6b7280;
-  --primary:#2563eb;
-}
+.dash{}
 
-.page{
-  min-height:100vh;
-  background:var(--bg);
-  color:var(--text);
-}
-
-.container{
-  max-width:1100px;
-  margin:0 auto;
-  padding:20px 16px 40px;
-}
-
-/* ---- topbar ---- */
-.topbar{
-  position:sticky;
-  top:0;
-  z-index:20;
-  background:rgba(247,248,251,0.85);
-  backdrop-filter:saturate(1.2) blur(10px);
-  border-bottom:1px solid var(--border);
-}
-
-.topbarInner{
-  max-width:1100px;
-  margin:0 auto;
-  padding:12px 16px;
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:12px;
-}
-
-.brand{
-  display:flex;
-  align-items:center;
-  gap:10px;
-  text-decoration:none;
-  color:var(--text);
-  font-weight:900;
-}
-
-.brandMark{
-  width:12px;
-  height:12px;
-  border-radius:4px;
-  background:var(--primary);
-  display:inline-block;
-}
-
-.brandName{
-  letter-spacing:-0.02em;
-}
-
-.navDesktop{
-  display:flex;
-  gap:8px;
-  align-items:center;
-}
-
-.navLink{
-  padding:8px 10px;
-  border-radius:10px;
-  text-decoration:none;
-  color:var(--muted);
-  font-weight:800;
-  font-size:13px;
-}
-
-.navLink:hover{
-  background:#eef2ff;
-  color:var(--text);
-}
-
-.navActive{
-  background:#eef2ff;
-  color:var(--text);
-}
-
-.right{
-  display:flex;
-  align-items:center;
-  gap:10px;
-}
-
-.userPill{
-  display:flex;
-  align-items:center;
-  gap:8px;
-  padding:8px 10px;
-  border:1px solid var(--border);
-  background:var(--surface);
-  border-radius:999px;
-  max-width:280px;
-}
-
-.dot{
-  width:8px;
-  height:8px;
-  border-radius:999px;
-  background:#22c55e;
-}
-
-.userEmail{
-  font-size:12px;
-  font-weight:800;
-  color:var(--text);
-  overflow:hidden;
-  text-overflow:ellipsis;
-  white-space:nowrap;
-}
-
-.btnGhost{
-  padding:8px 10px;
-  border-radius:12px;
-  border:1px solid var(--border);
-  background:var(--surface);
-  color:var(--primary);
-  font-weight:900;
-  cursor:pointer;
-}
-
-.btnGhost:hover{ background:#f3f4f6; }
-
-.menuBtn{
-  display:none;
-  padding:8px 10px;
-  border-radius:12px;
-  border:1px solid var(--border);
-  background:var(--surface);
-  cursor:pointer;
-  font-weight:900;
-}
-
-.navMobile{
-  display:none;
-  border-top:1px solid var(--border);
-  padding:10px 16px 12px;
-  max-width:1100px;
-  margin:0 auto;
-}
-
-.navMobileLink{
-  display:block;
-  padding:10px 12px;
-  border-radius:12px;
-  text-decoration:none;
-  color:var(--text);
-  font-weight:900;
-}
-
-.navMobileLink:hover{ background:#f3f4f6; }
-
-.navMobileBtn{
-  width:100%;
-  margin-top:8px;
-  padding:10px 12px;
-  border-radius:12px;
-  border:1px solid #fecaca;
-  background:#fff1f2;
-  color:#b91c1c;
-  font-weight:900;
-  cursor:pointer;
-}
-
-/* ---- content ---- */
+/* --- hero --- */
 .hero{
   display:flex;
   align-items:flex-end;
@@ -446,6 +240,7 @@ const styles = `
   box-shadow:0 8px 18px rgba(37,99,235,0.20);
 }
 
+/* --- loading --- */
 .loading{
   display:flex;
   align-items:center;
@@ -467,6 +262,7 @@ const styles = `
 
 @keyframes spin{ to{ transform:rotate(360deg); } }
 
+/* --- error --- */
 .error{
   border:1px solid #fecaca;
   background:#fff1f2;
@@ -478,6 +274,7 @@ const styles = `
 .errorTitle{ font-weight:900; color:#9f1239; font-size:13px; margin-bottom:4px; }
 .errorMsg{ color:#9f1239; font-size:12px; line-height:1.6; word-break:break-word; }
 
+/* --- grid/cards --- */
 .grid{
   margin-top:16px;
   display:grid;
@@ -501,14 +298,23 @@ const styles = `
   margin-bottom:10px;
 }
 
+.cardFoot{
+  margin-top:12px;
+}
+
 .h2{
   margin:0;
   font-size:14px;
   letter-spacing:-0.01em;
 }
 
-.muted{ color:var(--muted); font-size:12px; font-weight:800; }
+.muted{
+  color:var(--muted);
+  font-size:12px;
+  font-weight:800;
+}
 
+/* --- list rows --- */
 .list{
   display:flex;
   flex-direction:column;
@@ -577,6 +383,7 @@ const styles = `
 
 .btnMini:hover{ background:#f3f4f6; }
 
+/* --- account --- */
 .kv{
   display:flex;
   flex-direction:column;
@@ -648,29 +455,13 @@ const styles = `
 
 .btnDangerFull:hover{ background:#ffe4e6; }
 
-.footnote{
-  margin-top:12px;
-  opacity:0.7;
-  font-size:12px;
-}
-
-/* ---- responsive ---- */
+/* --- responsive --- */
 @media (max-width: 900px){
   .grid{ grid-template-columns: 1fr; }
-  .userPill{ max-width: 180px; }
 }
 
 @media (max-width: 768px){
-  .container{ padding:16px 12px 32px; }
-  .navDesktop{ display:none; }
-  .menuBtn{ display:inline-flex; }
-  .navMobile{ display:block; }
   .hero{ flex-direction:column; align-items:stretch; }
   .btnPrimary{ width:100%; }
-  .right .btnGhost{ display:none; }
-}
-
-@media (max-width: 420px){
-  .userPill{ max-width: 140px; }
 }
 `;
