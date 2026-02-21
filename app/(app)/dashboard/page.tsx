@@ -278,7 +278,7 @@ const styles = `
 .grid{
   margin-top:16px;
   display:grid;
-  grid-template-columns: 1.6fr 1fr;
+  grid-template-columns: 2.6fr 1fr; /* ここだけ変更 */
   gap:14px;
 }
 
