@@ -42,6 +42,34 @@ export default async function RootLayout({
 
     isGoogleConnected = !!gc;
 
+    // 🔴 ここから追加
+    // 直近エラー取得
+    let lastErrorRun: {
+      rule_id: string | null;
+      finished_at: string | null;
+      message: string | null;
+    } | null = null;
+
+    const { data: myRules } = await supabase
+      .from("rules")
+      .select("id")
+      .eq("user_id", user.id);
+
+    const ruleIds = (myRules ?? []).map((x) => x.id);
+
+    if (ruleIds.length > 0) {
+      const { data: errRun } = await supabase
+        .from("runs")
+        .select("rule_id, finished_at, message")
+        .in("rule_id", ruleIds)
+        .eq("status", "error")
+        .order("finished_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      lastErrorRun = errRun ?? null;
+    }
+
     // 有効ルール判定（まず is_active を採用）
     const { data: rules } = await supabase
       .from("rules")
@@ -78,6 +106,26 @@ export default async function RootLayout({
             <a href="/rules/new" className="ap-banner__action">
               <button className="ap-banner__btn ap-banner__btn--info">
                 ルールを作成
+              </button>
+            </a>
+          </div>
+        )}
+        {user && isGoogleConnected && lastErrorRun && (
+          <div className="ap-banner ap-banner--danger">
+            <span className="ap-banner__text">
+              直近の実行でエラーが発生しています。設定を確認してください。
+            </span>
+
+            <a
+              href={
+                lastErrorRun.rule_id
+                  ? `/rules/${lastErrorRun.rule_id}`
+                  : "/rules"
+              }
+              className="ap-banner__action"
+            >
+              <button className="ap-banner__btn ap-banner__btn--danger">
+                確認する
               </button>
             </a>
           </div>
@@ -120,6 +168,13 @@ export default async function RootLayout({
 }
 .ap-banner__btn--info{
   background:#2563EB;
+}
+  .ap-banner--danger{
+  background:#FEE2E2;
+  border-bottom:1px solid #FCA5A5;
+}
+.ap-banner__btn--danger{
+  background:#DC2626;
 }
 
   /* ✅ スマホだけ：テキストの下にボタン、ボタンは右寄せ（3枚目の配置） */
