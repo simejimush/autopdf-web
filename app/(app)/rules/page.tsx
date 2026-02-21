@@ -4,6 +4,7 @@ import RunButton from "./RunButton";
 import CopyButton from "./CopyButton";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import RuleToggle from "./RuleToggle";
 
 type RunLite = {
   id: string;
@@ -244,11 +245,7 @@ export default async function RulesPage() {
                     <tr key={r.id} className={isMissing ? "rowDim" : ""}>
                       <td>
                         <div className="cellActive">
-                          <span
-                            className={`toggle ${r.is_active ? "on" : "off"}`}
-                          >
-                            {r.is_active ? "ON" : "OFF"}
-                          </span>
+                          <RuleToggle id={r.id} isActive={r.is_active} />
 
                           <span
                             className={`pill ${badgeKind(status)}`}
@@ -357,9 +354,7 @@ export default async function RulesPage() {
               <div key={r.id} className={`card ${isMissing ? "rowDim" : ""}`}>
                 <div className="cardTop">
                   <div className="cellActive">
-                    <span className={`toggle ${r.is_active ? "on" : "off"}`}>
-                      {r.is_active ? "ON" : "OFF"}
-                    </span>
+                    <RuleToggle id={r.id} isActive={r.is_active} />
                     <span
                       className={`pill ${badgeKind(status)}`}
                       title={reasonsText}
@@ -479,11 +474,12 @@ const styles = `
   display:inline-flex;
   align-items:center;
   justify-content:center;
-  padding:10px 12px;
-  border-radius:12px;
+  padding:8px 14px;          /* 少し小さく */
+  border-radius:999px;       /* 半円 */
   background:var(--primary);
   color:#fff;
   font-weight:900;
+  font-size:13px;
   text-decoration:none;
   border:1px solid rgba(0,0,0,0.08);
 }
