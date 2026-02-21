@@ -32,6 +32,13 @@ export default async function RootLayout({
   let isGoogleConnected = false;
   let hasActiveRule = false;
 
+  // ✅ これを追加（returnの前に必ず存在させる）
+  let lastErrorRun: {
+    rule_id: string | null;
+    finished_at: string | null;
+    message: string | null;
+  } | null = null;
+
   if (user) {
     // Google接続判定
     const { data: gc } = await supabase
@@ -42,20 +49,19 @@ export default async function RootLayout({
 
     isGoogleConnected = !!gc;
 
-    // 🔴 ここから追加
-    // 直近エラー取得
-    let lastErrorRun: {
-      rule_id: string | null;
-      finished_at: string | null;
-      message: string | null;
-    } | null = null;
-
+    // ルール一覧（1回だけ取得）
     const { data: myRules } = await supabase
       .from("rules")
-      .select("id")
+      .select("id, is_active")
       .eq("user_id", user.id);
 
-    const ruleIds = (myRules ?? []).map((x) => x.id);
+    const rulesArr = myRules ?? [];
+
+    // 有効ルール判定（ここで確定）
+    hasActiveRule = rulesArr.some((r) => r.is_active === true);
+
+    // 直近エラー（rule_idベース）
+    const ruleIds = rulesArr.map((x) => x.id);
 
     if (ruleIds.length > 0) {
       const { data: errRun } = await supabase
@@ -69,18 +75,7 @@ export default async function RootLayout({
 
       lastErrorRun = errRun ?? null;
     }
-
-    // 有効ルール判定（まず is_active を採用）
-    const { data: rules } = await supabase
-      .from("rules")
-      .select("id")
-      .eq("user_id", user.id)
-      .eq("is_active", true)
-      .limit(1);
-
-    hasActiveRule = !!rules && rules.length > 0;
   }
-
   return (
     <html lang="en">
       <body
