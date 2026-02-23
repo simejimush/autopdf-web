@@ -106,10 +106,20 @@ export function buildGlobalBanner(input: Input): GlobalBanner | null {
   }
 
   // 5) 基本は緑
+  // 5) success（ページ別に分岐）
+  const isRulesPage = input.pathname?.startsWith("/rules");
+
+  if (isRulesPage) {
+    return {
+      variant: "success",
+      title: "自動保存は正常です",
+    };
+  }
+
   return {
     variant: "success",
     title: "自動保存は正常です",
-    body: "最新の処理状態は /rules で確認できます。",
+    body: "最新の処理状態はルール画面で確認できます。",
     ctaLabel: "ルールへ",
     ctaHref: "/rules",
   };
