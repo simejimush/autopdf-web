@@ -105,26 +105,6 @@ export default async function RootLayout({
             </a>
           </div>
         )}
-        {user && isGoogleConnected && lastErrorRun && (
-          <div className="ap-banner ap-banner--danger">
-            <span className="ap-banner__text">
-              直近の実行でエラーが発生しています。設定を確認してください。
-            </span>
-
-            <a
-              href={
-                lastErrorRun.rule_id
-                  ? `/rules/${lastErrorRun.rule_id}`
-                  : "/rules"
-              }
-              className="ap-banner__action"
-            >
-              <button className="ap-banner__btn ap-banner__btn--danger">
-                確認する
-              </button>
-            </a>
-          </div>
-        )}
 
         {children}
         <style>{`
