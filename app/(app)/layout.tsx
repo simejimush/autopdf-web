@@ -5,6 +5,7 @@ import AppTopbar from "./AppTopbar";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { GlobalBanner } from "@/src/components/GlobalBanner";
 import { buildGlobalBanner } from "@/src/lib/ui/globalBanner";
+import { headers } from "next/headers";
 
 export default async function AppLayout({
   children,
@@ -24,6 +25,10 @@ export default async function AppLayout({
     .select("id")
     .eq("user_id", user.id)
     .maybeSingle();
+
+  const h = await headers();
+  const nextUrl = h.get("next-url") ?? "";
+  const pathname = nextUrl ? new URL(nextUrl, "http://localhost").pathname : "";
 
   const isGoogleConnected = !!gc;
 
@@ -62,6 +67,7 @@ export default async function AppLayout({
     lastRunStatus,
     lastRunErrorCode,
     lastRunMessage,
+    pathname,
   });
 
   return (

@@ -15,6 +15,7 @@ type Input = {
   lastRunStatus?: "success" | "error" | "running" | "skipped" | null;
   lastRunErrorCode?: string | null;
   lastRunMessage?: string | null;
+  pathname?: string;
 };
 
 function errorCopy(errorCode?: string | null, message?: string | null) {
