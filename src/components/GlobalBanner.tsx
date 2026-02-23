@@ -1,36 +1,45 @@
 // src/components/GlobalBanner.tsx
+"use client";
+
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import type { GlobalBanner as Banner } from "@/src/lib/ui/globalBanner";
 
 export function GlobalBanner({ banner }: { banner: Banner | null }) {
+  const pathname = usePathname();
   if (!banner) return null;
+
+  // ✅ A+B: /rules にいるときは success をミニマル化（本文・ボタン無し）
+  const isRulesPage = pathname.startsWith("/rules");
+  const b =
+    banner.variant === "success" && isRulesPage
+      ? { ...banner, body: undefined, ctaHref: undefined, ctaLabel: undefined }
+      : banner;
 
   const base =
     "w-full rounded-xl px-4 py-3 flex items-start justify-between gap-3 border";
   const tone =
-    banner.variant === "error"
+    b.variant === "error"
       ? "bg-red-50 border-red-200 text-red-900"
-      : banner.variant === "warning"
+      : b.variant === "warning"
         ? "bg-amber-50 border-amber-200 text-amber-900"
-        : banner.variant === "success"
+        : b.variant === "success"
           ? "bg-emerald-50 border-emerald-200 text-emerald-900"
           : "bg-slate-50 border-slate-200 text-slate-900";
 
   return (
     <div className={`${base} ${tone}`}>
       <div className="min-w-0">
-        <div className="font-semibold leading-snug">{banner.title}</div>
-        {banner.body ? (
-          <div className="text-sm opacity-90 mt-0.5">{banner.body}</div>
-        ) : null}
+        <div className="font-semibold leading-snug">{b.title}</div>
+        {b.body ? <div className="text-sm opacity-90 mt-0.5">{b.body}</div> : null}
       </div>
 
-      {banner.ctaHref && banner.ctaLabel ? (
+      {b.ctaHref && b.ctaLabel ? (
         <Link
-          href={banner.ctaHref}
+          href={b.ctaHref}
           className="shrink-0 rounded-lg px-3 py-2 text-sm font-medium bg-white/70 border border-black/10 hover:bg-white"
         >
-          {banner.ctaLabel}
+          {b.ctaLabel}
         </Link>
       ) : null}
     </div>
