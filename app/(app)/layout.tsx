@@ -3,8 +3,8 @@ import React from "react";
 import { redirect } from "next/navigation";
 import AppTopbar from "./AppTopbar";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { GlobalBanner } from "@/src/components/GlobalBanner";
-import { buildGlobalBanner } from "@/src/lib/ui/globalBanner";
+import { GlobalBanner } from "@/components/GlobalBanner";
+import { buildGlobalBanner } from "@/lib/ui/globalBanner";
 import { headers } from "next/headers";
 
 export default async function AppLayout({
