@@ -4,6 +4,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { StatusSummaryCard } from "@/components/dashboard/StatusSummaryCard";
 
 type User = {
   id: string;
@@ -22,6 +23,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [summary, setSummary] = useState<any>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -34,6 +36,7 @@ export default function DashboardPage() {
     (async () => {
       setErrorMsg(null);
       try {
+        // 1) ユーザー取得
         const { data, error } = await supabase.auth.getUser();
         if (error) throw error;
 
@@ -43,6 +46,16 @@ export default function DashboardPage() {
               ? { id: data.user.id, email: data.user.email ?? undefined }
               : null,
           );
+        }
+
+        // 2) ステータスサマリー取得（追加）
+        const res = await fetch("/api/dashboard/summary");
+        if (!res.ok) {
+          // 401 等は summary 非表示にしてOK（エラー表示は増やさない）
+          if (!cancelled) setSummary(null);
+        } else {
+          const s = await res.json();
+          if (!cancelled) setSummary(s);
         }
       } catch (e: any) {
         if (!cancelled) setErrorMsg(e?.message ?? "failed to get user");
@@ -103,6 +116,12 @@ export default function DashboardPage() {
           ルールを開く
         </a>
       </div>
+
+      {summary && (
+        <div style={{ marginTop: 14 }}>
+          <StatusSummaryCard summary={summary} />
+        </div>
+      )}
 
       {loading ? (
         <div className="loading">

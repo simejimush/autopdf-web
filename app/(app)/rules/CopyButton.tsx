@@ -2,67 +2,51 @@
 
 import * as React from "react";
 
-export default function CopyButton({ text }: { text: string }) {
+export default function CopyButton(props: { text: string }) {
   const [ok, setOk] = React.useState(false);
 
   async function onCopy() {
     try {
-      await navigator.clipboard.writeText(text);
+      await navigator.clipboard.writeText(props.text);
       setOk(true);
-      setTimeout(() => setOk(false), 1200);
+      setTimeout(() => setOk(false), 900);
     } catch {
-      alert("コピーに失敗しました");
+      // 失敗時は何もしない
     }
   }
 
   return (
-    <>
+    <button
+      type="button"
+      onClick={onCopy}
+      className={`pillBtn ${ok ? "isOk" : ""}`}
+      title="検索条件をコピー"
+    >
+      {ok ? "コピー済み" : "コピー"}
       <style>{styles}</style>
-
-      <button
-        type="button"
-        onClick={onCopy}
-        className={`copyBtn ${ok ? "copySuccess" : ""}`}
-        title="検索条件をコピー"
-      >
-        {ok ? "コピー完了" : "コピー"}
-      </button>
-    </>
+    </button>
   );
 }
 
 const styles = `
-.copyBtn{
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  padding:8px 14px;
-  font-size:13px;
-  font-weight:700;
-  border-radius:12px;
+.pillBtn{
+  padding:6px 12px;
+  border-radius:999px;
   border:1px solid var(--border);
   background:var(--surface);
   color:var(--primary);
+  font-weight:900;
+  font-size:12px;
   cursor:pointer;
-  transition:all .15s ease;
   white-space:nowrap;
 }
 
-.copyBtn:hover{
+.pillBtn:hover{
   background:#f3f4f6;
-  transform:translateY(-1px);
 }
 
-.copySuccess{
-  background:#22c55e;
-  border-color:#22c55e;
-  color:#fff;
-}
-
-@media (max-width:768px){
-  .copyBtn{
-    padding:10px 14px;
-    font-size:14px;
-  }
+.pillBtn.isOk{
+  border-color:rgba(34,197,94,0.35);
+  color:var(--ok);
 }
 `;
