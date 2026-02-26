@@ -4,6 +4,7 @@
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import ProfileMenu from "@/components/profile/ProfileMenu";
 
 type UserLite = { email?: string | null } | null;
 
@@ -58,10 +59,7 @@ export default function AppTopbar() {
         </nav>
 
         <div className="right">
-          <div className="userPill" title={user?.email ?? ""}>
-            <span className="dot" />
-            <span className="userEmail">{user?.email ?? "ログイン中"}</span>
-          </div>
+          <ProfileMenu />
 
           <button className="btnGhost" onClick={signOut}>
             ログアウト
@@ -94,6 +92,8 @@ export default function AppTopbar() {
           >
             ルール
           </a>
+          <ProfileMenu />
+
           <button className="navMobileBtn" onClick={signOut}>
             ログアウト
           </button>

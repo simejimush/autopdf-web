@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 // 既存の「手動Run」処理を使い回す（重複実装しない）
-import { POST as runRulePOST } from "@/app/api/rules/[id]/run/route";
+import { POST as runRulePOST } from "../rules/[id]/run/route";
+
 
 type RuleRow = {
   id: string;

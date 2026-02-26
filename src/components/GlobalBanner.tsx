@@ -3,7 +3,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { GlobalBanner as Banner } from "@/src/lib/ui/globalBanner";
+import type { GlobalBanner as Banner } from "@/lib/ui/globalBanner";
+
 
 export function GlobalBanner({ banner }: { banner: Banner | null }) {
   const pathname = usePathname();

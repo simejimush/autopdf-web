@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { getRuleStatus } from "@/src/lib/rules/status";
+import { getRuleStatus } from "@/lib/rules/status";
+
 
 type Rule = {
   id: string;

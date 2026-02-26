@@ -1,5 +1,5 @@
 // app/(app)/rules/page.tsx
-import { getRuleStatus } from "@/src/lib/rules/status";
+import { getRuleStatus } from "@/lib/rules/status";
 import RunButton from "./RunButton";
 import CopyButton from "./CopyButton";
 import { headers } from "next/headers";
