@@ -1,3 +1,4 @@
+// autopdf-web/src/lib/google/auth.ts
 import { google } from "googleapis";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
@@ -15,8 +16,8 @@ export async function getOAuthClientForUser(userId: string) {
   const conn = data?.[0];
   if (!conn) throw new Error("Google connection not found");
 
-  const refreshToken = (conn.refresh_token_enc ?? "").trim();
-  const accessToken = (conn.access_token_enc ?? "").trim();
+  const refreshToken = String(conn.refresh_token_enc ?? "").trim();
+  const accessToken = String(conn.access_token_enc ?? "").trim();
 
   if (!refreshToken) {
     throw new Error("Google refresh token missing. Please reconnect Google.");
@@ -30,13 +31,13 @@ export async function getOAuthClientForUser(userId: string) {
 
   const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
 
-  // まず refresh_token を必ずセット（これが生命線）
+  // refresh_token は必須。access_token はあればセット。
   oauth2Client.setCredentials({
     refresh_token: refreshToken,
     ...(accessToken ? { access_token: accessToken } : {}),
   });
 
-  // ★ここが重要：refresh を強制し、返ってきた token を credentials に確実に反映
+  // refresh を実行し、返ってきた access token を credentials に確実に反映
   try {
     const at = await oauth2Client.getAccessToken();
     const newAccessToken = at?.token?.trim() ?? "";
@@ -45,13 +46,12 @@ export async function getOAuthClientForUser(userId: string) {
       throw new Error("Failed to refresh access token (no token returned)");
     }
 
-    // credentials に明示的に入れる（これをやると確実に Authorization が付く）
     oauth2Client.setCredentials({
       refresh_token: refreshToken,
       access_token: newAccessToken,
     });
 
-    // DBにも保存（推奨）
+    // DBにも保存（差分がある場合のみ）
     if (newAccessToken !== accessToken) {
       await supabaseAdmin
         .from("google_connections")
@@ -62,10 +62,8 @@ export async function getOAuthClientForUser(userId: string) {
         .eq("user_id", userId);
     }
 
-    // デバッグ（Vercelログで確認できる）
     console.log("[google] refreshed access token len=", newAccessToken.length);
   } catch (e: any) {
-    // refresh が失敗したら理由を見える化（invalid_grant 等）
     console.error("[google] refresh failed:", e?.message ?? e);
     throw new Error(`Google token refresh failed: ${e?.message ?? "unknown"}`);
   }

@@ -1,4 +1,4 @@
-// src/lib/rules/status.ts
+// autopdf-web/src/lib/rules/status.ts
 
 export type RuleStatus =
   | { status: "ready" }
@@ -28,13 +28,12 @@ export function getRuleStatus(rule: any): RuleStatus {
   const hasDriveFolder = nonEmptyString(rule?.drive_folder_id);
 
   if (!hasQuery || !hasDriveFolder) {
-    return {
-      status: "needs_setup",
-      reasons: [
-        !hasQuery && "検索条件が未設定",
-        !hasDriveFolder && "保存先フォルダが未設定",
-      ].filter(Boolean) as string[],
-    };
+    const reasons = [
+      !hasQuery ? "検索条件が未設定です" : null,
+      !hasDriveFolder ? "保存先フォルダが未設定です" : null,
+    ].filter(Boolean) as string[];
+
+    return { status: "needs_setup", reasons };
   }
 
   if (rule?.is_active === false) return { status: "disabled" };

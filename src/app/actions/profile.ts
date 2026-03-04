@@ -1,7 +1,11 @@
+// autopdf-web/src/app/actions/profile.ts
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { getOrCreateMyProfile, updateMyProfile } from "@/lib/profile/profile.server";
+import {
+  getOrCreateMyProfile,
+  updateMyProfile,
+} from "@/lib/profile/profile.server";
 
 export async function getMyProfileAction() {
   return await getOrCreateMyProfile();
@@ -22,6 +26,6 @@ export async function updateMyProfileAction(formData: FormData): Promise<void> {
     company_name: normalize(company_name),
   });
 
-  // 右上の表示を更新したいので広めに revalidate
+  // 右上の表示を更新したいので layout をrevalidate
   revalidatePath("/", "layout");
 }

@@ -1,3 +1,4 @@
+// autopdf-web/src/lib/google/gmail.ts
 import { google } from "googleapis";
 import { getOAuthClientForUser } from "./auth";
 
@@ -11,12 +12,11 @@ export async function searchGmail({
   maxResults?: number;
 }) {
   const oauth2Client = await getOAuthClientForUser(userId);
-
   const gmail = google.gmail({ version: "v1", auth: oauth2Client });
 
-  // どのGmailで動いてるか確認（デバッグ）
+  // どのGmailで動いてるか確認（デバッグ用）
   const profile = await gmail.users.getProfile({ userId: "me" });
-  console.log("🔥 gmail account:", profile.data.emailAddress);
+  console.log("[gmail] account:", profile.data.emailAddress);
 
   const res = await gmail.users.messages.list({
     userId: "me",

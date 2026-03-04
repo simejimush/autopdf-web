@@ -1,15 +1,13 @@
+// autopdf-web/app/api/cron/route.ts
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-
-// 既存の「手動Run」処理を使い回す（重複実装しない）
-import { POST as runRulePOST } from "../rules/[id]/run/route";
-
 
 type RuleRow = {
   id: string;
   // 有効フラグはプロジェクトにより名前が違う可能性があるので両対応
   is_enabled?: boolean | null;
   enabled?: boolean | null;
+  is_active?: boolean | null;
 };
 
 export async function GET(req: Request) {
@@ -24,7 +22,7 @@ export async function GET(req: Request) {
     console.error("[cron] CRON_SECRET is missing in env");
     return NextResponse.json(
       { error: "CRON_SECRET is missing in env" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 
@@ -34,7 +32,7 @@ export async function GET(req: Request) {
   }
 
   console.log("[cron] Cron triggered");
-  console.log("### NEW VERSION ###");
+  console.log("### NEW VERSION (fetch /api/rules/:id/run) ###");
 
   // --- 1) rules を取得 ---
   // カラム名差異で詰まらないように、まずは * で取ってJS側でフィルタする
@@ -44,16 +42,20 @@ export async function GET(req: Request) {
     console.error("[cron] Failed to fetch rules:", error);
     return NextResponse.json(
       { error: "Failed to fetch rules", detail: error.message },
-      { status: 500 }
+      { status: 500 },
     );
   }
 
   const rules = (data ?? []) as RuleRow[];
 
   // --- 2) 有効ルールだけ抽出 ---
-  // is_enabled があればそれ優先、なければ enabled、両方なければ「全部有効」として扱う
+  // 優先順: is_active -> is_enabled -> enabled -> (未定義なら有効扱い)
   const enabledRules = rules.filter((r) => {
-    const v = (r as any).is_enabled ?? (r as any).enabled;
+    const v =
+      (r as any).is_active ??
+      (r as any).is_enabled ??
+      (r as any).enabled;
+
     return v === undefined ? true : Boolean(v);
   });
 
@@ -65,21 +67,32 @@ export async function GET(req: Request) {
 
   const results: Array<{ id: string; status: number; body?: any }> = [];
 
+  // デプロイ先の origin を使って内部APIを叩く
+  const origin = url.origin;
+
   for (const r of enabledRules) {
     const id = r.id;
 
     try {
-      const res = await runRulePOST(
-        new Request("http://internal", { method: "POST" }),
-        { params: Promise.resolve({ id }) } as any
-      );
+      const runRes = await fetch(`${origin}/api/rules/${id}/run`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          // run側が cron secret を受け付ける実装なら、ここで渡す
+          "x-cron-secret": expected,
+        },
+        body: JSON.stringify({ trigger: "cron" }),
+        cache: "no-store",
+      });
 
-      const status = (res as any).status ?? 200;
+      const status = runRes.status;
 
       let body: any = null;
       try {
-        body = await (res as any).json?.();
-      } catch {}
+        body = await runRes.json();
+      } catch {
+        body = null;
+      }
 
       if (status >= 200 && status < 300) ok++;
       else ng++;

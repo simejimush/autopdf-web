@@ -1,10 +1,16 @@
-// app/(app)/rules/page.tsx
+// autopdf-web/app/(app)/rules/page.tsx
 import { getRuleStatus } from "@/lib/rules/status";
 import RunButton from "./RunButton";
 import CopyButton from "./CopyButton";
+import RuleToggle from "./RuleToggle";
+
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import RuleToggle from "./RuleToggle";
+
+import styles from "./RulesPage.module.css";
+import { Badge, CardPad, CardHeader } from "@/lib/ui";
+import { Button } from "@/lib/ui/Button";
+import Link from "next/link";
 
 type RunLite = {
   id: string;
@@ -29,16 +35,13 @@ type Rule = {
 
 const LABEL = {
   rules: "ルール",
-  active: "有効",
   runTiming: "実行タイミング",
   gmailQuery: "検索条件",
   driveFolder: "保存先フォルダ",
   lastRun: "最終実行",
   updated: "更新日時",
-  action: "操作",
   newRule: "＋ ルールを作成",
   edit: "編集",
-  copy: "コピー",
   empty: "まだルールがありません",
   ready: "準備完了",
   disabled: "無効",
@@ -88,10 +91,11 @@ function reasonsTextOf(status: unknown) {
   return "";
 }
 
-function badgeKind(status: ReturnType<typeof getRuleStatus>) {
-  if (status.status === "needs_setup") return "warn";
+function badgeTone(
+  status: ReturnType<typeof getRuleStatus>,
+): "ok" | "err" | "muted" {
   if (status.status === "ready") return "ok";
-  if (status.status === "disabled") return "muted";
+  if (status.status === "needs_setup") return "err";
   return "muted";
 }
 
@@ -137,567 +141,235 @@ export default async function RulesPage() {
   const latestJson = await latestRes.json();
   const latestByRule: Record<string, RunLite | null> = latestJson?.data ?? {};
 
-  if (json.error) {
-    return (
-      <div className="rulesPage">
-        <style>{styles}</style>
-        <div className="hero">
-          <div>
-            <h1 className="h1">{LABEL.rules}</h1>
-            <p className="sub">自動実行のルールを管理します。</p>
-          </div>
-          <a className="btnPrimary" href="/rules/new">
-            {LABEL.newRule}
-          </a>
-        </div>
-
-        <div className="error" role="alert">
-          <div className="errorTitle">エラー</div>
-          <div className="errorMsg">{json.error}</div>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="rulesPage">
-      <style>{styles}</style>
+    <div className={styles.page}>
+      <div className={styles.container}>
+        <div className={styles.hero}>
+          <div>
+            <div className={styles.titleRow}>
+              <h1 className={styles.h1}>{LABEL.rules}</h1>
+              <span className={styles.count}>{rules.length}</span>
+            </div>
+            <p className={styles.sub}>自動実行のルールを管理します。</p>
+          </div>
 
-      <div className="hero">
-        <div>
-          <h1 className="h1">{LABEL.rules}</h1>
-          <p className="sub">自動実行のルールを管理します。</p>
+          <Link href="/rules/new">
+            <Button
+              variant="solid"
+              size="md"
+              className={`${styles.btnNewRule} ${styles.fullWidthOnMobile}`}
+            >
+              {LABEL.newRule}
+            </Button>
+          </Link>
         </div>
 
-        <a className="btnPrimary" href="/rules/new">
-          {LABEL.newRule}
-        </a>
-      </div>
+        {json.error ? (
+          <div className={styles.error} role="alert">
+            <div className={styles.errorTitle}>エラー</div>
+            <div className={styles.errorMsg}>{json.error}</div>
+          </div>
+        ) : rules.length === 0 ? (
+          <CardPad className={styles.emptyCard}>
+            <div className={styles.emptyTitle}>{LABEL.empty}</div>
+            <div className={styles.emptySub}>
+              まずはルールを作成してください。
+            </div>
+            <Link href="/rules/new">
+              <Button
+                variant="solid"
+                size="md"
+                className={`${styles.btnNewRule} ${styles.fullWidthOnMobile}`}
+              >
+                {LABEL.newRule}
+              </Button>
+            </Link>
+          </CardPad>
+        ) : (
+          <div className={styles.list}>
+            {rules.map((r) => {
+              const q = normalizeQuery(r.gmail_query);
+              const displayQuery = q ?? "(generated)";
 
-      {/* PC: table */}
-      <div className="onlyDesktop">
-        <div className="card">
-          <div className="tableWrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>{LABEL.active}</th>
-                  <th>{LABEL.runTiming}</th>
-                  <th>{LABEL.gmailQuery}</th>
-                  <th>{LABEL.driveFolder}</th>
-                  <th>{LABEL.lastRun}</th>
-                  <th>{LABEL.updated}</th>
-                  <th>{LABEL.action}</th>
-                </tr>
-              </thead>
+              const st = getRuleStatus(r);
+              const reasonsText = reasonsTextOf(st);
+              const isMissing = st.status === "needs_setup";
+              const lastRun = latestByRule[r.id] ?? null;
 
-              <tbody>
-                {rules.map((r) => {
-                  const q = normalizeQuery(r.gmail_query);
-                  const displayQuery = q ?? "(generated)";
+              const lastRunText = lastRun
+                ? [
+                    statusJa(lastRun.status),
+                    lastRun.finished_at ? fmtTokyo(lastRun.finished_at) : null,
 
-                  const status = getRuleStatus(r);
-                  const reasonsText = reasonsTextOf(status);
-                  const isMissing = status.status === "needs_setup";
-                  const lastRun = latestByRule[r.id] ?? null;
+                    // 成功系（processed/skipped/saved）
+                    lastRun.message && /processed=\d+/.test(lastRun.message)
+                      ? truncate(
+                          lastRun.message
+                            .replace(/processed=(\d+)/, "処理$1件")
+                            .replace(/skipped=(\d+)/, "・スキップ$1件")
+                            .replace(/saved=(\d+)/, "・保存$1件"),
+                          60,
+                        )
+                      : null,
 
-                  const lastRunText = lastRun
-                    ? [
-                        statusJa(lastRun.status),
-                        lastRun.finished_at
-                          ? fmtTokyo(lastRun.finished_at)
-                          : null,
-                        lastRun.processed_count || lastRun.saved_count
-                          ? `${lastRun.saved_count}/${lastRun.processed_count}`
-                          : null,
-                        lastRun.message ? truncate(lastRun.message, 30) : null,
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")
-                    : "-";
+                    // エラー系
+                    lastRun.message && !/processed=\d+/.test(lastRun.message)
+                      ? truncate(
+                          lastRun.message.includes(
+                            "invalid authentication credentials",
+                          )
+                            ? "Google認証が無効です（再接続してください）"
+                            : lastRun.message.includes(
+                                  "insufficient permissions",
+                                )
+                              ? "Googleの権限が不足しています"
+                              : lastRun.message.toLowerCase().includes("quota")
+                                ? "Google APIの利用上限を超えました"
+                                : lastRun.message,
+                          60,
+                        )
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")
+                : "-";
 
-                  const lastRunTitle = lastRun
-                    ? [
-                        statusJa(lastRun.status),
-                        lastRun.finished_at
-                          ? fmtTokyo(lastRun.finished_at)
-                          : null,
-                        lastRun.processed_count || lastRun.saved_count
-                          ? `${lastRun.saved_count}/${lastRun.processed_count}`
-                          : null,
-                        lastRun.message ? lastRun.message : null,
-                        lastRun.error_code
-                          ? `code=${lastRun.error_code}`
-                          : null,
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")
-                    : "-";
+              const lastRunTitle = lastRun
+                ? [
+                    statusJa(lastRun.status),
+                    lastRun.finished_at ? fmtTokyo(lastRun.finished_at) : null,
+                    lastRun.message
+                      ? lastRun.message.includes(
+                          "invalid authentication credentials",
+                        )
+                        ? "Google認証が無効です（再接続してください）"
+                        : lastRun.message.includes("insufficient permissions")
+                          ? "Googleの権限が不足しています"
+                          : lastRun.message
+                              .replace(/processed=(\d+)/, "処理$1件")
+                              .replace(/skipped=(\d+)/, "・スキップ$1件")
+                              .replace(/saved=(\d+)/, "・保存$1件")
+                      : null,
+                    lastRun.error_code ? `code=${lastRun.error_code}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")
+                : "-";
 
-                  const lastRunColor =
-                    lastRun?.status === "success"
-                      ? "var(--ok)"
-                      : lastRun?.status === "error"
-                        ? "var(--err)"
-                        : "var(--muted)";
+              const lastRunTone =
+                lastRun?.status === "success"
+                  ? "ok"
+                  : lastRun?.status === "error"
+                    ? "err"
+                    : "muted";
 
-                  return (
-                    <tr key={r.id} className={isMissing ? "rowDim" : ""}>
-                      <td>
-                        <div className="cellActive">
-                          <RuleToggle id={r.id} isActive={r.is_active} />
+              return (
+                <CardPad
+                  key={r.id}
+                  className={`${styles.card} ${isMissing ? styles.dim : ""}`}
+                >
+                  <CardHeader className={styles.cardHeader}>
+                    <div className={styles.leftTop}>
+                      <RuleToggle id={r.id} isActive={r.is_active} />
 
-                          <span
-                            className={`pill ${badgeKind(status)}`}
-                            title={reasonsText}
-                          >
-                            {statusJa(status.status)}
-                          </span>
-                        </div>
-                      </td>
+                      <Badge
+                        tone={badgeTone(st)}
+                        dot
+                        title={reasonsText || undefined}
+                      >
+                        {statusJa(st.status)}
+                      </Badge>
+                    </div>
 
-                      <td className="mono">{r.run_timing ?? "-"}</td>
+                    <div className={styles.actions}>
+                      <RunButton
+                        ruleId={r.id}
+                        disabled={st.status !== "ready"}
+                      />
 
-                      <td className="mono">
+                      <Link
+                        href={`/rules/${r.id}`}
+                        className={styles.btnEditLink}
+                      >
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className={styles.btnEdit}
+                        >
+                          {LABEL.edit}
+                        </Button>
+                      </Link>
+
+                      <CopyButton text={displayQuery} />
+                    </div>
+                  </CardHeader>
+
+                  <div className={styles.metaGrid}>
+                    <div className={styles.metaItem}>
+                      <div className={styles.metaKey}>{LABEL.runTiming}</div>
+                      <div className={`${styles.metaVal} ${styles.mono}`}>
+                        {r.run_timing ?? "-"}
+                      </div>
+                    </div>
+
+                    <div className={styles.metaItem}>
+                      <div className={styles.metaKey}>{LABEL.updated}</div>
+                      <div className={`${styles.metaVal} ${styles.muted}`}>
+                        {fmtTokyo(r.updated_at)}
+                      </div>
+                    </div>
+
+                    <div className={`${styles.metaItem} ${styles.metaWide}`}>
+                      <div className={styles.metaKey}>{LABEL.gmailQuery}</div>
+                      <div className={styles.metaVal}>
                         {isMissing ? (
-                          <span className="warnText" title={reasonsText}>
+                          <span
+                            className={styles.warnText}
+                            title={reasonsText || undefined}
+                          >
                             ⚠ {LABEL.needsSetup}
                             {reasonsText ? `（${reasonsText}）` : ""}
                           </span>
                         ) : (
-                          <span title={displayQuery} className="help">
-                            {truncate(displayQuery, 90)}
+                          <span
+                            className={`${styles.mono} ${styles.clamp2}`}
+                            title={displayQuery}
+                          >
+                            {displayQuery}
                           </span>
                         )}
-                      </td>
-
-                      <td className="mono" title={r.drive_folder_id ?? ""}>
-                        {r.drive_folder_id
-                          ? truncate(r.drive_folder_id, 28)
-                          : "-"}
-                      </td>
-
-                      <td
-                        className="lastRun"
-                        style={{
-                          color: lastRun ? lastRunColor : "var(--muted)",
-                        }}
-                        title={lastRunTitle}
-                      >
-                        {lastRunText}
-                      </td>
-
-                      <td className="muted" title={r.updated_at ?? ""}>
-                        {fmtTokyo(r.updated_at)}
-                      </td>
-
-                      <td>
-                        <div className="actions">
-                          <RunButton
-                            ruleId={r.id}
-                            disabled={status.status !== "ready"}
-                          />
-                          <a className="link" href={`/rules/${r.id}`}>
-                            {LABEL.edit}
-                          </a>
-                          <CopyButton text={displayQuery} />
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-
-                {rules.length === 0 && (
-                  <tr>
-                    <td colSpan={7} className="empty">
-                      <div className="emptyTitle">{LABEL.empty}</div>
-                      <div className="emptySub">
-                        まずはルールを作成してください。
                       </div>
-                      <a className="btnGhost" href="/rules/new">
-                        {LABEL.newRule}
-                      </a>
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                    </div>
+
+                    <div className={styles.metaItem}>
+                      <div className={styles.metaKey}>{LABEL.driveFolder}</div>
+                      <div
+                        className={`${styles.metaVal} ${styles.mono} ${styles.clamp2}`}
+                        title={r.drive_folder_id ?? ""}
+                      >
+                        {r.drive_folder_id ? r.drive_folder_id : "-"}
+                      </div>
+                    </div>
+
+                    <div className={styles.metaItem}>
+                      <div className={styles.metaKey}>{LABEL.lastRun}</div>
+                      <div className={`${styles.metaVal} ${styles.clamp2}`}>
+                        <Badge tone={lastRunTone} title={lastRunTitle}>
+                          {lastRunText}
+                        </Badge>
+                      </div>
+                    </div>
+                  </div>
+                </CardPad>
+              );
+            })}
           </div>
-        </div>
+        )}
+
+        <p className={styles.footnote}>
+          ※ いまは service role で取得（ログイン導線は後で置き換え）
+        </p>
       </div>
-
-      {/* Mobile: cards */}
-      <div className="onlyMobile">
-        <div className="cards">
-          {rules.map((r) => {
-            const q = normalizeQuery(r.gmail_query);
-            const displayQuery = q ?? "(generated)";
-
-            const status = getRuleStatus(r);
-            const reasonsText = reasonsTextOf(status);
-            const isMissing = status.status === "needs_setup";
-            const lastRun = latestByRule[r.id] ?? null;
-
-            const lastRunText = lastRun
-              ? [
-                  statusJa(lastRun.status),
-                  lastRun.finished_at ? fmtTokyo(lastRun.finished_at) : null,
-                  lastRun.processed_count || lastRun.saved_count
-                    ? `${lastRun.saved_count}/${lastRun.processed_count}`
-                    : null,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")
-              : "-";
-
-            return (
-              <div key={r.id} className={`card ${isMissing ? "rowDim" : ""}`}>
-                <div className="cardTop">
-                  <div className="cellActive">
-                    <RuleToggle id={r.id} isActive={r.is_active} />
-                    <span
-                      className={`pill ${badgeKind(status)}`}
-                      title={reasonsText}
-                    >
-                      {statusJa(status.status)}
-                    </span>
-                  </div>
-
-                  <a className="link" href={`/rules/${r.id}`}>
-                    {LABEL.edit}
-                  </a>
-                </div>
-
-                <div className="kv">
-                  <div className="kvRow">
-                    <div className="kvKey">{LABEL.runTiming}</div>
-                    <div className="kvVal mono">{r.run_timing ?? "-"}</div>
-                  </div>
-
-                  <div className="kvRow">
-                    <div className="kvKey">{LABEL.gmailQuery}</div>
-                    <div className="kvVal">
-                      {isMissing ? (
-                        <span className="warnText" title={reasonsText}>
-                          ⚠ {LABEL.needsSetup}
-                          {reasonsText ? `（${reasonsText}）` : ""}
-                        </span>
-                      ) : (
-                        <span className="mono help" title={displayQuery}>
-                          {truncate(displayQuery, 90)}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="kvRow">
-                    <div className="kvKey">{LABEL.driveFolder}</div>
-                    <div className="kvVal mono" title={r.drive_folder_id ?? ""}>
-                      {r.drive_folder_id
-                        ? truncate(r.drive_folder_id, 28)
-                        : "-"}
-                    </div>
-                  </div>
-
-                  <div className="kvRow">
-                    <div className="kvKey">{LABEL.lastRun}</div>
-                    <div className="kvVal lastRun">{lastRunText}</div>
-                  </div>
-
-                  <div className="kvRow">
-                    <div className="kvKey">{LABEL.updated}</div>
-                    <div className="kvVal muted">{fmtTokyo(r.updated_at)}</div>
-                  </div>
-                </div>
-
-                <div className="actionsMobile">
-                  <RunButton
-                    ruleId={r.id}
-                    disabled={status.status !== "ready"}
-                  />
-                  <CopyButton text={displayQuery} />
-                </div>
-              </div>
-            );
-          })}
-
-          {rules.length === 0 && (
-            <div className="card emptyCard">
-              <div className="emptyTitle">{LABEL.empty}</div>
-              <div className="emptySub">まずはルールを作成してください。</div>
-              <a className="btnPrimary" href="/rules/new">
-                {LABEL.newRule}
-              </a>
-            </div>
-          )}
-        </div>
-      </div>
-
-      <p className="footnote">
-        ※ いまは service role で取得（ログイン導線は後で置き換え）
-      </p>
     </div>
   );
 }
-
-const styles = `
-:root{
-  --ok:#16a34a;
-  --err:#ef4444;
-}
-
-.rulesPage{}
-
-/* hero */
-.hero{
-  display:flex;
-  align-items:flex-end;
-  justify-content:space-between;
-  gap:12px;
-  margin-top:10px;
-}
-
-.h1{
-  margin:0;
-  font-size:22px;
-  letter-spacing:-0.02em;
-}
-
-.sub{
-  margin:6px 0 0;
-  color:var(--muted);
-  font-size:13px;
-  line-height:1.6;
-}
-
-.btnPrimary{
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  padding:8px 14px;          /* 少し小さく */
-  border-radius:999px;       /* 半円 */
-  background:var(--primary);
-  color:#fff;
-  font-weight:900;
-  font-size:13px;
-  text-decoration:none;
-  border:1px solid rgba(0,0,0,0.08);
-}
-
-.btnPrimary:hover{
-  transform:translateY(-1px);
-  box-shadow:0 8px 18px rgba(37,99,235,0.20);
-}
-
-.btnGhost{
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  padding:10px 12px;
-  border-radius:12px;
-  border:1px solid var(--border);
-  background:var(--surface);
-  color:var(--primary);
-  font-weight:900;
-  text-decoration:none;
-}
-
-.btnGhost:hover{ background:#f3f4f6; }
-
-/* card/table */
-.card{
-  background:var(--surface);
-  border:1px solid var(--border);
-  border-radius:14px;
-  padding:14px;
-  box-shadow:0 1px 2px rgba(0,0,0,0.04);
-}
-
-.tableWrap{ overflow-x:auto; }
-
-.table{
-  width:100%;
-  border-collapse:separate;
-  border-spacing:0;
-  min-width:920px;
-}
-
-.table thead th{
-  text-align:left;
-  font-size:12px;
-  color:var(--muted);
-  font-weight:900;
-  padding:10px 10px;
-  border-bottom:1px solid var(--border);
-  white-space:nowrap;
-}
-
-.table tbody td{
-  padding:12px 10px;
-  border-bottom:1px solid var(--border);
-  vertical-align:top;
-  font-size:13px;
-}
-
-.table tbody tr:hover{
-  background:#fafafa;
-}
-
-.rowDim{ opacity:0.6; }
-
-.mono{
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size:12px;
-}
-
-.muted{ color:var(--muted); }
-
-.lastRun{
-  font-weight:900;
-}
-
-.cellActive{
-  display:flex;
-  align-items:center;
-  gap:8px;
-  flex-wrap:wrap;
-}
-
-.toggle{
-  display:inline-flex;
-  align-items:center;
-  padding:3px 10px;
-  border-radius:999px;
-  border:1px solid var(--border);
-  font-weight:900;
-  font-size:12px;
-  background:var(--surface);
-}
-
-.toggle.on{ color:var(--ok); }
-.toggle.off{ color:var(--muted); }
-
-.pill{
-  display:inline-flex;
-  align-items:center;
-  padding:3px 10px;
-  border-radius:999px;
-  font-weight:900;
-  font-size:12px;
-  border:1px solid var(--border);
-  background:var(--surface);
-}
-
-.pill.ok{ color:var(--ok); border-color:rgba(34,197,94,0.35); }
-.pill.warn{ color:#b45309; border-color:rgba(245,158,11,0.35); }
-.pill.muted{ color:var(--muted); }
-
-.warnText{
-  color:#b45309;
-  font-weight:900;
-}
-
-.help{ cursor:help; }
-
-.actions{
-  display:flex;
-  align-items:center;
-  gap:10px;
-  flex-wrap:wrap;
-}
-
-.link{
-  color:var(--primary);
-  font-weight:900;
-  text-decoration:none;
-}
-
-.link:hover{ text-decoration:underline; }
-
-/* empty */
-.empty{
-  padding:26px 10px;
-  text-align:center;
-}
-
-.emptyTitle{
-  font-size:14px;
-  font-weight:900;
-}
-
-.emptySub{
-  margin-top:6px;
-  color:var(--muted);
-  font-size:12px;
-}
-
-/* mobile */
-.cards{
-  display:flex;
-  flex-direction:column;
-  gap:12px;
-  margin-top:14px;
-}
-
-.cardTop{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:10px;
-  margin-bottom:10px;
-}
-
-.kv{
-  display:flex;
-  flex-direction:column;
-  gap:10px;
-}
-
-.kvRow{
-  border:1px solid var(--border);
-  border-radius:12px;
-  padding:10px 12px;
-  background:var(--surface);
-}
-
-.kvKey{
-  color:var(--muted);
-  font-size:12px;
-  font-weight:900;
-  margin-bottom:4px;
-}
-
-.kvVal{
-  font-size:13px;
-  font-weight:900;
-}
-
-.actionsMobile{
-  margin-top:12px;
-  display:flex;
-  align-items:center;
-  gap:10px;
-  flex-wrap:wrap;
-}
-
-.emptyCard{
-  text-align:center;
-}
-
-.footnote{
-  margin-top:12px;
-  opacity:0.7;
-  font-size:12px;
-}
-
-/* responsive switches */
-.onlyDesktop{ display:block; margin-top:14px; }
-.onlyMobile{ display:none; }
-
-@media (max-width: 768px){
-  .hero{ flex-direction:column; align-items:stretch; }
-  .btnPrimary{ width:100%; }
-  .onlyDesktop{ display:none; }
-  .onlyMobile{ display:block; }
-}
-`;

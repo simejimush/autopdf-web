@@ -5,7 +5,7 @@ type EmailForPdf = {
   from?: string;
   date?: string;
   snippet?: string;
-  bodyText?: string; // getGmailMessageから取れるなら入れる
+  bodyText?: string; // getGmailMessageから取れるなら�Eれる
 };
 
 export async function emailToPdfBytes(e: EmailForPdf): Promise<Uint8Array> {

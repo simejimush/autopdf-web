@@ -3,6 +3,39 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  /* colors */
+  --bg: #ffffff;
+  --fg: #0f172a;
+  --muted: #64748b;
+  --border: rgba(15,23,42,.10);
+
+  --ok:#16a34a;
+  --err:#ef4444;
+
+  /* radius */
+  --r-10: 10px;
+  --r-14: 14px;
+
+  /* space */
+  --s-8: 8px;
+  --s-10: 10px;
+  --s-12: 12px;
+  --s-16: 16px;
+  --s-20: 20px;
+  --s-24: 24px;
+
+  /* type */
+  --t-12: 12px;
+  --t-14: 14px;
+  --t-16: 16px;
+  --t-18: 18px;
+
+  /* shadow */
+  --sh-1: 0 1px 2px rgba(2,6,23,.06), 0 1px 1px rgba(2,6,23,.04);
+  --sh-2: 0 6px 20px rgba(2,6,23,.08);
+
+  /* focus */
+  --focus: 0 0 0 3px rgba(59,130,246,.25);
 }
 
 @theme inline {

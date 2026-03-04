@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { Button } from "@/lib/ui";
 
 type Props = {
   id: string;
@@ -49,7 +50,7 @@ export default function RuleToggle({ id, isActive }: Props) {
   };
 
   return (
-    <button
+    <Button
       onClick={toggle}
       disabled={isPending}
       style={{
@@ -65,6 +66,6 @@ export default function RuleToggle({ id, isActive }: Props) {
       }}
     >
       {localActive ? "ON" : "OFF"}
-    </button>
+    </Button>
   );
 }

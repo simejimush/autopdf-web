@@ -10,7 +10,7 @@ export function GlobalBanner({ banner }: { banner: Banner | null }) {
   const pathname = usePathname();
   if (!banner) return null;
 
-  // ✅ A+B: /rules にいるときは success をミニマル化（本文・ボタン無し）
+//A+B:　/rulesのときはsuccessをミニ化（本文・ボタン無）
   const isRulesPage = pathname.startsWith("/rules");
   const b =
     banner.variant === "success" && isRulesPage

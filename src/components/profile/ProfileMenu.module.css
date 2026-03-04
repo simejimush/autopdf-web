@@ -1,0 +1,151 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center; /* 初期から中央に固定 */
+  background: rgba(0, 0, 0, 0.35);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease;
+}
+
+.modal {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%) scale(0.98);
+  transform-origin: center;
+  opacity: 0;
+
+  background: #fff;
+  border-radius: 16px;   
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.18);
+  padding: 36px 40px; 
+  width: min(92vw, 700px); 
+  max-height: 85vh;
+
+  overflow: auto;
+
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease;
+}
+
+/* animation */
+.overlayEnter {
+  opacity: 1;
+  pointer-events: auto;
+}
+.modalEnter {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+@keyframes overlayIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes modalIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -48%);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%);
+  }
+}
+
+.title {
+    font-size: 18px;
+    font-weight: 600;
+    color: #0f172a;
+    margin-bottom: 32px;
+    letter-spacing: 0.02em;
+  }
+  
+
+.label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+  display: block;
+  margin: 0 0 6px;
+}
+
+.input {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  color: #111827;
+  font-size: 14px;
+}
+
+.input:focus {
+  outline: none;
+  border-color: #a5b4fc;
+  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.18);
+}
+
+.actions {
+    margin-top: 32px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+  }
+  
+
+.btn {
+  padding: 10px 18px;
+  border-radius: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition:
+    transform 80ms ease,
+    background 120ms ease,
+    border-color 120ms ease,
+    opacity 120ms ease;
+}
+
+.btn:active {
+  transform: translateY(1px);
+}
+
+.btnGhost {
+  background: #f3f4f6;
+  border-color: #d1d5db;
+  color: #374151;
+}
+
+.btnGhost:hover {
+  background: #e5e7eb;
+}
+
+.btnPrimary {
+  background: #111827;
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  transition: all 180ms ease;
+}
+
+.btnPrimary:hover {
+  background: #565656; /* ← 一気に色変える */
+}
+
+.btnPrimary:active {
+  transform: translateY(0px) scale(1);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+.field {
+    margin-bottom: 24px;
+  }
+  

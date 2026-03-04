@@ -1,52 +1,39 @@
 "use client";
 
 import * as React from "react";
+import { Button } from "@/lib/ui/Button";
 
-export default function CopyButton(props: { text: string }) {
+function cx(...xs: Array<string | undefined | false | null>) {
+  return xs.filter(Boolean).join(" ");
+}
+
+export default function CopyButton({
+  text,
+  className,
+}: {
+  text: string;
+  className?: string;
+}) {
   const [ok, setOk] = React.useState(false);
 
   async function onCopy() {
     try {
-      await navigator.clipboard.writeText(props.text);
+      await navigator.clipboard.writeText(text);
       setOk(true);
       setTimeout(() => setOk(false), 900);
-    } catch {
-      // 失敗時は何もしない
-    }
+    } catch {}
   }
 
   return (
-    <button
+    <Button
       type="button"
+      variant="outline"
+      size="sm"
       onClick={onCopy}
-      className={`pillBtn ${ok ? "isOk" : ""}`}
+      className={cx(ok ? "btnCopySuccess" : "btnOutline", className)}
       title="検索条件をコピー"
     >
       {ok ? "コピー済み" : "コピー"}
-      <style>{styles}</style>
-    </button>
+    </Button>
   );
 }
-
-const styles = `
-.pillBtn{
-  padding:6px 12px;
-  border-radius:999px;
-  border:1px solid var(--border);
-  background:var(--surface);
-  color:var(--primary);
-  font-weight:900;
-  font-size:12px;
-  cursor:pointer;
-  white-space:nowrap;
-}
-
-.pillBtn:hover{
-  background:#f3f4f6;
-}
-
-.pillBtn.isOk{
-  border-color:rgba(34,197,94,0.35);
-  color:var(--ok);
-}
-`;

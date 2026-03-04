@@ -1,0 +1,297 @@
+/* autopdf-web/app/(app)/rules/RulesPage.module.css */
+
+/* page */
+.page {
+  padding: var(--s-24);
+}
+
+.container {
+  max-width: 980px;
+  margin: 0 auto;
+}
+
+/* hero */
+.hero {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--s-12);
+  margin-top: var(--s-10);
+  margin-bottom: var(--s-16);
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: var(--s-10);
+}
+
+.h1 {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: -0.02em;
+  color: var(--fg);
+}
+
+.sub {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: var(--t-12);
+  line-height: 1.6;
+}
+
+.count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  min-width: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(15, 23, 42, 0.03);
+  font-size: 12px;
+  font-weight: 900;
+  color: rgba(15, 23, 42, 0.75);
+}
+
+.fullWidthOnMobile {
+  /* mobileでのみ100%にする（下のmediaで適用） */
+}
+
+/* list */
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-12);
+  margin-top: var(--s-16);
+}
+
+.dim {
+  opacity: 0.62;
+}
+
+/* card header row */
+.cardHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s-12);
+  margin-bottom: var(--s-12);
+}
+
+.leftTop {
+  display: flex;
+  align-items: center;
+  gap: var(--s-10);
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+/* actions（PCは右寄せ横並び / SPは2列） */
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--s-8);
+}
+
+/* meta */
+.metaGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-12);
+  align-items: start;
+}
+
+.metaWide {
+  grid-column: 1 / -1;
+}
+
+.metaItem {
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: var(--r-10);
+  padding: var(--s-12);
+  background: rgba(15, 23, 42, 0.015);
+  min-width: 0;
+
+  /* レイアウト安定（重複パッチを統合） */
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.metaKey {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+  margin-bottom: 0; /* gapで管理 */
+  letter-spacing: 0.01em;
+}
+
+.metaVal {
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 900;
+  min-width: 0;
+  line-height: 1.45;
+}
+
+.mono {
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.clamp2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+/* warn */
+.warnText {
+  color: #b45309;
+  font-weight: 900;
+}
+
+/* error */
+.error {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  color: #b91c1c;
+  border-radius: var(--r-14);
+  padding: 12px 14px;
+  margin-top: 10px;
+}
+
+.errorTitle {
+  font-weight: 900;
+  margin-bottom: 4px;
+}
+
+.errorMsg {
+  font-size: 13px;
+  opacity: 0.95;
+}
+
+/* empty */
+.emptyCard {
+  text-align: center;
+}
+
+.emptyTitle {
+  font-size: 14px;
+  font-weight: 900;
+  color: var(--fg);
+}
+
+.emptySub {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* footnote */
+.footnote {
+  margin-top: 14px;
+  font-size: 12px;
+  color: rgba(15, 23, 42, 0.6);
+}
+
+/* -----------------------------
+       Button look for /rules page
+       (RunButton/CopyButton が "btnRun" / "btnOutline" / "btnCopySuccess" を使う想定)
+    ------------------------------ */
+
+.btnNewRule {
+  background: #0ac5b2 !important;
+  color: #fff !important;
+  border: 1px solid rgba(0, 0, 0, 0.04) !important;
+}
+.btnNewRule:hover {
+  filter: brightness(0.97);
+}
+
+.btnRun {
+  background: #0075e8;
+  color: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.04);
+}
+.btnRun:hover {
+  filter: brightness(0.96);
+}
+
+.btnOutline {
+  background: #fff;
+  color: #0f172a;
+  border: 1px solid rgba(15, 23, 42, 0.18);
+}
+.btnOutline:hover {
+  background: rgba(15, 23, 42, 0.06);
+}
+
+.btnCopySuccess {
+  background: #0ac5b2;
+  color: #052d2a;
+  border: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+.btnEditLink { display: inline-flex; }
+
+
+
+/* responsive */
+@media (max-width: 768px) {
+  .page {
+    padding: var(--s-16);
+  }
+
+  .hero {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .fullWidthOnMobile {
+    width: 100%;
+  }
+
+  .cardHeader {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  /* モバイル：操作は押しやすさ優先で2列 */
+  .actions {
+    justify-content: stretch;
+    gap: 10px;
+  }
+
+  .actions > * {
+    flex: 1 1 calc(50% - 10px);
+  }
+
+  .actions :global(button),
+  .actions :global(a) {
+    width: 100%;
+  }
+
+  .metaGrid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .metaWide {
+    grid-column: auto;
+  }
+}

@@ -1,4 +1,4 @@
-// src/lib/ui/globalBanner.ts
+// autopdf-web/src/lib/ui/globalBanner.ts
 export type GlobalBannerVariant = "error" | "warning" | "success" | "info";
 
 export type GlobalBanner = {
@@ -22,11 +22,12 @@ function errorCopy(errorCode?: string | null, message?: string | null) {
   switch (errorCode) {
     case "google_oauth_invalid":
       return {
-        title: "Google接続が切れています",
+        title: "Google接続が無効になっています",
         body: "再接続が必要です。接続し直すと自動保存が再開します。",
         ctaLabel: "Googleを再接続",
         ctaHref: "/me",
       };
+
     case "gmail_query_invalid":
       return {
         title: "Gmail検索条件に問題があります",
@@ -34,6 +35,7 @@ function errorCopy(errorCode?: string | null, message?: string | null) {
         ctaLabel: "ルールを確認",
         ctaHref: "/rules",
       };
+
     case "drive_permission_denied":
       return {
         title: "Google Driveへの保存権限がありません",
@@ -41,6 +43,7 @@ function errorCopy(errorCode?: string | null, message?: string | null) {
         ctaLabel: "設定を確認",
         ctaHref: "/rules",
       };
+
     case "rate_limited":
       return {
         title: "一時的に制限されています",
@@ -48,9 +51,10 @@ function errorCopy(errorCode?: string | null, message?: string | null) {
         ctaLabel: "ルールへ",
         ctaHref: "/rules",
       };
+
     default:
       return {
-        title: "自動処理でエラーが発生しました",
+        title: "自動保存でエラーが発生しました",
         body: message ?? "詳細は /rules の最終実行ログを確認してください。",
         ctaLabel: "エラーを確認",
         ctaHref: "/rules",
@@ -65,6 +69,7 @@ export function buildGlobalBanner(input: Input): GlobalBanner | null {
     lastRunStatus,
     lastRunErrorCode,
     lastRunMessage,
+    pathname,
   } = input;
 
   // 1) Google未接続は最優先で赤
@@ -105,9 +110,8 @@ export function buildGlobalBanner(input: Input): GlobalBanner | null {
     };
   }
 
-  // 5) 基本は緑
-  // 5) success（ページ別に分岐）
-  const isRulesPage = input.pathname?.startsWith("/rules");
+  // 5) successはページでミニ化（/rulesでは本文・ボタン無し）
+  const isRulesPage = !!pathname?.startsWith("/rules");
 
   if (isRulesPage) {
     return {
@@ -116,6 +120,7 @@ export function buildGlobalBanner(input: Input): GlobalBanner | null {
     };
   }
 
+  // 6) 基本の成功バナー
   return {
     variant: "success",
     title: "自動保存は正常です",

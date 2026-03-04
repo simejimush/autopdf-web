@@ -1,4 +1,6 @@
-// src/components/dashboard/StatusSummaryCard.tsx
+// autopdf-web/src/components/dashboard/StatusSummaryCard.tsx
+"use client";
+
 import type { DashboardSummary } from "@/lib/dashboard/summary";
 
 function formatJst(iso: string) {
@@ -39,7 +41,7 @@ function Stat(props: { label: string; value: string; hint?: string }) {
 export function StatusSummaryCard(props: { summary: DashboardSummary }) {
   const { summary } = props;
 
-  const last = summary.lastRunAt ? formatJst(summary.lastRunAt) : "—";
+  const last = summary.lastRunAt ? formatJst(summary.lastRunAt) : "-";
 
   return (
     <section
