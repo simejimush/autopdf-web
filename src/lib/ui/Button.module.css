@@ -1,90 +1,88 @@
 /* autopdf-web/src/lib/ui/Button.module.css */
-.button{
-    display:inline-flex;
-    align-items:center;
-    justify-content:center;
-    gap:8px;
-  
-    border-radius: 999px; /* 半円寄せ */
-    font-weight: 600;
-    line-height: 1;
-    border: 1px solid transparent;
-  
-    cursor: pointer;
-    user-select: none;
-    white-space: nowrap;
-  }
-  
-  .button:disabled{
-    opacity: .6;
-    cursor: not-allowed;
-  }
-  
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
 
-  .button[data-variant="primary"]{
-    background: #0075e8;
-    color: #fff;
-    border-color: rgba(0, 117, 232, 0.3);
-  }
-  
-  .button[data-variant="primary"]:hover{
-    filter: brightness(1.05);
-  }
+  border-radius: 999px; /* 半円寄せ */
+  font-weight: 600;
+  line-height: 1;
+  border: 1px solid transparent;
 
-  .button[data-variant="success"]{
-    background: #0ac5b2;
-    color: #fff;
-    border-color: rgba(10, 197, 178, 0.3);
-  }
-  
-  .button[data-variant="success"]:hover{
-    filter: brightness(1.05);
-  }
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
 
+.button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
 
-  /* size */
-  .button[data-size="sm"]{
-    height: 32px;
-    padding: 0 12px;
-    font-size: 12px;
-  }
-  .button[data-size="md"]{
-    height: 36px;
-    padding: 0 14px;
-    font-size: 13px;
-  }
-  
-  /* variants */
-  .button[data-variant="solid"]{
-    background: #0f172a;   /* ← 既存UIの newRuleBtn と同じ系統 */
-    color: #fff;
-    border-color: rgba(15, 23, 42, 0.22);
-  }
-  .button[data-variant="solid"]:hover{
-    filter: brightness(1.05);
-  }
-  
-  .button[data-variant="outline"]{
-    background: transparent;
-    color: #111827;
-    border-color: rgba(17,24,39,.22);
-  }
-  .button[data-variant="outline"]:hover{
-    background: rgba(17,24,39,.04);
-  }
-  
-  .button[data-variant="ghost"]{
-    background: transparent;
-    color: #111827;
-  }
-  .button[data-variant="ghost"]:hover{
-    background: rgba(17,24,39,.04);
-  }
-  
-  .button[data-variant="danger"]{
-    background: #ef4444;
-    color: #fff;
-  }
-  .button[data-variant="danger"]:hover{
-    filter: brightness(1.03);
-  }
+.button[data-variant="primary"] {
+  background: #0075e8;
+  color: #fff;
+  border-color: rgba(0, 117, 232, 0.3);
+}
+
+.button[data-variant="primary"]:hover {
+  filter: brightness(1.05);
+}
+
+.button[data-variant="success"] {
+  background: #0ac5b2;
+  color: #fff;
+  border-color: rgba(10, 197, 178, 0.3);
+}
+
+.button[data-variant="success"]:hover {
+  filter: brightness(1.05);
+}
+
+/* size */
+.button[data-size="sm"] {
+  height: 32px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+.button[data-size="md"] {
+  height: 36px;
+  padding: 0 14px;
+  font-size: 13px;
+}
+
+/* variants */
+.button[data-variant="solid"] {
+  background: #0f172a; /* ← 既存UIの newRuleBtn と同じ系統 */
+  color: #fff;
+  border-color: rgba(15, 23, 42, 0.22);
+}
+.button[data-variant="solid"]:hover {
+  filter: brightness(1.05);
+}
+
+.button[data-variant="outline"] {
+  background: transparent;
+  color: #111827;
+  border-color: rgba(17, 24, 39, 0.22);
+}
+.button[data-variant="outline"]:hover {
+  background: rgba(17, 24, 39, 0.04);
+}
+
+.button[data-variant="ghost"] {
+  background: transparent;
+  color: #111827;
+}
+.button[data-variant="ghost"]:hover {
+  background: rgba(17, 24, 39, 0.04);
+}
+
+.button[data-variant="danger"] {
+  background: #ef4444;
+  color: #fff;
+}
+.button[data-variant="danger"]:hover {
+  filter: brightness(1.03);
+}

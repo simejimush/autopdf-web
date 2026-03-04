@@ -34,7 +34,7 @@ export function Button({
         variant === "primary" && styles.primary,
         variant === "ghost" && styles.ghost,
         variant === "danger" && styles.danger,
-        className
+        className,
       )}
       {...props}
     />

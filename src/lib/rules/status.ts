@@ -11,10 +11,16 @@ function nonEmptyString(v: unknown): boolean {
 
 function normalizeKeywords(v: unknown): string[] {
   if (Array.isArray(v)) {
-    return v.map(String).map((s) => s.trim()).filter(Boolean);
+    return v
+      .map(String)
+      .map((s) => s.trim())
+      .filter(Boolean);
   }
   if (typeof v === "string") {
-    return v.split(/[,\n]/g).map((s) => s.trim()).filter(Boolean);
+    return v
+      .split(/[,\n]/g)
+      .map((s) => s.trim())
+      .filter(Boolean);
   }
   return [];
 }

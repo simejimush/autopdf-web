@@ -356,8 +356,33 @@ export default function RuleEditPage() {
               </label>
 
               <div className={styles.field}>
-                <div className={styles.fieldLabel}>
-                  Gmail検索条件（保存される値）
+                <div
+                  className={styles.fieldLabel}
+                  style={{ display: "flex", alignItems: "center", gap: 6 }}
+                >
+                  <span>Gmail検索条件（保存される値）</span>
+                  <a
+                    href="https://support.google.com/mail/answer/7190"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="Gmail検索の書き方（Google公式）"
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      width: 18,
+                      height: 18,
+                      borderRadius: "50%",
+                      background: "#e5e7eb",
+                      color: "#374151",
+                      fontSize: 12,
+                      textDecoration: "none",
+                      fontWeight: 700,
+                      lineHeight: 1,
+                    }}
+                  >
+                    ?
+                  </a>
                 </div>
                 <div className={styles.queryBox}>
                   <code className={styles.monoWrap}>{previewQuery}</code>

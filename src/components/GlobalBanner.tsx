@@ -5,12 +5,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { GlobalBanner as Banner } from "@/lib/ui/globalBanner";
 
-
 export function GlobalBanner({ banner }: { banner: Banner | null }) {
   const pathname = usePathname();
   if (!banner) return null;
 
-//A+B:　/rulesのときはsuccessをミニ化（本文・ボタン無）
+  //A+B:　/rulesのときはsuccessをミニ化（本文・ボタン無）
   const isRulesPage = pathname.startsWith("/rules");
   const b =
     banner.variant === "success" && isRulesPage
@@ -32,7 +31,9 @@ export function GlobalBanner({ banner }: { banner: Banner | null }) {
     <div className={`${base} ${tone}`}>
       <div className="min-w-0">
         <div className="font-semibold leading-snug">{b.title}</div>
-        {b.body ? <div className="text-sm opacity-90 mt-0.5">{b.body}</div> : null}
+        {b.body ? (
+          <div className="text-sm opacity-90 mt-0.5">{b.body}</div>
+        ) : null}
       </div>
 
       {b.ctaHref && b.ctaLabel ? (

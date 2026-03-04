@@ -16,7 +16,12 @@ export async function getDashboardSummary(): Promise<DashboardSummary> {
   } = await supabase.auth.getUser();
 
   if (userErr || !user) {
-    return { lastRunAt: null, processedTotal7d: 0, savedTotal7d: 0, errorCount7d: 0 };
+    return {
+      lastRunAt: null,
+      processedTotal7d: 0,
+      savedTotal7d: 0,
+      errorCount7d: 0,
+    };
   }
 
   const { data: rules, error: rulesErr } = await supabase
@@ -25,7 +30,12 @@ export async function getDashboardSummary(): Promise<DashboardSummary> {
     .eq("user_id", user.id);
 
   if (rulesErr || !rules || rules.length === 0) {
-    return { lastRunAt: null, processedTotal7d: 0, savedTotal7d: 0, errorCount7d: 0 };
+    return {
+      lastRunAt: null,
+      processedTotal7d: 0,
+      savedTotal7d: 0,
+      errorCount7d: 0,
+    };
   }
 
   const ruleIds = rules.map((r) => r.id);

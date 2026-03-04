@@ -52,14 +52,17 @@ export async function GET(req: Request) {
   // 優先順: is_active -> is_enabled -> enabled -> (未定義なら有効扱い)
   const enabledRules = rules.filter((r) => {
     const v =
-      (r as any).is_active ??
-      (r as any).is_enabled ??
-      (r as any).enabled;
+      (r as any).is_active ?? (r as any).is_enabled ?? (r as any).enabled;
 
     return v === undefined ? true : Boolean(v);
   });
 
-  console.log("[cron] total rules:", rules.length, "enabled:", enabledRules.length);
+  console.log(
+    "[cron] total rules:",
+    rules.length,
+    "enabled:",
+    enabledRules.length,
+  );
 
   // --- 3) 逐次実行（安全優先） ---
   let ok = 0;

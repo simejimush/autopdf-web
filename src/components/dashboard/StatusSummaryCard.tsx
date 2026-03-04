@@ -53,7 +53,9 @@ export function StatusSummaryCard(props: { summary: DashboardSummary }) {
         boxShadow: "0 10px 30px rgba(0,0,0,0.06)",
       }}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+      <div
+        style={{ display: "flex", justifyContent: "space-between", gap: 12 }}
+      >
         <div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>稼働ステータス</div>
           <div style={{ fontSize: 12, opacity: 0.7, marginTop: 2 }}>
@@ -75,8 +77,14 @@ export function StatusSummaryCard(props: { summary: DashboardSummary }) {
           marginTop: 14,
         }}
       >
-        <Stat label="処理件数" value={summary.processedTotal7d.toLocaleString()} />
-        <Stat label="保存成功数" value={summary.savedTotal7d.toLocaleString()} />
+        <Stat
+          label="処理件数"
+          value={summary.processedTotal7d.toLocaleString()}
+        />
+        <Stat
+          label="保存成功数"
+          value={summary.savedTotal7d.toLocaleString()}
+        />
         <Stat label="エラー数" value={summary.errorCount7d.toLocaleString()} />
         <Stat label="期間" value="7日" hint="※変更可能" />
       </div>

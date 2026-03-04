@@ -13,17 +13,28 @@ export function Card({ className, ...props }: DivProps) {
 }
 
 export function CardPad({ className, ...props }: DivProps) {
-  return <div className={cx(styles.uiCard, styles.uiCardPad, className)} {...props} />;
+  return (
+    <div
+      className={cx(styles.uiCard, styles.uiCardPad, className)}
+      {...props}
+    />
+  );
 }
 
 export function CardHeader({ className, ...props }: DivProps) {
   return <div className={cx(styles.uiCardHeader, className)} {...props} />;
 }
 
-export function CardTitle({ className, ...props }: React.HTMLAttributes<HTMLHeadingElement>) {
+export function CardTitle({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLHeadingElement>) {
   return <h3 className={cx(styles.uiTitle, className)} {...props} />;
 }
 
-export function CardSub({ className, ...props }: React.HTMLAttributes<HTMLParagraphElement>) {
+export function CardSub({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLParagraphElement>) {
   return <p className={cx(styles.uiSub, className)} {...props} />;
 }

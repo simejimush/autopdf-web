@@ -6,6 +6,7 @@
 ---
 
 ## 1. 全体アーキテクチャ
+
 - フロント: Next.js（App Router）
 - 認証/DB: Supabase（Auth / Postgres / RLS）
 - 定期実行: Vercel Cron（/api/cron）
@@ -15,15 +16,17 @@
 ---
 
 ## 2. ユーザーフロー
-1) ログイン（Supabase Auth）
-2) Google接続（OAuth）
-3) ルール作成（Gmail検索条件 / 保存先フォルダ 等）
-4) 手動Run または Cron実行
-5) PDF保存 → 実行結果をダッシュボードで確認
+
+1. ログイン（Supabase Auth）
+2. Google接続（OAuth）
+3. ルール作成（Gmail検索条件 / 保存先フォルダ 等）
+4. 手動Run または Cron実行
+5. PDF保存 → 実行結果をダッシュボードで確認
 
 ---
 
 ## 3. 主要テーブル（覚えてる範囲でOK）
+
 - google_connections: userのGoogle接続情報（refresh_token等）
 - rules: ルール（gmail_query / drive_folder_id / is_active / run_timing 等）
 - runs: 実行履歴（status / processed_count / saved_count / message / error_code / started_at / finished_at）
@@ -34,6 +37,7 @@
 ---
 
 ## 4. 主要ルート / 役割（ざっくり）
+
 - /me: セッション確認・接続状態確認
 - /dashboard: 最近のPDF・実行状況表示
 - /rules: ルール一覧/作成/編集
@@ -46,6 +50,7 @@
 ---
 
 ## 5. セキュリティ方針（最低限）
+
 - RLS: ON（user_idで制限）
 - Service Role Key: サーバー側のみで使用（クライアントに出さない）
 - Cron: CRON_SECRET必須、未設定時はエラー
@@ -54,6 +59,7 @@
 ---
 
 ## 6. 現在の課題 / TODO（メモでOK）
+
 - [ ] エラー時の表示/ログを改善（ユーザーにわかりやすく）
 - [ ] runs増加時の検索高速化（UIが重くならない）
 - [ ] 料金/プランとマイページ要件（後で実装）
@@ -62,5 +68,6 @@
 ---
 
 ## 7. 用語
+
 - ルール: Gmail検索条件と保存先等の定義
 - Run: ルールを実行した1回分の履歴

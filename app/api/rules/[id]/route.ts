@@ -2,7 +2,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
-
 function jsonError(message: string, status = 500, details?: unknown) {
   return NextResponse.json({ error: message, details }, { status });
 }
@@ -39,7 +38,8 @@ export async function PATCH(
   // 更新を許可するフィールドだけ拾う（安全）
   const update: any = {};
   if ("drive_folder_id" in body) update.drive_folder_id = body.drive_folder_id;
-  if ("subject_keywords" in body) update.subject_keywords = body.subject_keywords;
+  if ("subject_keywords" in body)
+    update.subject_keywords = body.subject_keywords;
   if ("gmail_query" in body) update.gmail_query = body.gmail_query; // ★復活
   if ("gmail_label_id" in body) update.gmail_label_id = body.gmail_label_id; // ★追加
   if ("is_active" in body) update.is_active = body.is_active;
@@ -91,12 +91,17 @@ export async function PATCH(
 
   // 「検索条件があるか」判定（gmail_query / gmail_label_id / subject_keywords のどれか）
   const hasQuery =
-    (typeof merged.gmail_query === "string" && merged.gmail_query.trim().length > 0) ||
-    (typeof merged.gmail_label_id === "string" && merged.gmail_label_id.trim().length > 0) ||
+    (typeof merged.gmail_query === "string" &&
+      merged.gmail_query.trim().length > 0) ||
+    (typeof merged.gmail_label_id === "string" &&
+      merged.gmail_label_id.trim().length > 0) ||
     normalizedKeywords.length > 0;
 
   // body から subject_keywords が来てて、型が文字列だったら update 側も配列に揃える
-  if ("subject_keywords" in update && typeof update.subject_keywords === "string") {
+  if (
+    "subject_keywords" in update &&
+    typeof update.subject_keywords === "string"
+  ) {
     update.subject_keywords = normalizedKeywords;
   }
 

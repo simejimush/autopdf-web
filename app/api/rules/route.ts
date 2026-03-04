@@ -29,7 +29,7 @@ export async function GET() {
       drive_folder_id,
       gmail_query,
       updated_at
-    `
+    `,
     )
     .order("updated_at", { ascending: false });
 
@@ -49,7 +49,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const body = await req.json().catch(() => ({} as any));
+  const body = await req.json().catch(() => ({}) as any);
 
   const drive_folder_id = String(body?.drive_folder_id ?? "").trim();
   const subject_keywords = body?.subject_keywords ?? null;
@@ -81,7 +81,7 @@ export async function POST(req: Request) {
     .from("rules")
     .insert([insertRow])
     .select(
-      "id, is_active, run_timing, drive_folder_id, gmail_query, updated_at"
+      "id, is_active, run_timing, drive_folder_id, gmail_query, updated_at",
     )
     .single();
 

@@ -4,7 +4,7 @@ This is a production SaaS project.
 Security, RLS correctness, and auditability are higher priority than speed of implementation.
 
 The project MUST follow the rules defined in:
-    /docs/quality-rules.md
+/docs/quality-rules.md
 
 If there is any conflict, security and data isolation rules take precedence.
 
@@ -72,7 +72,7 @@ If there is any conflict, security and data isolation rules take precedence.
 
 ## Performance Rules
 
-- Avoid SELECT *.
+- Avoid SELECT \*.
 - Fetch only required fields.
 - Assume runs table will grow large.
 
@@ -81,6 +81,7 @@ If there is any conflict, security and data isolation rules take precedence.
 ## When Suggesting Code
 
 Always include:
+
 - Full file path
 - Clear replace range
 - Explanation of security impact

@@ -27,7 +27,8 @@ export async function GET(req: Request) {
   );
 
   const { error } = await supabase.auth.exchangeCodeForSession(code);
-  if (error) return NextResponse.redirect(new URL("/login?e=oauth", url.origin));
+  if (error)
+    return NextResponse.redirect(new URL("/login?e=oauth", url.origin));
 
   return res;
 }

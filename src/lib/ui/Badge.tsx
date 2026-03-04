@@ -16,7 +16,13 @@ function cx(...args: Array<string | undefined | false>) {
   return args.filter(Boolean).join(" ");
 }
 
-export function Badge({ children, tone = "default", dot = false, className, title }: BadgeProps) {
+export function Badge({
+  children,
+  tone = "default",
+  dot = false,
+  className,
+  title,
+}: BadgeProps) {
   return (
     <span
       className={cx(
@@ -24,7 +30,7 @@ export function Badge({ children, tone = "default", dot = false, className, titl
         tone === "ok" && styles.badgeOk,
         tone === "err" && styles.badgeErr,
         tone === "muted" && styles.badgeMuted,
-        className
+        className,
       )}
       title={title}
     >

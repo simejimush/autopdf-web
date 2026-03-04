@@ -32,7 +32,9 @@ export async function GET(req: Request) {
   const token = await tokenRes.json();
 
   if (!tokenRes.ok) {
-    return NextResponse.redirect(new URL("/me?google=token_failed", url.origin));
+    return NextResponse.redirect(
+      new URL("/me?google=token_failed", url.origin),
+    );
   }
 
   const expiresIn = token.expires_in as number | undefined;
@@ -50,7 +52,7 @@ export async function GET(req: Request) {
       last_verified_at: new Date().toISOString(),
       scopes: token.scope ?? null,
     },
-    { onConflict: "user_id" }
+    { onConflict: "user_id" },
   );
 
   if (error) {

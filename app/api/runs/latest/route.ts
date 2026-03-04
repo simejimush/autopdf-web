@@ -15,7 +15,12 @@ export async function GET() {
 
   const latestByRule: Record<
     string,
-    { status: string; finished_at: string | null; message: string | null; started_at: string | null }
+    {
+      status: string;
+      finished_at: string | null;
+      message: string | null;
+      started_at: string | null;
+    }
   > = {};
 
   for (const r of data ?? []) {

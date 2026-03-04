@@ -26,7 +26,9 @@ export async function getOAuthClientForUser(userId: string) {
   const clientId = process.env.GOOGLE_CLIENT_ID ?? "";
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET ?? "";
   if (!clientId || !clientSecret) {
-    throw new Error("Missing GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET in runtime env");
+    throw new Error(
+      "Missing GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET in runtime env",
+    );
   }
 
   const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);

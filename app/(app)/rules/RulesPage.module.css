@@ -247,9 +247,9 @@
   border: 1px solid rgba(0, 0, 0, 0.04);
 }
 
-.btnEditLink { display: inline-flex; }
-
-
+.btnEditLink {
+  display: inline-flex;
+}
 
 /* responsive */
 @media (max-width: 768px) {

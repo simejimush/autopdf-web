@@ -1,4 +1,5 @@
 AutoPDF v1 仕様書（spec.md）
+
 1. 目的
 
 Gmailの対象メールを検索し、PDF化してGoogle Driveへ保存する。
@@ -51,7 +52,7 @@ Rule作成（Gmail query / Drive folder / lookback_days 等）
 実行結果を一覧で確認（status / 件数 / message / finished_at）
 
 6. 機能要件（v1）
-6.1 Gmail検索
+   6.1 Gmail検索
 
 Ruleの gmail_query をそのままGmail検索に使用する
 
@@ -69,7 +70,7 @@ Ruleの drive_folder_id 配下に保存する
 
 ファイル名規則（暫定）：
 
-YYYY-MM-DD_<subject>_<gmailMessageId>.pdf
+YYYY-MM-DD*<subject>*<gmailMessageId>.pdf
 
 文字数が長い場合はsubjectを短縮してよい
 
@@ -88,7 +89,7 @@ status: success / error
 message: 例「processed=3 saved=3 skipped=1」
 
 7. UI要件（v1）
-/rules 一覧
+   /rules 一覧
 
 Rule一覧が表示される
 

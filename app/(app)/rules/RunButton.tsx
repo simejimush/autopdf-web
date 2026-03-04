@@ -27,7 +27,9 @@ export default function RunButton({
       onClick={async () => {
         setLoading(true);
         try {
-          const res = await fetch(`/api/rules/${ruleId}/run`, { method: "POST" });
+          const res = await fetch(`/api/rules/${ruleId}/run`, {
+            method: "POST",
+          });
           const data = await res.json();
           if (!res.ok) alert(data.error ?? "Run failed");
           else alert(data.message ?? "Run finished");
