@@ -15,6 +15,13 @@ type Rule = {
   updated_at: string | null;
 };
 
+type SenderStrength = "weak" | "strong";
+
+type SenderCandidate = {
+  value: string;
+  strength: SenderStrength;
+};
+
 function normalizeQuery(q: unknown) {
   const s = typeof q === "string" ? q.trim() : "";
   if (!s || s === "-") return null;
@@ -77,6 +84,16 @@ async function copyToClipboard(text: string) {
   }
 }
 
+function extractSubjectKeywordsFromQuery(query: string): string[] {
+  const match = query.match(/subject:\(([^)]+)\)/i);
+  if (!match?.[1]) return [];
+
+  return match[1]
+    .split(/\s+OR\s+/i)
+    .map((s) => s.replace(/^"+|"+$/g, "").trim())
+    .filter(Boolean);
+}
+
 export default function RuleEditPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
@@ -87,6 +104,405 @@ export default function RuleEditPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [rule, setRule] = useState<Rule | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const [toastTick, setToastTick] = useState(0);
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiResult, setAiResult] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const handleApplyAiQuery = (nextQuery: string) => {
+    const normalized = String(nextQuery ?? "").trim();
+    if (!normalized) return;
+
+    setRule((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        gmail_query: normalized,
+      };
+    });
+
+    setAiOpen(false);
+  };
+
+  function generateQuery() {
+    const text = aiPrompt.trim();
+
+    if (!text) {
+      setAiResult("");
+      return;
+    }
+
+    setAiLoading(true);
+
+    try {
+      const normalizedText = text
+        .replace(/[　\t\r\n]+/g, " ")
+        .replace(/１週間/g, "1週間")
+        .replace(/一週間/g, "1週間")
+        .replace(/今週中/g, "今週")
+        .replace(/七日/g, "7日")
+        .replace(/３日/g, "3日")
+        .replace(/三日/g, "3日")
+        .replace(/３日以内/g, "3日以内")
+        .replace(/三日以内/g, "3日以内")
+        .replace(/１か月/g, "1か月")
+        .replace(/一か月/g, "1か月")
+        .replace(/１ヶ月/g, "1ヶ月")
+        .replace(/一ヶ月/g, "1ヶ月")
+        .replace(/今日中/g, "今日")
+        .replace(/本日/g, "今日")
+        .replace(/きょう/g, "今日")
+        .replace(/きのう/g, "昨日")
+        .replace(/未開封/g, "未読")
+        .replace(/ＰＤＦ/gi, "PDF")
+        .replace(/ｐｄｆ/gi, "PDF")
+        .replace(/エクセル/g, "Excel")
+        .replace(/excel/gi, "Excel")
+        .replace(/アマゾン/g, "Amazon")
+        .replace(/ヤフー/g, "Yahoo")
+        .replace(/ペイパル/g, "PayPal")
+        .replace(/ストライプ/g, "Stripe")
+        .replace(/グーグル/g, "Google")
+        .replace(/ラクテン/g, "楽天")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      const fromParts: string[] = [];
+      const subjectParts: string[] = [];
+      const fileParts: string[] = [];
+      const periodParts: string[] = [];
+      const stateParts: string[] = [];
+      const attachmentParts: string[] = [];
+      const excludes: string[] = [];
+
+      const senderAliasMap: Array<[string, SenderCandidate]> = [
+        ["Amazon", { value: "amazon", strength: "weak" }],
+        ["amazon", { value: "amazon", strength: "weak" }],
+        ["楽天", { value: "rakuten", strength: "weak" }],
+        ["rakuten", { value: "rakuten", strength: "weak" }],
+        ["Yahoo", { value: "yahoo", strength: "weak" }],
+        ["yahoo", { value: "yahoo", strength: "weak" }],
+        ["Google", { value: "google", strength: "weak" }],
+        ["google", { value: "google", strength: "weak" }],
+        ["Stripe", { value: "stripe", strength: "weak" }],
+        ["stripe", { value: "stripe", strength: "weak" }],
+        ["PayPal", { value: "paypal", strength: "weak" }],
+        ["paypal", { value: "paypal", strength: "weak" }],
+        ["BASE", { value: "base", strength: "weak" }],
+        ["base", { value: "base", strength: "weak" }],
+        ["STORES", { value: "stores", strength: "weak" }],
+        ["stores", { value: "stores", strength: "weak" }],
+        ["メルカリ", { value: "mercari", strength: "weak" }],
+        ["mercari", { value: "mercari", strength: "weak" }],
+      ];
+
+      const docKeywordMap: Array<[string, string]> = [
+        ["請求書", "請求書"],
+        ["invoice", "請求書"],
+        ["領収書", "領収書"],
+        ["receipt", "領収書"],
+        ["見積", "見積"],
+        ["見積書", "見積"],
+        ["estimate", "見積"],
+        ["quotation", "見積"],
+        ["quote", "見積"],
+        ["明細", "明細"],
+        ["statement", "明細"],
+        ["納品書", "納品書"],
+        ["delivery note", "納品書"],
+        ["発注書", "発注書"],
+        ["purchase order", "発注書"],
+        ["order", "発注書"],
+      ];
+
+      const normalizeSenderValue = (raw: string): SenderCandidate | null => {
+        const cleaned = raw.trim().replace(/[、。,．）」)]$/, "");
+        for (const [alias, candidate] of senderAliasMap) {
+          if (cleaned.toLowerCase() === alias.toLowerCase()) return candidate;
+        }
+        if (!cleaned) return null;
+        return { value: cleaned, strength: "weak" };
+      };
+
+      const pushUnique = (arr: string[], value: string) => {
+        if (!value) return;
+        if (!arr.includes(value)) arr.push(value);
+      };
+
+      let senderCandidate: SenderCandidate | null = null;
+
+      const fromPatterns = [
+        /from\s+([^\s]+)/i,
+        /差出人が\s*([^\s]+)/,
+        /差出人は\s*([^\s]+)/,
+        /送信元が\s*([^\s]+)/,
+        /送信元は\s*([^\s]+)/,
+        /差出人:\s*([^\s]+)/i,
+        /送信元:\s*([^\s]+)/i,
+      ];
+
+      for (const pattern of fromPatterns) {
+        const match = text.match(pattern);
+        if (match?.[1]) {
+          const candidate = normalizeSenderValue(match[1]);
+          if (candidate) {
+            senderCandidate = candidate;
+            pushUnique(fromParts, `from:${candidate.value}`);
+          }
+          break;
+        }
+      }
+
+      if (fromParts.length === 0) {
+        for (const [alias, candidate] of senderAliasMap) {
+          const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          const senderContextPatterns = [
+            new RegExp(`${escaped}の`, "i"),
+            new RegExp(`${escaped}から`, "i"),
+            new RegExp(`${escaped}より`, "i"),
+            new RegExp(`${escaped}で`, "i"),
+            new RegExp(
+              `${escaped}.*(届いた|来た|きた|送られてきた|からの)`,
+              "i",
+            ),
+            new RegExp(
+              `${escaped}\\s*(請求書|領収書|明細|見積|見積書|納品書|発注書|メール)`,
+              "i",
+            ),
+          ];
+
+          if (senderContextPatterns.some((p) => p.test(normalizedText))) {
+            senderCandidate = candidate;
+            pushUnique(fromParts, `from:${candidate.value}`);
+            break;
+          }
+        }
+      }
+
+      const subjectPatterns = [
+        /件名に[「"']?([^」"'\n]+)[」"']?/,
+        /件名が[「"']?([^」"'\n]+)[」"']?/,
+        /タイトルに[「"']?([^」"'\n]+)[」"']?/,
+        /タイトルが[「"']?([^」"'\n]+)[」"']?/,
+        /subject\s*(?:が|は|=)?\s*[「"']?([^」"'\n]+)[」"']?/i,
+      ];
+
+      for (const pattern of subjectPatterns) {
+        const match = text.match(pattern);
+        if (match?.[1]) {
+          let raw = match[1].trim().replace(/[、。,．）」)]$/, "");
+
+          const cutMarkers = ["がある"];
+          for (const marker of cutMarkers) {
+            const idx = raw.indexOf(marker);
+            if (idx > 0) {
+              raw = raw.slice(0, idx).trim();
+              break;
+            }
+          }
+
+          if (raw) {
+            pushUnique(subjectParts, `subject:(${raw})`);
+            break;
+          }
+        }
+      }
+
+      const hasStrongFileSignal =
+        fileParts.length > 0 ||
+        attachmentParts.length > 0 ||
+        normalizedText.includes("PDF") ||
+        normalizedText.toLowerCase().includes("pdf") ||
+        normalizedText.includes("Excel") ||
+        normalizedText.includes("エクセル") ||
+        normalizedText.includes("スプレッドシート") ||
+        normalizedText.toLowerCase().includes("xlsx") ||
+        normalizedText.toLowerCase().includes("xls") ||
+        normalizedText.toLowerCase().includes("word") ||
+        normalizedText.includes("ワード") ||
+        normalizedText.toLowerCase().includes("docx") ||
+        normalizedText.toLowerCase().includes("doc") ||
+        normalizedText.includes("画像") ||
+        normalizedText.includes("写真") ||
+        normalizedText.toLowerCase().includes("jpg") ||
+        normalizedText.toLowerCase().includes("jpeg") ||
+        normalizedText.toLowerCase().includes("png") ||
+        normalizedText.includes("CSV") ||
+        normalizedText.toLowerCase().includes("csv") ||
+        normalizedText.includes("添付") ||
+        normalizedText.includes("添付ファイル") ||
+        normalizedText.includes("ファイル付き");
+
+      const shouldKeepDocSubject = (opts: {
+        hasStrongFileSignal: boolean;
+        sender: SenderCandidate | null;
+        normalizedText: string;
+      }) => {
+        const explicitSubjectMention =
+          opts.normalizedText.includes("件名に") ||
+          opts.normalizedText.includes("件名が") ||
+          opts.normalizedText.toLowerCase().includes("subjectに") ||
+          opts.normalizedText.toLowerCase().includes("subjectが");
+
+        if (explicitSubjectMention) return true;
+        if (opts.hasStrongFileSignal) return false;
+        return true;
+      };
+
+      if (
+        subjectParts.length === 0 &&
+        shouldKeepDocSubject({
+          hasStrongFileSignal,
+          sender: senderCandidate,
+          normalizedText,
+        })
+      ) {
+        for (const [keyword, subjectValue] of docKeywordMap) {
+          if (normalizedText.toLowerCase().includes(keyword.toLowerCase())) {
+            pushUnique(subjectParts, `subject:(${subjectValue})`);
+          }
+        }
+      }
+
+      if (normalizedText.includes("未読")) pushUnique(stateParts, "is:unread");
+      else if (normalizedText.includes("既読"))
+        pushUnique(stateParts, "is:read");
+
+      if (normalizedText.includes("今日")) {
+        pushUnique(periodParts, "newer_than:1d");
+      } else if (normalizedText.includes("昨日")) {
+        pushUnique(periodParts, "newer_than:2d");
+      } else if (normalizedText.includes("3日以内")) {
+        pushUnique(periodParts, "newer_than:3d");
+      } else if (
+        normalizedText.includes("1週間") ||
+        normalizedText.includes("7日以内") ||
+        normalizedText.includes("7日")
+      ) {
+        pushUnique(periodParts, "newer_than:7d");
+      } else if (normalizedText.includes("今週")) {
+        pushUnique(periodParts, "newer_than:7d");
+      } else if (
+        normalizedText.includes("1か月") ||
+        normalizedText.includes("1ヶ月") ||
+        normalizedText.includes("30日以内") ||
+        normalizedText.includes("30日") ||
+        normalizedText.includes("今月")
+      ) {
+        pushUnique(periodParts, "newer_than:30d");
+      }
+
+      if (
+        normalizedText.includes("添付") ||
+        normalizedText.includes("添付ファイル") ||
+        normalizedText.includes("ファイル付き")
+      ) {
+        pushUnique(attachmentParts, "has:attachment");
+      }
+
+      if (
+        normalizedText.includes("添付なしは除く") ||
+        normalizedText.includes("添付がないものは除く") ||
+        normalizedText.includes("添付なしを除く")
+      ) {
+        pushUnique(attachmentParts, "has:attachment");
+      }
+
+      if (
+        normalizedText.includes("PDF") ||
+        normalizedText.toLowerCase().includes("pdf")
+      ) {
+        pushUnique(fileParts, "filename:pdf");
+        pushUnique(attachmentParts, "has:attachment");
+      }
+
+      if (
+        normalizedText.includes("Excel") ||
+        normalizedText.includes("エクセル") ||
+        normalizedText.includes("スプレッドシート") ||
+        normalizedText.toLowerCase().includes("xlsx") ||
+        normalizedText.toLowerCase().includes("xls")
+      ) {
+        pushUnique(fileParts, "filename:xlsx");
+        pushUnique(attachmentParts, "has:attachment");
+      }
+
+      if (
+        normalizedText.toLowerCase().includes("word") ||
+        normalizedText.includes("ワード") ||
+        normalizedText.toLowerCase().includes("docx") ||
+        normalizedText.toLowerCase().includes("doc")
+      ) {
+        pushUnique(fileParts, "filename:docx");
+        pushUnique(attachmentParts, "has:attachment");
+      }
+
+      if (
+        normalizedText.includes("CSV") ||
+        normalizedText.toLowerCase().includes("csv")
+      ) {
+        pushUnique(fileParts, "filename:csv");
+        pushUnique(attachmentParts, "has:attachment");
+      }
+
+      if (
+        normalizedText.includes("画像") ||
+        normalizedText.includes("写真") ||
+        normalizedText.toLowerCase().includes("jpg") ||
+        normalizedText.toLowerCase().includes("jpeg") ||
+        normalizedText.toLowerCase().includes("png")
+      ) {
+        pushUnique(fileParts, "filename:jpg");
+        pushUnique(attachmentParts, "has:attachment");
+      }
+
+      if (
+        normalizedText.includes("広告は除く") ||
+        normalizedText.includes("広告を除く") ||
+        normalizedText.includes("プロモーションは除く") ||
+        normalizedText.includes("プロモーションを除く")
+      ) {
+        pushUnique(excludes, "-category:promotions");
+      }
+
+      if (
+        normalizedText.includes("ソーシャルは除く") ||
+        normalizedText.includes("ソーシャルを除く")
+      ) {
+        pushUnique(excludes, "-category:social");
+      }
+
+      if (
+        normalizedText.includes("フォーラムは除く") ||
+        normalizedText.includes("フォーラムを除く")
+      ) {
+        pushUnique(excludes, "-category:forums");
+      }
+
+      const finalParts = [
+        ...fromParts,
+        ...subjectParts,
+        ...fileParts,
+        ...periodParts,
+        ...stateParts,
+        ...attachmentParts,
+        ...excludes,
+      ];
+
+      const generated = finalParts.join(" ") || "label:INBOX";
+
+      setAiResult(generated);
+      setCurrentQuery(generated);
+      setToast("Gmail検索条件に反映しました");
+      setTimeout(() => {
+        setToast(null);
+      }, 3000);
+      setToastTick((v) => v + 1);
+    } finally {
+      setAiLoading(false);
+    }
+  }
 
   // フォーム項目
   const [isActive, setIsActive] = useState<boolean>(true);
@@ -97,12 +513,15 @@ export default function RuleEditPage() {
     () => parseKeywords(subjectKeywordsText),
     [subjectKeywordsText],
   );
-  const previewQuery = useMemo(
+
+  const [currentQuery, setCurrentQuery] = useState<string | null>(null);
+
+  const generatedQuery = useMemo(
     () => buildGmailQueryFromKeywords(keywords),
     [keywords],
   );
 
-  const currentQuery = normalizeQuery(rule?.gmail_query);
+  const previewQuery = currentQuery ?? generatedQuery;
 
   const [copiedId, setCopiedId] = useState(false);
   const [copiedQuery, setCopiedQuery] = useState(false);
@@ -153,6 +572,7 @@ export default function RuleEditPage() {
         const sk = (normalized as any).subject_keywords;
         const initialKeywords = Array.isArray(sk) ? sk.map(String) : [];
         setSubjectKeywordsText(initialKeywords.join(", "));
+        setCurrentQuery(normalizeQuery(normalized.gmail_query));
       } catch (e: any) {
         if (!cancelled) setError(e?.message ?? "Unexpected error");
       } finally {
@@ -180,7 +600,7 @@ export default function RuleEditPage() {
       const payload = {
         drive_folder_id: driveFolderId.trim(),
         subject_keywords: keywords.length ? keywords : null,
-        gmail_query: previewQuery, // ★必ず送る（現状の仕様を維持）
+        gmail_query: currentQuery ?? generatedQuery,
         is_active: isActive,
       };
 
@@ -334,7 +754,7 @@ export default function RuleEditPage() {
                 <div>
                   <div className={styles.cardTitle}>メール条件</div>
                   <div className={styles.cardDesc}>
-                    件名キーワードからGmail検索条件（保存値）を自動生成します。
+                    件名キーワードを入力すると、Gmail検索条件を自動生成します。
                   </div>
                 </div>
               </div>
@@ -346,7 +766,10 @@ export default function RuleEditPage() {
                 <input
                   className={styles.input}
                   value={subjectKeywordsText}
-                  onChange={(e) => setSubjectKeywordsText(e.target.value)}
+                  onChange={(e) => {
+                    setSubjectKeywordsText(e.target.value);
+                    setCurrentQuery(null);
+                  }}
                   placeholder="例: 請求書, 領収書, 明細"
                   autoComplete="off"
                 />
@@ -356,30 +779,23 @@ export default function RuleEditPage() {
               </label>
 
               <div className={styles.field}>
-                <div
-                  className={styles.fieldLabel}
-                  style={{ display: "flex", alignItems: "center", gap: 6 }}
-                >
+                <div className={`${styles.fieldLabel} ${styles.fieldLabelRow}`}>
                   <span>Gmail検索条件（保存される値）</span>
+
+                  <button
+                    type="button"
+                    className={styles.aiButton}
+                    onClick={() => setAiOpen(true)}
+                  >
+                    ✨ AI生成
+                  </button>
+
                   <a
                     href="https://support.google.com/mail/answer/7190"
                     target="_blank"
                     rel="noopener noreferrer"
                     title="Gmail検索の書き方（Google公式）"
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      width: 18,
-                      height: 18,
-                      borderRadius: "50%",
-                      background: "#e5e7eb",
-                      color: "#374151",
-                      fontSize: 12,
-                      textDecoration: "none",
-                      fontWeight: 700,
-                      lineHeight: 1,
-                    }}
+                    className={styles.helpLink}
                   >
                     ?
                   </a>
@@ -441,6 +857,135 @@ export default function RuleEditPage() {
               </button>
             </div>
           </form>
+        )}
+
+        {aiOpen && (
+          <div
+            className={styles.modalOverlay}
+            onClick={(e) => {
+              if (e.target === e.currentTarget) {
+                setAiOpen(false);
+              }
+            }}
+          >
+            <div className={styles.aiModal}>
+              <div className={styles.aiModalHeader}>
+                <div className={styles.aiModalTitle}>
+                  Gmail検索条件をAIで作成
+                </div>
+                <button
+                  type="button"
+                  className={styles.aiModalClose}
+                  onClick={() => setAiOpen(false)}
+                  aria-label="閉じる"
+                >
+                  ×
+                </button>
+              </div>
+
+              <p className={styles.aiModalText}>
+                どんなメールを対象にするか、自然な文章で入力してください。
+              </p>
+
+              <textarea
+                className={styles.aiTextarea}
+                value={aiPrompt}
+                onChange={(e) => setAiPrompt(e.target.value)}
+                placeholder="例：件名に「請求書」がある未読メール"
+                rows={4}
+                onKeyDown={(e) => {
+                  if (
+                    e.key === "Enter" &&
+                    (e.metaKey || e.ctrlKey) &&
+                    !aiLoading
+                  ) {
+                    e.preventDefault();
+                    generateQuery();
+                  }
+                }}
+              />
+
+              <div className={styles.aiExamples}>
+                <div className={styles.aiExamplesTitle}>例：</div>
+
+                <button
+                  type="button"
+                  className={styles.aiExample}
+                  onClick={() =>
+                    setAiPrompt(
+                      "AmazonのPDF請求書を1週間以内で未読、広告は除く",
+                    )
+                  }
+                >
+                  AmazonのPDF請求書を1週間以内で未読、広告は除く
+                </button>
+
+                <button
+                  type="button"
+                  className={styles.aiExample}
+                  onClick={() => setAiPrompt("楽天の領収書メール")}
+                >
+                  楽天の領収書メール
+                </button>
+
+                <button
+                  type="button"
+                  className={styles.aiExample}
+                  onClick={() => setAiPrompt("StripeのCSV明細")}
+                >
+                  StripeのCSV明細
+                </button>
+
+                <button
+                  type="button"
+                  className={styles.aiExample}
+                  onClick={() => setAiPrompt("Googleの見積書")}
+                >
+                  Googleの見積書
+                </button>
+              </div>
+
+              <div className={styles.aiPreviewBox}>
+                <div className={styles.aiPreviewLabel}>生成結果</div>
+                <code className={styles.aiPreviewCode}>
+                  {aiResult || "ここにGmail検索条件が表示されます"}
+                </code>
+              </div>
+
+              <div className={styles.aiModalActions}>
+                {toast && (
+                  <div
+                    key={toastTick}
+                    className={styles.aiAppliedMsg}
+                    role="status"
+                    aria-live="polite"
+                  >
+                    <span className={styles.aiAppliedIcon} aria-hidden="true">
+                      ✓
+                    </span>
+                    <span className={styles.aiAppliedText}>{toast}</span>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  className={styles.aiGhostButton}
+                  onClick={() => setAiOpen(false)}
+                >
+                  閉じる
+                </button>
+
+                <button
+                  type="button"
+                  className={styles.aiPrimaryButton}
+                  onClick={generateQuery}
+                  disabled={aiLoading}
+                >
+                  {aiLoading ? "生成中..." : "生成"}
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </main>
