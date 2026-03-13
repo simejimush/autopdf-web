@@ -8,7 +8,7 @@ export async function GET(req: Request) {
 
   if (!code) return NextResponse.redirect(new URL("/login", url.origin));
 
-  const res = NextResponse.redirect(new URL("/me", url.origin));
+  const res = NextResponse.redirect(new URL("/settings", url.origin));
   const cookieStore = await cookies();
 
   const supabase = createServerClient(

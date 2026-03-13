@@ -41,7 +41,20 @@
   opacity: 1;
   transform: translate(-50%, -50%) scale(1);
 }
+.btnSettings {
+  width: 100%;
+  padding: 8px 0;
+  border-radius: 8px;
+  background: #f3f4f6;
+  margin-bottom: 8px;
+  border: none;
+  font-size: 14px;
+}
 
+.btnSettings:hover {
+  background: #e5e7eb;
+  cursor: pointer;
+}
 @keyframes overlayIn {
   from {
     opacity: 0;

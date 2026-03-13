@@ -25,7 +25,7 @@ function errorCopy(errorCode?: string | null, message?: string | null) {
         title: "Google接続が無効になっています",
         body: "再接続が必要です。接続し直すと自動保存が再開します。",
         ctaLabel: "Googleを再接続",
-        ctaHref: "/me",
+        ctaHref: "/settings",
       };
 
     case "gmail_query_invalid":
@@ -79,7 +79,7 @@ export function buildGlobalBanner(input: Input): GlobalBanner | null {
       title: "Googleが未接続です",
       body: "Gmail/Drive連携が必要です。まずはGoogle接続を完了してください。",
       ctaLabel: "Google接続",
-      ctaHref: "/me",
+      ctaHref: "/settings",
     };
   }
 
