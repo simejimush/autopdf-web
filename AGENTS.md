@@ -10,7 +10,7 @@ If there is any conflict, security and data isolation rules take precedence.
 
 ---
 
-## Core Principles
+# Core Principles
 
 1. Never break user data isolation.
 2. Never bypass RLS assumptions.
@@ -19,7 +19,7 @@ If there is any conflict, security and data isolation rules take precedence.
 
 ---
 
-## Database Rules
+# Database Rules
 
 - All user data must be tied to `user_id`.
 - All queries must assume RLS is active.
@@ -28,7 +28,7 @@ If there is any conflict, security and data isolation rules take precedence.
 
 ---
 
-## API Rules
+# API Rules
 
 - All APIs must validate authentication.
 - Unauthorized access must return 401.
@@ -37,7 +37,7 @@ If there is any conflict, security and data isolation rules take precedence.
 
 ---
 
-## Cron Rules
+# Cron Rules
 
 - Cron endpoints must require a secret.
 - Cron should delegate to shared execution logic.
@@ -45,16 +45,16 @@ If there is any conflict, security and data isolation rules take precedence.
 
 ---
 
-## Google API Rules
+# Google API Rules
 
 - Assume Google API calls can fail at any time.
 - Do not log tokens or secrets.
 - Handle token expiration gracefully.
-- All failures must update `runs` with status=error and a clear error_code.
+- All failures must update `runs` with `status=error` and a clear `error_code`.
 
 ---
 
-## Logging Rules
+# Logging Rules
 
 - Critical operations must be recorded in `runs`.
 - Error messages must not contain secrets.
@@ -62,7 +62,7 @@ If there is any conflict, security and data isolation rules take precedence.
 
 ---
 
-## Code Structure Rules
+# Code Structure Rules
 
 - Avoid duplicating business logic.
 - Keep Route handlers thin.
@@ -70,21 +70,35 @@ If there is any conflict, security and data isolation rules take precedence.
 
 ---
 
-## Performance Rules
+# Performance Rules
 
-- Avoid SELECT \*.
+- Avoid `SELECT *`.
 - Fetch only required fields.
-- Assume runs table will grow large.
+- Assume `runs` table will grow large.
 
 ---
 
-## When Suggesting Code
+# UI / Frontend Rules
 
-Always include:
+- This project does NOT use Tailwind.
+- Use CSS Modules for styling.
+- Prefer Japanese UI labels when possible.
+- Avoid large UI refactors.
+- Do not introduce new UI frameworks.
 
-- Full file path
-- Clear replace range
-- Explanation of security impact
-- Failure behavior (which error_code will be set)
+---
 
-If unsure about safety, choose the safer option.
+# AI Development Workflow (CRITICAL)
+
+To prevent wasted time, repeated suggestions, and incorrect assumptions,
+AI must follow the workflow below.
+
+---
+
+## 1. Inspect before proposing changes
+
+AI must **inspect real code or screenshots first**.
+
+Never propose speculative fixes.
+
+Incorrect workflow:
