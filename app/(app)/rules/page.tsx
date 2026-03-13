@@ -36,10 +36,10 @@ type Rule = {
 const LABEL = {
   rules: "ルール",
   runTiming: "実行タイミング",
-  gmailQuery: "検索条件",
-  driveFolder: "保存先フォルダ",
-  lastRun: "最終実行",
-  updated: "更新日時",
+  gmailQuery: "Gmail検索条件",
+  driveFolder: "保存先",
+  lastRun: "最終実行結果",
+  updated: "更新",
   newRule: "＋ ルールを作成",
   edit: "編集",
   empty: "まだルールがありません",
@@ -49,6 +49,43 @@ const LABEL = {
   success: "成功",
   error: "エラー",
 };
+
+function formatRunStatus(status?: string | null) {
+  if (status === "success") return "成功";
+  if (status === "error") return "失敗";
+  if (status === "running") return "実行中";
+  return "未実行";
+}
+
+function formatRunDate(value?: string | null) {
+  if (!value) return "—";
+  return new Date(value).toLocaleString("ja-JP", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatRunSummary(
+  run:
+    | {
+        processed_count?: number | null;
+        skipped_count?: number | null;
+        saved_count?: number | null;
+      }
+    | null
+    | undefined,
+) {
+  if (!run) return "実行履歴なし";
+
+  const saved = run.saved_count ?? 0;
+  const skipped = run.skipped_count ?? 0;
+  const processed = run.processed_count ?? 0;
+
+  return `保存 ${saved}件・除外 ${skipped}件・処理 ${processed}件`;
+}
 
 function normalizeQuery(q: unknown) {
   const s = typeof q === "string" ? q.trim() : "";
@@ -196,43 +233,11 @@ export default async function RulesPage() {
               const isMissing = st.status === "needs_setup";
               const lastRun = latestByRule[r.id] ?? null;
 
-              const lastRunText = lastRun
-                ? [
-                    statusJa(lastRun.status),
-                    lastRun.finished_at ? fmtTokyo(lastRun.finished_at) : null,
-
-                    // 成功系（processed/skipped/saved）
-                    lastRun.message && /processed=\d+/.test(lastRun.message)
-                      ? truncate(
-                          lastRun.message
-                            .replace(/processed=(\d+)/, "処理$1件")
-                            .replace(/skipped=(\d+)/, "・スキップ$1件")
-                            .replace(/saved=(\d+)/, "・保存$1件"),
-                          60,
-                        )
-                      : null,
-
-                    // エラー系
-                    lastRun.message && !/processed=\d+/.test(lastRun.message)
-                      ? truncate(
-                          lastRun.message.includes(
-                            "invalid authentication credentials",
-                          )
-                            ? "Google認証が無効です（再接続してください）"
-                            : lastRun.message.includes(
-                                  "insufficient permissions",
-                                )
-                              ? "Googleの権限が不足しています"
-                              : lastRun.message.toLowerCase().includes("quota")
-                                ? "Google APIの利用上限を超えました"
-                                : lastRun.message,
-                          60,
-                        )
-                      : null,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")
-                : "-";
+              const lastRunStatus = formatRunStatus(lastRun?.status);
+              const lastRunAt = formatRunDate(
+                lastRun?.finished_at ?? lastRun?.started_at,
+              );
+              const lastRunSummary = formatRunSummary(lastRun);
 
               const lastRunTitle = lastRun
                 ? [
@@ -266,7 +271,17 @@ export default async function RulesPage() {
               return (
                 <CardPad
                   key={r.id}
-                  className={`${styles.card} ${isMissing ? styles.dim : ""}`}
+                  className={[
+                    styles.ruleCard,
+                    isMissing
+                      ? styles.ruleCardDanger
+                      : !r.is_active
+                        ? styles.ruleCardMuted
+                        : st.status === "ready"
+                          ? styles.ruleCardReady
+                          : styles.ruleCardDefault,
+                    isMissing ? styles.dim : "",
+                  ].join(" ")}
                 >
                   <CardHeader className={styles.cardHeader}>
                     <div className={styles.leftTop}>
@@ -306,21 +321,61 @@ export default async function RulesPage() {
 
                   <div className={styles.metaGrid}>
                     <div className={styles.metaItem}>
-                      <div className={styles.metaKey}>{LABEL.runTiming}</div>
+                      <div
+                        className={`${styles.metaKey} ${styles.metaKeyTiming}`}
+                      >
+                        <span
+                          className={`material-symbols-outlined ${styles.metaIcon}`}
+                        >
+                          schedule
+                        </span>
+                        {LABEL.runTiming}
+                      </div>
                       <div className={`${styles.metaVal} ${styles.mono}`}>
-                        {r.run_timing ?? "-"}
+                        {r.run_timing === "manual"
+                          ? "手動"
+                          : (r.run_timing ?? "-")}
                       </div>
                     </div>
 
                     <div className={styles.metaItem}>
-                      <div className={styles.metaKey}>{LABEL.updated}</div>
+                      <div
+                        className={`${styles.metaKey} ${styles.metaKeyUpdated}`}
+                      >
+                        <span
+                          className={`material-symbols-outlined ${styles.metaIcon}`}
+                        >
+                          update
+                        </span>
+                        {LABEL.updated}
+                      </div>
                       <div className={`${styles.metaVal} ${styles.muted}`}>
                         {fmtTokyo(r.updated_at)}
                       </div>
                     </div>
 
                     <div className={`${styles.metaItem} ${styles.metaWide}`}>
-                      <div className={styles.metaKey}>{LABEL.gmailQuery}</div>
+                      <div
+                        className={`${styles.metaKey} ${styles.metaKeyWithHelp}`}
+                      >
+                        <span
+                          className={`material-symbols-outlined ${styles.metaIcon}`}
+                        >
+                          search
+                        </span>
+
+                        {LABEL.gmailQuery}
+
+                        <a
+                          href="https://support.google.com/mail/answer/7190"
+                          target="_blank"
+                          rel="noreferrer"
+                          className={styles.helpLink}
+                          title="Gmail検索条件の書き方"
+                        >
+                          ?
+                        </a>
+                      </div>
                       <div className={styles.metaVal}>
                         {isMissing ? (
                           <span
@@ -342,7 +397,16 @@ export default async function RulesPage() {
                     </div>
 
                     <div className={styles.metaItem}>
-                      <div className={styles.metaKey}>{LABEL.driveFolder}</div>
+                      <div
+                        className={`${styles.metaKey} ${styles.metaKeyDrive}`}
+                      >
+                        <span
+                          className={`material-symbols-outlined ${styles.metaIcon}`}
+                        >
+                          folder
+                        </span>
+                        {LABEL.driveFolder}
+                      </div>
                       <div
                         className={`${styles.metaVal} ${styles.mono} ${styles.clamp2}`}
                         title={r.drive_folder_id ?? ""}
@@ -352,11 +416,26 @@ export default async function RulesPage() {
                     </div>
 
                     <div className={styles.metaItem}>
-                      <div className={styles.metaKey}>{LABEL.lastRun}</div>
-                      <div className={`${styles.metaVal} ${styles.clamp2}`}>
-                        <Badge tone={lastRunTone} title={lastRunTitle}>
-                          {lastRunText}
-                        </Badge>
+                      <div
+                        className={`${styles.metaKey} ${styles.metaKeyLastRun}`}
+                      >
+                        <span
+                          className={`material-symbols-outlined ${styles.metaIcon}`}
+                        >
+                          play_arrow
+                        </span>
+                        {LABEL.lastRun}
+                      </div>
+                      <div className={styles.metaBlock}>
+                        <div className={styles.lastRunRow}>
+                          <Badge tone={lastRunTone} title={lastRunTitle}>
+                            {lastRunStatus}
+                          </Badge>
+                        </div>
+                        <div className={styles.lastRunAt}>{lastRunAt}</div>
+                        <div className={styles.lastRunSummary}>
+                          {lastRunSummary}
+                        </div>
                       </div>
                     </div>
                   </div>
