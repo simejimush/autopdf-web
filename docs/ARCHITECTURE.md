@@ -54,3 +54,21 @@
   ]
 }
 ```
+
+## Run Execution Flow
+
+Rule実行の処理フロー
+
+Rule Run
+↓
+Gmail検索 (gmail_query)
+↓
+メール取得 (Gmail API)
+↓
+PDF生成 (pdf-lib)
+↓
+Google Drive保存
+↓
+processed_emails記録
+↓
+runs更新

@@ -1,5 +1,30 @@
 # AutoPDF context（重要ファイル厳選）
 
+## 読み方（AI / 開発者向け）
+
+このファイルは **AutoPDFプロジェクトの重要ファイル案内**です。  
+AIや新しい開発者は以下の順で読むと構造を理解しやすいです。
+
+1. docs/context.md（このファイル）
+2. docs/ARCHITECTURE.md（全体設計）
+3. docs/schema.md（DB構造）
+4. docs/run-flow.md（処理フロー）
+5. docs/security.md（セキュリティ観点）
+
+---
+
+## 主要ディレクトリ（構造理解用）
+
+- `app/` : Next.js App Router
+- `app/(app)/` : ログイン後UI（dashboard / rules / settings）
+- `app/api/` : APIエンドポイント
+- `src/lib/google/` : Google OAuth / Gmail / Drive連携
+- `src/lib/supabase/` : Supabase client / server / admin
+- `src/lib/pdf/` : PDF生成ロジック
+- `docs/` : 設計・仕様・運用ドキュメント
+
+※ node_modules / .next などの生成物は除外
+
 ## 入口 / 設定（全体挙動に効く）
 
 - app/layout.tsx: ルートレイアウト
@@ -52,3 +77,115 @@
 - UI文言は基本日本語
 - 大きなリファクタは禁止（局所修正）
 - 「丸ごと置き換え」か「差分指定」を明確に
+
+---
+
+# Gmail検索条件生成ロジック（AI生成）
+
+## フェーズ3仕様
+
+# Gmail検索条件生成 改善フェーズ3 仕様メモ
+
+## 現状の前提
+
+- sender strength の土台は導入済み
+- ただし sender strength はまだ生成挙動に使わない
+- senderAliasMap の strength は全件 weak のまま運用する
+- 安全側を優先し、既存挙動を大きく壊さないことを最優先とする
+
+## 現在の基本仕様
+
+- pdf / csv は strong file signal とみなす
+- strong file signal がある時は、docKeywordMap 由来 subject を基本抑制する
+- unread / newer_than などの状態条件は通常どおり保持する
+- sender が取れる場合は from:xxx を付与する
+
+## 現時点で許容する挙動
+
+- 「見積書」が内部的に `subject:(見積)` に正規化されるのは許容
+- 「添付ファイル付き」は現時点では `has:attachment` を優先し、subject 付与は必須にしない
+- pdf が含まれていても、「件名に」「件名が」など明示的な subject 指定がある場合は subject を残してよい
+
+## フェーズ3で固定したい追加仕様
+
+- `shouldKeepDocSubject()` は「明示的に件名指定している表現」を優先して true にできるようにする
+- 初回対象は以下のような明示表現に限定する
+  - 件名に
+  - 件名が
+  - subjectに
+  - subjectが
+- 上記に一致する場合、pdf / csv が含まれていても docKeywordMap 由来 subject を保持してよい
+- それ以外は現行どおり、strong file signal がある時は subject を基本抑制する
+
+## 今回まだやらないこと
+
+- sender strength を from 生成ロジックに反映すること
+- sender の複数候補に優先順位を導入すること
+- senderAliasMap をドメイン別・ブランド別に本格段階化すること
+- generateQuery 全体の大規模リファクタ
+
+# Gmail検索条件生成 改善フェーズ3 修正方針メモ
+
+## 目的
+
+`shouldKeepDocSubject()` を最小変更で強化し、
+「件名に領収書があるPDFメール」のような明示的 subject 指定を安全に扱えるようにする。
+
+## 修正方針
+
+1. 変更対象は `shouldKeepDocSubject()` 周辺に限定する
+2. sender 周りの処理には触らない
+3. file signal 判定の既存仕様は変えない
+4. 明示的 subject 指定の特例だけ追加する
+5. 既存の OK ケースを壊さないことを最優先にする
+
+## 実装イメージ
+
+- 入力文に以下の明示表現が含まれるか判定する
+  - 件名に
+  - 件名が
+  - subjectに
+  - subjectが
+- 明示表現がある場合は `shouldKeepDocSubject()` を true にする
+- 明示表現がない場合は現行仕様を維持する
+
+## この方針で改善したいケース
+
+- 件名に領収書があるPDFメール
+  - 現状: `subject:(領収書) filename:pdf has:attachment`
+  - この挙動は維持対象
+- 件名に請求書がある未読メール
+  - 現状: `subject:(請求書) is:unread`
+  - この挙動は維持対象
+
+## この方針で変えないケース
+
+- StripeのCSV明細
+  - `from:stripe filename:csv has:attachment`
+- Googleから届いた見積書PDF
+  - `from:google filename:pdf has:attachment`
+- 請求書PDF
+  - `filename:pdf has:attachment`
+
+## テスト観点
+
+### 維持確認
+
+- Amazon請求書
+- StripeのCSV明細
+- 件名に請求書がある未読メール
+- Googleから届いた見積書PDF
+- 7日以内のStripe請求書
+
+### 特例確認
+
+- 件名に領収書があるPDFメール
+- 件名に請求書があるCSVメール
+- 件名が見積書のPDF
+- subjectに納品書があるメール
+
+## 完了条件
+
+- 既存の主要OKケースを壊さない
+- 明示的 subject 指定ケースのみ安全に保持できる
+- sender / file signal の既存挙動に副作用を出さない
