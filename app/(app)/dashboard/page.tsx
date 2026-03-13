@@ -439,7 +439,8 @@ const styles = `
   margin-top:12px;
   display:flex;
   flex-direction:column;
-  gap:10px;
+  gap:8px;
+  align-items:flex-start; 
 }
 
 .btnGhostFull{
@@ -458,22 +459,22 @@ const styles = `
 
 .btnGhostFull:hover{ background:#f3f4f6; }
 
-.btnDangerFull{
-  width:100%;
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  padding:10px 12px;
-  border-radius:12px;
-  border:1px solid #fecaca;
-  background:#fff1f2;
-  color:#b91c1c;
-  font-weight:900;
-  cursor:pointer;
+.btnDangerFull {
+    width: auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 12px;
+    border-radius: 12px;
+    border: 1px solid #fecaca;
+    background: #ffffff;
+    color: #b91c1c;
+    font-weight: 900;
+    cursor: pointer;
+    font-size: .65rem;
 }
 
 .btnDangerFull:hover{ background:#ffe4e6; }
-
 /* --- responsive --- */
 @media (max-width: 900px){
   .grid{ grid-template-columns: 1fr; }

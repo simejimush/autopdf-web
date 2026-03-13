@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
+  --background: #f6f7fb;
   --foreground: #171717;
   /* colors */
   --bg: #ffffff;
@@ -53,7 +53,11 @@
 }
 
 body {
-  background: var(--background);
+  background: #f6f7fb;
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+.btnDangerMini:hover {
+  background: #ffe4e6;
+  cursor: pointer;
 }
