@@ -216,38 +216,36 @@ function buildSubjectQuery(normalizedText: string) {
 
 function buildAttachmentQuery(normalizedText: string) {
   const parts: string[] = [];
+  const lowerText = normalizedText.toLowerCase();
 
-  const isPdf = hasAny(normalizedText, [
-    "pdf",
-    "PDF",
-    "請求書",
-    "領収書",
-    "見積書",
-    "納品書",
-    "注文書",
-    "発注書",
-    "契約書",
-  ]);
+  const isPdf =
+    /\bpdf\b/i.test(normalizedText) ||
+    normalizedText.includes("ＰＤＦ") ||
+    lowerText.includes("pdfファイル") ||
+    lowerText.includes("pdf添付") ||
+    lowerText.includes("pdfメール");
 
-  const isCsv = hasAny(normalizedText, [
-    "csv",
-    "CSV",
-    "明細",
-    "利用明細",
-    "取引履歴",
-    "エクスポート",
-    "ダウンロード",
-    "レポート",
-  ]);
+  const isCsv =
+    /\bcsv\b/i.test(normalizedText) ||
+    normalizedText.includes("ＣＳＶ") ||
+    lowerText.includes("csvファイル") ||
+    lowerText.includes("csv添付") ||
+    lowerText.includes("csvメール") ||
+    hasAny(normalizedText, ["csv明細", "CSV明細", "csvの明細", "CSVの明細"]);
 
-  pushIf(
-    parts,
+  const hasAttachmentIntent =
+    hasAny(normalizedText, [
+      "添付",
+      "添付ファイル",
+      "ファイル付き",
+      "添付あり",
+      "ファイルあり",
+    ]) ||
+    lowerText.includes("ファイル") ||
     isPdf ||
-      isCsv ||
-      hasAny(normalizedText, ["添付", "添付ファイル", "ファイル付き"]),
-    "has:attachment",
-  );
+    isCsv;
 
+  pushIf(parts, hasAttachmentIntent, "has:attachment");
   pushIf(parts, isPdf, "filename:pdf");
   pushIf(parts, isCsv, "filename:csv");
 
