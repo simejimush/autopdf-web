@@ -217,22 +217,39 @@ function buildSubjectQuery(normalizedText: string) {
 function buildAttachmentQuery(normalizedText: string) {
   const parts: string[] = [];
 
+  const isPdf = hasAny(normalizedText, [
+    "pdf",
+    "PDF",
+    "請求書",
+    "領収書",
+    "見積書",
+    "納品書",
+    "注文書",
+    "発注書",
+    "契約書",
+  ]);
+
+  const isCsv = hasAny(normalizedText, [
+    "csv",
+    "CSV",
+    "明細",
+    "利用明細",
+    "取引履歴",
+    "エクスポート",
+    "ダウンロード",
+    "レポート",
+  ]);
+
   pushIf(
     parts,
-    hasAny(normalizedText, [
-      "添付",
-      "添付ファイル",
-      "ファイル付き",
-      "pdf",
-      "PDF",
-      "CSV",
-      "csv",
-    ]),
+    isPdf ||
+      isCsv ||
+      hasAny(normalizedText, ["添付", "添付ファイル", "ファイル付き"]),
     "has:attachment",
   );
 
-  pushIf(parts, hasAny(normalizedText, ["pdf", "PDF"]), "filename:pdf");
-  pushIf(parts, hasAny(normalizedText, ["csv", "CSV"]), "filename:csv");
+  pushIf(parts, isPdf, "filename:pdf");
+  pushIf(parts, isCsv, "filename:csv");
 
   return uniq(parts).join(" ");
 }
