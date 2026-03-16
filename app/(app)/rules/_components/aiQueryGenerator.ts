@@ -98,6 +98,14 @@ const senderAliasMap: SenderAlias[] = [
     value: "mercari",
     strong: true,
   },
+  { aliases: ["Shopify", "shopify"], value: "shopify", strong: true },
+  { aliases: ["Square", "square"], value: "square", strong: true },
+  { aliases: ["freee", "フリー", "フリー会計"], value: "freee", strong: true },
+  {
+    aliases: ["マネーフォワード", "MF", "mf", "moneyforward"],
+    value: "moneyforward",
+    strong: true,
+  },
 
   // 汎用プロバイダ系は weak 扱い
   {
