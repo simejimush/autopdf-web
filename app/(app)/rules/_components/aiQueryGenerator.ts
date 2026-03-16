@@ -236,10 +236,26 @@ function buildSubjectQuery(normalizedText: string) {
     return "subject:(申込書)";
   }
 
-  if (hasAny(normalizedText, ["請求書", "請求"])) return "subject:(請求書)";
-  if (hasAny(normalizedText, ["領収書", "領収"])) return "subject:(領収書)";
-  if (hasAny(normalizedText, ["見積書", "見積"])) return "subject:(見積)";
-  if (hasAny(normalizedText, ["納品書", "納品"])) return "subject:(納品書)";
+  if (hasAny(normalizedText, ["請求書", "請求", "invoice", "Invoice"]))
+    return "subject:(請求書 OR invoice)";
+
+  if (hasAny(normalizedText, ["領収書", "領収", "receipt", "Receipt"]))
+    return "subject:(領収書 OR receipt)";
+
+  if (
+    hasAny(normalizedText, [
+      "見積書",
+      "見積",
+      "quote",
+      "Quote",
+      "quotation",
+      "Quotation",
+    ])
+  ) {
+    return "subject:(見積 OR quote OR quotation)";
+  }
+  if (hasAny(normalizedText, ["納品書", "納品"]))
+    return "subject:(納品書 OR delivery note)";
   if (hasAny(normalizedText, ["注文書"])) return "subject:(注文書)";
   if (hasAny(normalizedText, ["発注書"])) return "subject:(発注書)";
 
