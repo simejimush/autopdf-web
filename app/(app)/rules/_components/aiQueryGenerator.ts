@@ -66,14 +66,38 @@ type SenderAlias = {
 };
 
 const senderAliasMap: SenderAlias[] = [
-  { aliases: ["Amazon", "amazon", "アマゾン"], value: "amazon", strong: true },
-  { aliases: ["Stripe", "stripe"], value: "stripe", strong: true },
-  { aliases: ["PayPal", "paypal", "ペイパル"], value: "paypal", strong: true },
-  { aliases: ["BASE", "base"], value: "base", strong: true },
-  { aliases: ["STORES", "stores"], value: "stores", strong: true },
-  { aliases: ["楽天", "rakuten"], value: "rakuten", strong: true },
-  { aliases: ["Yahoo", "yahoo", "ヤフー"], value: "yahoo", strong: true },
-  { aliases: ["メルカリ", "mercari"], value: "mercari", strong: true },
+  {
+    aliases: ["Amazon", "amazon", "アマゾン", "amazon.co.jp"],
+    value: "amazon",
+    strong: true,
+  },
+  {
+    aliases: ["Stripe", "stripe", "stripe.com"],
+    value: "stripe",
+    strong: true,
+  },
+  {
+    aliases: ["PayPal", "paypal", "ペイパル", "paypal.com"],
+    value: "paypal",
+    strong: true,
+  },
+  {
+    aliases: ["BASE", "base", "thebase", "base.shop"],
+    value: "base",
+    strong: true,
+  },
+  { aliases: ["STORES", "stores", "stores.jp"], value: "stores", strong: true },
+  { aliases: ["楽天", "rakuten", "楽天市場"], value: "rakuten", strong: true },
+  {
+    aliases: ["Yahoo", "yahoo", "ヤフー", "yahoo.co.jp"],
+    value: "yahoo",
+    strong: true,
+  },
+  {
+    aliases: ["メルカリ", "mercari", "mercari.jp"],
+    value: "mercari",
+    strong: true,
+  },
 
   // 汎用プロバイダ系は weak 扱い
   {
@@ -192,7 +216,7 @@ function buildSubjectQuery(normalizedText: string) {
     return "subject:(支払い明細)";
   }
 
-  if (hasAny(normalizedText, ["契約書", "契約"])) {
+  if (hasAny(normalizedText, ["契約書"])) {
     return "subject:(契約書)";
   }
 
@@ -200,7 +224,7 @@ function buildSubjectQuery(normalizedText: string) {
     return "subject:(返金)";
   }
 
-  if (hasAny(normalizedText, ["申込書", "申込", "申し込み"])) {
+  if (hasAny(normalizedText, ["申込書"])) {
     return "subject:(申込書)";
   }
 
@@ -208,8 +232,8 @@ function buildSubjectQuery(normalizedText: string) {
   if (hasAny(normalizedText, ["領収書", "領収"])) return "subject:(領収書)";
   if (hasAny(normalizedText, ["見積書", "見積"])) return "subject:(見積)";
   if (hasAny(normalizedText, ["納品書", "納品"])) return "subject:(納品書)";
-  if (hasAny(normalizedText, ["注文書", "注文"])) return "subject:(注文書)";
-  if (hasAny(normalizedText, ["発注書", "発注"])) return "subject:(発注書)";
+  if (hasAny(normalizedText, ["注文書"])) return "subject:(注文書)";
+  if (hasAny(normalizedText, ["発注書"])) return "subject:(発注書)";
 
   return "";
 }
