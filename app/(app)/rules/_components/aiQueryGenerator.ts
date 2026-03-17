@@ -99,10 +99,26 @@ const senderAliasMap: SenderAlias[] = [
     strong: true,
   },
   { aliases: ["Shopify", "shopify"], value: "shopify", strong: true },
-  { aliases: ["Square", "square"], value: "square", strong: true },
-  { aliases: ["freee", "フリー", "フリー会計"], value: "freee", strong: true },
   {
-    aliases: ["マネーフォワード", "MF", "mf", "moneyforward"],
+    aliases: ["Square", "square", "Squareup", "squareup"],
+    value: "square",
+    strong: true,
+  },
+  {
+    aliases: ["freee", "freee会計", "freee会社設立", "フリー", "フリー会計"],
+    value: "freee",
+    strong: true,
+  },
+  {
+    aliases: [
+      "マネーフォワード",
+      "マネーフォワードクラウド",
+      "マネフォ",
+      "MF",
+      "mf",
+      "moneyforward",
+      "money forward",
+    ],
     value: "moneyforward",
     strong: true,
   },
@@ -171,29 +187,129 @@ function normalizeSenderValue(raw: string): string | null {
 }
 
 function extractSenderCandidate(text: string): string | null {
-  const patterns = [
-    /差出人[は:：\s]*([A-Za-z0-9._-]+|[^\s、。]{2,20})/,
-    /差出人が([A-Za-z0-9._-]+|[^\s、。]{2,20})/,
-    /from[は:：\s]*([A-Za-z0-9._-]+|[^\s、。]{2,20})/i,
-    /([A-Za-z0-9._-]+|[^\s、。]{2,20})から届いた/,
-    /([A-Za-z0-9._-]+|[^\s、。]{2,20})のメール/,
-    /([A-Za-z0-9._-]+|[^\s、。]{2,20})からのメール/,
+  const patterns: Array<{
+    pattern: RegExp;
+    pick: (match: RegExpMatchArray) => string | undefined;
+  }> = [
+    {
+      pattern: /差出人[は:：\s]*([A-Za-z0-9._-]+|[^\s、。]{2,30})/,
+      pick: (match) => match[1],
+    },
+    {
+      pattern: /差出人が([A-Za-z0-9._-]+|[^\s、。]{2,30})/,
+      pick: (match) => match[1],
+    },
+    {
+      pattern: /from[は:：\s]*([A-Za-z0-9._-]+|[^\s、。]{2,30})/i,
+      pick: (match) => match[1],
+    },
+    {
+      pattern: /from\s+([A-Za-z0-9._-]{2,40})/i,
+      pick: (match) => match[1],
+    },
+    {
+      pattern:
+        /(invoice|receipt|quote|quotation|order|email)\s+from\s+([A-Za-z0-9._-]{2,40})/i,
+      pick: (match) => match[2],
+    },
+    {
+      pattern:
+        /([A-Za-z0-9._-]{2,40})\s+(invoice|receipt|quote|quotation|order|email)/i,
+      pick: (match) => match[1],
+    },
+    {
+      pattern: /([A-Za-z0-9._-]+|[^\s、。]{2,30})から届いた/,
+      pick: (match) => match[1],
+    },
+    {
+      pattern: /([A-Za-z0-9._-]+|[^\s、。]{2,30})から来た/,
+      pick: (match) => match[1],
+    },
+    {
+      pattern: /([A-Za-z0-9._-]+|[^\s、。]{2,30})からの/,
+      pick: (match) => match[1],
+    },
+    {
+      pattern: /([A-Za-z0-9._-]+|[^\s、。]{2,30})より届いた/,
+      pick: (match) => match[1],
+    },
+    {
+      pattern: /([A-Za-z0-9._-]+|[^\s、。]{2,30})より来た/,
+      pick: (match) => match[1],
+    },
+    {
+      pattern: /([A-Za-z0-9._-]+|[^\s、。]{2,30})のメール/,
+      pick: (match) => match[1],
+    },
+    {
+      pattern: /([A-Za-z0-9._-]+|[^\s、。]{2,30})からのメール/,
+      pick: (match) => match[1],
+    },
+    {
+      pattern: /([A-Za-z0-9._-]+|[^\s、。]{2,30})の請求書/,
+      pick: (match) => match[1],
+    },
+    {
+      pattern: /([A-Za-z0-9._-]+|[^\s、。]{2,30})の領収書/,
+      pick: (match) => match[1],
+    },
+    {
+      pattern: /([A-Za-z0-9._-]+|[^\s、。]{2,30})の見積書/,
+      pick: (match) => match[1],
+    },
+    {
+      pattern: /([A-Za-z0-9._-]+|[^\s、。]{2,30})の納品書/,
+      pick: (match) => match[1],
+    },
+    {
+      pattern: /([A-Za-z0-9._-]+|[^\s、。]{2,30})の注文メール/,
+      pick: (match) => match[1],
+    },
+    {
+      pattern: /([A-Za-z0-9._-]+|[^\s、。]{2,30})の確認メール/,
+      pick: (match) => match[1],
+    },
   ];
 
-  for (const pattern of patterns) {
+  for (const { pattern, pick } of patterns) {
     const match = text.match(pattern);
-    const candidate = match?.[1];
+    const candidate = match ? pick(match) : undefined;
     const normalized = candidate ? normalizeSenderValue(candidate) : null;
     if (normalized) return normalized;
   }
 
   for (const item of senderAliasMap) {
     if (!item.strong) continue;
-    if (
-      item.aliases.some((alias) =>
-        text.toLowerCase().includes(alias.toLowerCase()),
-      )
-    ) {
+
+    const hit = item.aliases.some((alias) => {
+      const lowerAlias = alias.toLowerCase();
+      const lowerText = text.toLowerCase();
+
+      return (
+        lowerText.includes(lowerAlias) ||
+        lowerText.includes(`${lowerAlias}から`) ||
+        lowerText.includes(`${lowerAlias}より`) ||
+        lowerText.includes(`${lowerAlias}の`) ||
+        lowerText.includes(`${lowerAlias}メール`) ||
+        lowerText.includes(`${lowerAlias}請求書`) ||
+        lowerText.includes(`${lowerAlias}領収書`) ||
+        lowerText.includes(`${lowerAlias}見積書`) ||
+        lowerText.includes(`${lowerAlias}納品書`) ||
+        lowerText.includes(`${lowerAlias}注文`) ||
+        lowerText.includes(`${lowerAlias}確認メール`) ||
+        lowerText.includes(`from ${lowerAlias}`) ||
+        lowerText.includes(`invoice from ${lowerAlias}`) ||
+        lowerText.includes(`receipt from ${lowerAlias}`) ||
+        lowerText.includes(`quote from ${lowerAlias}`) ||
+        lowerText.includes(`quotation from ${lowerAlias}`) ||
+        lowerText.includes(`${lowerAlias} invoice`) ||
+        lowerText.includes(`${lowerAlias} receipt`) ||
+        lowerText.includes(`${lowerAlias} quote`) ||
+        lowerText.includes(`${lowerAlias} quotation`)
+      );
+    });
+
+    if (hit) {
       return item.value;
     }
   }
@@ -223,6 +339,23 @@ function buildSubjectQuery(normalizedText: string) {
   if (hasAny(normalizedText, ["支払い明細", "支払明細", "お支払い明細"])) {
     return "subject:(支払い明細)";
   }
+  if (
+    hasAny(normalizedText, [
+      "明細",
+      "明細書",
+      "取引明細",
+      "利用明細書",
+      "ご利用明細書",
+      "statement",
+      "Statement",
+      "statements",
+      "Statements",
+      "billing statement",
+      "monthly statement",
+    ])
+  ) {
+    return "subject:(明細 OR statement)";
+  }
 
   if (hasAny(normalizedText, ["契約書"])) {
     return "subject:(契約書)";
@@ -239,8 +372,19 @@ function buildSubjectQuery(normalizedText: string) {
   if (hasAny(normalizedText, ["請求書", "請求", "invoice", "Invoice"]))
     return "subject:(請求書 OR invoice)";
 
-  if (hasAny(normalizedText, ["領収書", "領収", "receipt", "Receipt"]))
+  if (
+    hasAny(normalizedText, [
+      "領収書",
+      "領収",
+      "レシート",
+      "receipt",
+      "Receipt",
+      "receipts",
+      "Receipts",
+    ])
+  ) {
     return "subject:(領収書 OR receipt)";
+  }
 
   if (
     hasAny(normalizedText, [
