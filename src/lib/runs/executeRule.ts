@@ -102,12 +102,17 @@ export async function executeRule(
       messageId,
     });
 
+    const bodyText =
+      "bodyText" in message && typeof message.bodyText === "string"
+        ? message.bodyText
+        : "";
+
     const pdfBytes = await emailToPdfBytes({
       subject: message.subject,
       from: message.from,
       date: message.date,
       snippet: message.snippet,
-      bodyText: message.bodyText,
+      bodyText,
       messageId,
       generatedAt: new Date().toISOString(),
     });
