@@ -113,8 +113,6 @@ export async function executeRule(
       date: message.date,
       snippet: message.snippet,
       bodyText,
-      messageId,
-      generatedAt: new Date().toISOString(),
     });
 
     const safeSubject = (message.subject ?? "email")
