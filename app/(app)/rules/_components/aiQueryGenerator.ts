@@ -356,6 +356,13 @@ function buildSubjectQuery(normalizedText: string) {
   ) {
     return "subject:(明細 OR statement)";
   }
+  if (hasAny(normalizedText, ["取引履歴", "ご利用履歴", "利用履歴"])) {
+    return "subject:(取引履歴 OR ご利用履歴 OR 利用履歴)";
+  }
+
+  if (hasAny(normalizedText, ["transaction history", "payment history"])) {
+    return 'subject:("transaction history" OR "payment history")';
+  }
 
   if (hasAny(normalizedText, ["契約書"])) {
     return "subject:(契約書)";
