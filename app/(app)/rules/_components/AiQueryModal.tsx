@@ -34,6 +34,13 @@ export default function AiQueryModal({
   const [previewCount, setPreviewCount] = useState<number | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState("");
+  const BROAD_QUERY_ALERT_THRESHOLD = 100;
+
+  const showBroadQueryAlert =
+    !previewLoading &&
+    !previewError &&
+    typeof previewCount === "number" &&
+    previewCount >= BROAD_QUERY_ALERT_THRESHOLD;
 
   useEffect(() => {
     if (open) {
@@ -72,6 +79,7 @@ export default function AiQueryModal({
         },
         body: JSON.stringify({ query: trimmed }),
       });
+      console.log("🔥 preview query (frontend):", query);
 
       const json = (await res.json().catch(() => null)) as {
         count?: number;
@@ -262,52 +270,51 @@ export default function AiQueryModal({
           </div>
         </div>
 
-        {(previewLoading || previewError || previewCount !== null) && (
-          <div style={{ marginTop: 12 }}>
-            <div
-              style={{
-                marginBottom: 8,
-                fontSize: 13,
-                fontWeight: 600,
-                color: "#334155",
-              }}
-            >
-              検索結果プレビュー
-            </div>
+        {previewLoading && (
+          <div
+            style={{
+              marginTop: 12,
+              fontSize: 13,
+              color: "#64748b",
+            }}
+          >
+            条件を確認中...
+          </div>
+        )}
 
-            <div
-              style={{
-                minHeight: 52,
-                background: "#f8fafc",
-                border: "1px solid rgba(15, 23, 42, 0.08)",
-                borderRadius: 10,
-                padding: 14,
-                fontSize: 14,
-                lineHeight: 1.7,
-                color: previewError
-                  ? "#b91c1c"
-                  : previewCount === 0
-                    ? "#b91c1c"
-                    : previewCount !== null && previewCount > 200
-                      ? "#b45309"
-                      : previewCount !== null && previewCount > 50
-                        ? "#b45309"
-                        : "#166534",
-                whiteSpace: "pre-wrap",
-              }}
-            >
-              {previewLoading
-                ? "件数を確認中..."
-                : previewError
-                  ? previewError
-                  : previewCount === 0
-                    ? "この条件ではメールが見つかりません（0件）"
-                    : previewCount !== null && previewCount > 200
-                      ? `${previewCount}件見つかりました（推定）。条件が広い場合、大量のPDFが作成される可能性があります。必要に応じて条件を調整してください`
-                      : previewCount !== null && previewCount > 50
-                        ? `${previewCount}件見つかりました（推定）。条件を少し絞ると精度が上がる可能性があります`
-                        : `${previewCount}件見つかりました（推定）`}
-            </div>
+        {previewError && (
+          <div
+            style={{
+              marginTop: 12,
+              padding: 10,
+              borderRadius: 10,
+              background: "rgba(239, 68, 68, 0.08)",
+              border: "1px solid rgba(239, 68, 68, 0.18)",
+              color: "#b91c1c",
+              fontSize: 13,
+              lineHeight: 1.6,
+            }}
+          >
+            {previewError}
+          </div>
+        )}
+
+        {showBroadQueryAlert && (
+          <div
+            style={{
+              marginTop: 12,
+              padding: 12,
+              borderRadius: 10,
+              background: "rgba(245, 158, 11, 0.12)",
+              border: "1px solid rgba(245, 158, 11, 0.24)",
+              color: "#92400e",
+              fontSize: 13,
+              lineHeight: 1.6,
+              fontWeight: 600,
+            }}
+            role="alert"
+          >
+            大量のPDFが作成される可能性があります。必要に応じて条件を調整してください
           </div>
         )}
 
