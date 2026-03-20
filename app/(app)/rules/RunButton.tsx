@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/lib/ui/Button";
-
-function cx(...xs: Array<string | undefined | false | null>) {
+function cx(...xs: Array<string | undefined | false>) {
   return xs.filter(Boolean).join(" ");
 }
 
@@ -17,22 +17,31 @@ export default function RunButton({
   className?: string;
 }) {
   const [loading, setLoading] = useState(false);
+  const router = useRouter();
 
   return (
     <Button
       variant="primary"
       size="sm"
       disabled={loading || disabled}
-      className={cx("btnRun", className)} // ← RulesPage.module.css 側で .btnRun を定義して色固定する
+      className={cx("btnRun", className)}
       onClick={async () => {
         setLoading(true);
+
         try {
           const res = await fetch(`/api/rules/${ruleId}/run`, {
             method: "POST",
           });
+
           const data = await res.json();
-          if (!res.ok) alert(data.error ?? "Run failed");
-          else alert(data.message ?? "Run finished");
+
+          if (!res.ok) {
+            alert(data.error ?? "Run failed");
+            return;
+          }
+
+          alert(data.message ?? "Run finished");
+          router.refresh();
         } finally {
           setLoading(false);
         }
