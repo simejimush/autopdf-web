@@ -37,85 +37,74 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    if (
-      event.type === "checkout.session.completed" ||
-      event.type === "customer.subscription.updated" ||
-      event.type === "customer.subscription.deleted"
-    ) {
-      const object = event.data.object as Record<string, unknown>;
+    if (event.type === "checkout.session.completed") {
+      const session = event.data.object as Stripe.Checkout.Session;
 
-      const metadata =
-        typeof object.metadata === "object" && object.metadata !== null
-          ? (object.metadata as Record<string, string>)
-          : {};
-
+      const metadata = session.metadata ?? {};
       const userId =
         typeof metadata.user_id === "string" ? metadata.user_id : null;
+      const plan = metadata.plan === "pro" ? "pro" : "free";
 
       if (!userId) {
         return NextResponse.json({ received: true }, { status: 200 });
-      }
-
-      let plan = "free";
-      let billingStatus: string | null = null;
-      let billingProvider = "stripe";
-      let billingCustomerId: string | null = null;
-      let billingSubscriptionId: string | null = null;
-      let currentPeriodEnd: string | null = null;
-
-      if (event.type === "checkout.session.completed") {
-        const session = event.data.object as Stripe.Checkout.Session;
-
-        billingStatus = "active";
-        billingCustomerId =
-          typeof session.customer === "string" ? session.customer : null;
-        billingSubscriptionId =
-          typeof session.subscription === "string"
-            ? session.subscription
-            : null;
-        plan = metadata.plan === "pro" ? "pro" : "free";
-      }
-
-      if (
-        event.type === "customer.subscription.updated" ||
-        event.type === "customer.subscription.deleted"
-      ) {
-        const subscription = event.data.object as Stripe.Subscription;
-
-        billingStatus = subscription.status;
-        billingCustomerId =
-          typeof subscription.customer === "string"
-            ? subscription.customer
-            : null;
-        billingSubscriptionId = subscription.id;
-        currentPeriodEnd = subscription.items.data[0]?.current_period_end
-          ? new Date(
-              subscription.items.data[0].current_period_end * 1000,
-            ).toISOString()
-          : null;
-
-        if (
-          subscription.status === "active" ||
-          subscription.status === "trialing"
-        ) {
-          plan = "pro";
-        } else {
-          plan = "free";
-        }
       }
 
       const { error } = await supabaseAdmin
         .from("user_profiles")
         .update({
           plan,
-          billing_provider: billingProvider,
-          billing_customer_id: billingCustomerId,
-          billing_subscription_id: billingSubscriptionId,
+          billing_provider: "stripe",
+          billing_customer_id:
+            typeof session.customer === "string" ? session.customer : null,
+          billing_subscription_id:
+            typeof session.subscription === "string"
+              ? session.subscription
+              : null,
+          billing_status: "active",
+          plan_updated_at: new Date().toISOString(),
+        })
+        .eq("user_id", userId);
+
+      if (error) {
+        return jsonError("Failed to update user_profiles", 500, error);
+      }
+    }
+
+    if (
+      event.type === "customer.subscription.updated" ||
+      event.type === "customer.subscription.deleted"
+    ) {
+      const subscription = event.data.object as Stripe.Subscription;
+
+      const customerId =
+        typeof subscription.customer === "string"
+          ? subscription.customer
+          : null;
+
+      const billingStatus = subscription.status;
+      const plan =
+        billingStatus === "active" || billingStatus === "trialing"
+          ? "pro"
+          : "free";
+
+      const currentPeriodEnd = subscription.items.data[0]?.current_period_end
+        ? new Date(
+            subscription.items.data[0].current_period_end * 1000,
+          ).toISOString()
+        : null;
+
+      const { error } = await supabaseAdmin
+        .from("user_profiles")
+        .update({
+          plan,
+          billing_provider: "stripe",
+          billing_customer_id: customerId,
+          billing_subscription_id: subscription.id,
           billing_status: billingStatus,
           current_period_end: currentPeriodEnd,
           plan_updated_at: new Date().toISOString(),
         })
-        .eq("user_id", userId);
+        .eq("billing_customer_id", customerId);
 
       if (error) {
         return jsonError("Failed to update user_profiles", 500, error);
