@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import styles from "./SettingsPage.module.css";
 import ProfileEditButton from "./ProfileEditButton";
+import ThemeToggle from "./ThemeToggle";
 import { getMyProfileAction } from "@/app/actions/profile";
 
 function formatDateTime(value?: string | null) {
@@ -215,6 +216,8 @@ export default async function SettingsPage() {
             </p>
           </section>
         </div>
+
+        <ThemeToggle />
       </div>
     </main>
   );

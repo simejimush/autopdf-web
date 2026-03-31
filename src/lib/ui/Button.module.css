@@ -63,7 +63,7 @@
 }
 
 .button[data-variant="outline"] {
-  background: transparent;
+  background: #262626;
   color: #111827;
   border-color: rgba(17, 24, 39, 0.22);
 }

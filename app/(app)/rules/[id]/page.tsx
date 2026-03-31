@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { getRuleStatus } from "@/lib/rules/status";
 import styles from "./RuleEditPage.module.css";
+import AiQueryModal from "../_components/AiQueryModal";
 
 type Rule = {
   id: string;
@@ -13,6 +14,7 @@ type Rule = {
   gmail_query: string | null;
   subject_keywords?: any;
   updated_at: string | null;
+  query_label: string | null;
 };
 
 type SenderStrength = "weak" | "strong";
@@ -24,41 +26,22 @@ type SenderCandidate = {
 
 function normalizeQuery(q: unknown) {
   const s = typeof q === "string" ? q.trim() : "";
-  if (!s || s === "-") return null;
+  if (!s || s === "-") return "";
   return s;
-}
-
-function parseKeywords(input: string) {
-  return input
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-
-function buildGmailQueryFromKeywords(keywords: string[]) {
-  const subjectPart =
-    keywords.length > 0
-      ? ` subject:(${keywords.map((k) => `"${k.replace(/"/g, "")}"`).join(" OR ")})`
-      : "";
-  return `label:INBOX is:unread newer_than:7d${subjectPart}`;
 }
 
 function extractFolderId(input: string) {
   const trimmed = input.trim();
   if (!trimmed) return "";
 
-  // 1) /folders/<id>
   const m1 = trimmed.match(/\/folders\/([a-zA-Z0-9_-]+)/);
   if (m1) return m1[1];
 
-  // 2) ?id=<id> や open?id=<id>
   const m2 = trimmed.match(/[?&]id=([a-zA-Z0-9_-]+)/);
   if (m2) return m2[1];
 
-  // 3) URLっぽいが抽出できなかった場合は壊さない
   if (trimmed.startsWith("http")) return trimmed;
 
-  // 4) 生ID
   return trimmed;
 }
 
@@ -67,7 +50,6 @@ async function copyToClipboard(text: string) {
     await navigator.clipboard.writeText(text);
     return true;
   } catch {
-    // 古い環境用フォールバック
     try {
       const ta = document.createElement("textarea");
       ta.value = text;
@@ -82,16 +64,6 @@ async function copyToClipboard(text: string) {
       return false;
     }
   }
-}
-
-function extractSubjectKeywordsFromQuery(query: string): string[] {
-  const match = query.match(/subject:\(([^)]+)\)/i);
-  if (!match?.[1]) return [];
-
-  return match[1]
-    .split(/\s+OR\s+/i)
-    .map((s) => s.replace(/^"+|"+$/g, "").trim())
-    .filter(Boolean);
 }
 
 export default function RuleEditPage() {
@@ -110,19 +82,30 @@ export default function RuleEditPage() {
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiResult, setAiResult] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
+
+  const [isActive, setIsActive] = useState<boolean>(true);
+  const [driveFolderId, setDriveFolderId] = useState("");
+  const [gmailQuery, setGmailQuery] = useState("");
+  const [queryLabel, setQueryLabel] = useState("");
+  const [dirty, setDirty] = useState(false);
+  const [queryWarnings, setQueryWarnings] = useState<string[]>([]);
+
+  const [copiedId, setCopiedId] = useState(false);
+  const [copiedQuery, setCopiedQuery] = useState(false);
+
   const handleApplyAiQuery = (nextQuery: string) => {
     const normalized = String(nextQuery ?? "").trim();
     if (!normalized) return;
 
-    setRule((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        gmail_query: normalized,
-      };
-    });
-
+    setGmailQuery(normalized);
+    setQueryWarnings(validateGmailQuery(normalized));
     setAiOpen(false);
+    setDirty(true);
+    setToast("Gmail検索条件に反映しました");
+    setTimeout(() => {
+      setToast(null);
+    }, 3000);
+    setToastTick((v) => v + 1);
   };
 
   function generateQuery() {
@@ -493,38 +476,67 @@ export default function RuleEditPage() {
       const generated = finalParts.join(" ") || "label:INBOX";
 
       setAiResult(generated);
-      setCurrentQuery(generated);
-      setToast("Gmail検索条件に反映しました");
-      setTimeout(() => {
-        setToast(null);
-      }, 3000);
-      setToastTick((v) => v + 1);
     } finally {
       setAiLoading(false);
     }
   }
 
-  // フォーム項目
-  const [isActive, setIsActive] = useState<boolean>(true);
-  const [driveFolderId, setDriveFolderId] = useState("");
-  const [subjectKeywordsText, setSubjectKeywordsText] = useState("");
+  function validateGmailQuery(query: string): string[] {
+    const warnings: string[] = [];
+    const q = query.trim();
 
-  const keywords = useMemo(
-    () => parseKeywords(subjectKeywordsText),
-    [subjectKeywordsText],
-  );
+    if (!q) return warnings;
 
-  const [currentQuery, setCurrentQuery] = useState<string | null>(null);
+    // よくある演算子
+    const knownOps = [
+      "from:",
+      "subject:",
+      "label:",
+      "filename:",
+      "has:",
+      "newer_than:",
+      "older_than:",
+      "is:",
+      "to:",
+      "cc:",
+      "bcc:",
+    ];
 
-  const generatedQuery = useMemo(
-    () => buildGmailQueryFromKeywords(keywords),
-    [keywords],
-  );
+    // タイポ検出（簡易）
+    const typoMap: Record<string, string> = {
+      "subjec:": "subject:",
+      "form:": "from:",
+      "lavel:": "label:",
+      "filenam:": "filename:",
+      attachement: "attachment",
+    };
 
-  const previewQuery = currentQuery ?? generatedQuery;
+    for (const typo in typoMap) {
+      if (q.includes(typo)) {
+        warnings.push(`"${typo}" は "${typoMap[typo]}" の可能性があります`);
+      }
+    }
 
-  const [copiedId, setCopiedId] = useState(false);
-  const [copiedQuery, setCopiedQuery] = useState(false);
+    // 括弧チェック
+    const open = (q.match(/\(/g) || []).length;
+    const close = (q.match(/\)/g) || []).length;
+    if (open !== close) {
+      warnings.push("括弧の数が一致していません");
+    }
+
+    // 明らかに変なトークン（コロン付きだけど未知）
+    const tokens = q.split(/\s+/);
+    for (const t of tokens) {
+      if (t.includes(":")) {
+        const isKnown = knownOps.some((op) => t.startsWith(op));
+        if (!isKnown) {
+          warnings.push(`"${t}" は無効な演算子の可能性があります`);
+        }
+      }
+    }
+
+    return warnings;
+  }
 
   useEffect(() => {
     if (!ruleId) {
@@ -555,8 +567,6 @@ export default function RuleEditPage() {
         if (cancelled) return;
 
         const found = json.data;
-
-        // needs_setup のときは UI 側で OFF にする（既存の意図を維持）
         const status = getRuleStatus(found);
         const normalized =
           status.status === "needs_setup"
@@ -564,15 +574,10 @@ export default function RuleEditPage() {
             : found;
 
         setRule(normalized);
-
-        // ✅ フォーム初期値をルールから反映（ここが抜けてた）
         setIsActive(!!normalized.is_active);
         setDriveFolderId(normalized.drive_folder_id ?? "");
-
-        const sk = (normalized as any).subject_keywords;
-        const initialKeywords = Array.isArray(sk) ? sk.map(String) : [];
-        setSubjectKeywordsText(initialKeywords.join(", "));
-        setCurrentQuery(normalizeQuery(normalized.gmail_query));
+        setGmailQuery(normalizeQuery(normalized.gmail_query));
+        setQueryLabel(normalized.query_label ?? "");
       } catch (e: any) {
         if (!cancelled) setError(e?.message ?? "Unexpected error");
       } finally {
@@ -597,10 +602,17 @@ export default function RuleEditPage() {
         throw new Error("保存先フォルダID（必須）を入力してください");
       }
 
+      const normalizedQuery = gmailQuery.trim();
+
+      if (!normalizedQuery) {
+        throw new Error("Gmail検索条件を入力してください");
+      }
+
       const payload = {
         drive_folder_id: driveFolderId.trim(),
-        subject_keywords: keywords.length ? keywords : null,
-        gmail_query: currentQuery ?? generatedQuery,
+        subject_keywords: null,
+        gmail_query: normalizedQuery,
+        query_label: queryLabel.trim() || null,
         is_active: isActive,
       };
 
@@ -614,7 +626,7 @@ export default function RuleEditPage() {
         const text = await res.text().catch(() => "");
         throw new Error(text || `Failed to update rule (${res.status})`);
       }
-
+      setDirty(false);
       router.push("/rules");
       router.refresh();
     } catch (e: any) {
@@ -627,7 +639,6 @@ export default function RuleEditPage() {
   return (
     <main className={styles.page}>
       <div className={styles.container}>
-        {/* Header */}
         <div className={styles.header}>
           <div>
             <h1 className={styles.title}>ルール編集</h1>
@@ -649,7 +660,6 @@ export default function RuleEditPage() {
               type="button"
               className={styles.primaryButton}
               onClick={() => {
-                // form submit を呼ぶ
                 const form = document.getElementById(
                   "ruleEditForm",
                 ) as HTMLFormElement | null;
@@ -657,7 +667,7 @@ export default function RuleEditPage() {
               }}
               disabled={saving || loading || !rule}
             >
-              {saving ? "保存中..." : "保存"}
+              {saving ? "保存中..." : dirty ? "保存（未保存あり）" : "保存"}
             </button>
           </div>
         </div>
@@ -667,7 +677,28 @@ export default function RuleEditPage() {
 
         {!loading && rule && (
           <form id="ruleEditForm" onSubmit={onSave} className={styles.form}>
-            {/* Card: 基本設定 */}
+            <section className={styles.card}>
+              <div className={styles.cardHeader}>
+                <div>
+                  <div className={styles.cardTitle}>検索条件の説明</div>
+                  <div className={styles.cardDesc}>
+                    一覧画面で表示される説明文です（任意）
+                  </div>
+                </div>
+              </div>
+
+              <label className={styles.field}>
+                <input
+                  className={styles.input}
+                  value={queryLabel}
+                  onChange={(e) => {
+                    setQueryLabel(e.target.value);
+                    setDirty(true);
+                  }}
+                  placeholder="AmazonのPDF請求書を1週間以内で未読"
+                />
+              </label>
+            </section>
             <section className={styles.card}>
               <div className={styles.cardHeader}>
                 <div>
@@ -705,7 +736,10 @@ export default function RuleEditPage() {
                     <input
                       type="checkbox"
                       checked={isActive}
-                      onChange={(e) => setIsActive(e.target.checked)}
+                      onChange={(e) => {
+                        setIsActive(e.target.checked);
+                        setDirty(true);
+                      }}
                     />
                     <span className={styles.toggleUi} />
                     <span className={styles.toggleText}>
@@ -716,7 +750,6 @@ export default function RuleEditPage() {
               </div>
             </section>
 
-            {/* Card: 保存先 */}
             <section className={styles.card}>
               <div className={styles.cardHeader}>
                 <div>
@@ -734,9 +767,10 @@ export default function RuleEditPage() {
                 <input
                   className={styles.input}
                   value={driveFolderId}
-                  onChange={(e) =>
-                    setDriveFolderId(extractFolderId(e.target.value))
-                  }
+                  onChange={(e) => {
+                    setDriveFolderId(extractFolderId(e.target.value));
+                    setDirty(true);
+                  }}
                   placeholder="例: 1CGAvmhGiiOjGEulmP6MtXhE0yubKhlgF"
                   autoComplete="off"
                 />
@@ -748,39 +782,18 @@ export default function RuleEditPage() {
               </label>
             </section>
 
-            {/* Card: メール条件 */}
             <section className={styles.card}>
               <div className={styles.cardHeader}>
                 <div>
                   <div className={styles.cardTitle}>メール条件</div>
-                  <div className={styles.cardDesc}>
-                    件名キーワードを入力すると、Gmail検索条件を自動生成します。
-                  </div>
                 </div>
               </div>
 
               <label className={styles.field}>
-                <span className={styles.fieldLabel}>
-                  件名キーワード（任意）
-                </span>
-                <input
-                  className={styles.input}
-                  value={subjectKeywordsText}
-                  onChange={(e) => {
-                    setSubjectKeywordsText(e.target.value);
-                    setCurrentQuery(null);
-                  }}
-                  placeholder="例: 請求書, 領収書, 明細"
-                  autoComplete="off"
-                />
-                <span className={styles.help}>
-                  カンマ区切り。入力すると件名に含まれるメールだけを対象にします。
-                </span>
-              </label>
-
-              <div className={styles.field}>
                 <div className={`${styles.fieldLabel} ${styles.fieldLabelRow}`}>
-                  <span>Gmail検索条件（保存される値）</span>
+                  <span>
+                    Gmail検索条件 <span className={styles.required}>必須</span>
+                  </span>
 
                   <button
                     type="button"
@@ -800,45 +813,38 @@ export default function RuleEditPage() {
                     ?
                   </a>
                 </div>
-                <div className={styles.queryBox}>
-                  <code className={styles.monoWrap}>{previewQuery}</code>
-                </div>
-                <div className={styles.queryActions}>
-                  <button
-                    type="button"
-                    className={styles.smallButton}
-                    onClick={async () => {
-                      const ok = await copyToClipboard(previewQuery);
-                      if (ok) {
-                        setCopiedQuery(true);
-                        setTimeout(() => setCopiedQuery(false), 900);
-                      }
-                    }}
-                  >
-                    {copiedQuery ? "コピーしました" : "コピー"}
-                  </button>
 
-                  {currentQuery && currentQuery !== previewQuery && (
-                    <span className={styles.muted}>
-                      現在の保存値と差分があります（保存で更新）
-                    </span>
-                  )}
-                  {!currentQuery && (
-                    <span className={styles.muted}>現在の保存値：未設定</span>
-                  )}
-                </div>
+                <textarea
+                  className={styles.textarea}
+                  value={gmailQuery}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setGmailQuery(val);
+                    setDirty(true);
+                    setQueryWarnings(validateGmailQuery(val));
+                  }}
+                  placeholder="例: label:INBOX is:unread newer_than:7d subject:(請求書)"
+                  rows={4}
+                  spellCheck={false}
+                />
 
-                {/* DB値は「参考」扱いで小さく */}
-                <div className={styles.dbValue}>
-                  <div className={styles.dbLabel}>現在の保存値</div>
-                  <div className={styles.dbText}>
-                    {currentQuery ?? "未設定"}
+                {queryWarnings.length > 0 && (
+                  <div className={styles.warningBox}>
+                    {queryWarnings.map((w, i) => (
+                      <div key={i} className={styles.warningText}>
+                        ⚠ {w}
+                      </div>
+                    ))}
                   </div>
-                </div>
-              </div>
+                )}
+
+                <span className={styles.help}>
+                  「AI生成」、または Gmail の検索演算子を直接入力できます。 例:
+                  label:INBOX is:unread newer_than:7d subject:(請求書)
+                </span>
+              </label>
             </section>
 
-            {/* Footer actions (モバイル/下部用) */}
             <div className={styles.footerActions}>
               <button
                 type="button"
@@ -853,140 +859,19 @@ export default function RuleEditPage() {
                 className={styles.primaryButton}
                 disabled={saving}
               >
-                {saving ? "保存中..." : "保存"}
+                {saving ? "保存中..." : dirty ? "保存（未保存あり）" : "保存"}
               </button>
             </div>
           </form>
         )}
 
-        {aiOpen && (
-          <div
-            className={styles.modalOverlay}
-            onClick={(e) => {
-              if (e.target === e.currentTarget) {
-                setAiOpen(false);
-              }
-            }}
-          >
-            <div className={styles.aiModal}>
-              <div className={styles.aiModalHeader}>
-                <div className={styles.aiModalTitle}>
-                  Gmail検索条件をAIで作成
-                </div>
-                <button
-                  type="button"
-                  className={styles.aiModalClose}
-                  onClick={() => setAiOpen(false)}
-                  aria-label="閉じる"
-                >
-                  ×
-                </button>
-              </div>
-
-              <p className={styles.aiModalText}>
-                どんなメールを対象にするか、自然な文章で入力してください。
-              </p>
-
-              <textarea
-                className={styles.aiTextarea}
-                value={aiPrompt}
-                onChange={(e) => setAiPrompt(e.target.value)}
-                placeholder="例：件名に「請求書」がある未読メール"
-                rows={4}
-                onKeyDown={(e) => {
-                  if (
-                    e.key === "Enter" &&
-                    (e.metaKey || e.ctrlKey) &&
-                    !aiLoading
-                  ) {
-                    e.preventDefault();
-                    generateQuery();
-                  }
-                }}
-              />
-
-              <div className={styles.aiExamples}>
-                <div className={styles.aiExamplesTitle}>例：</div>
-
-                <button
-                  type="button"
-                  className={styles.aiExample}
-                  onClick={() =>
-                    setAiPrompt(
-                      "AmazonのPDF請求書を1週間以内で未読、広告は除く",
-                    )
-                  }
-                >
-                  AmazonのPDF請求書を1週間以内で未読、広告は除く
-                </button>
-
-                <button
-                  type="button"
-                  className={styles.aiExample}
-                  onClick={() => setAiPrompt("楽天の領収書メール")}
-                >
-                  楽天の領収書メール
-                </button>
-
-                <button
-                  type="button"
-                  className={styles.aiExample}
-                  onClick={() => setAiPrompt("StripeのCSV明細")}
-                >
-                  StripeのCSV明細
-                </button>
-
-                <button
-                  type="button"
-                  className={styles.aiExample}
-                  onClick={() => setAiPrompt("Googleの見積書")}
-                >
-                  Googleの見積書
-                </button>
-              </div>
-
-              <div className={styles.aiPreviewBox}>
-                <div className={styles.aiPreviewLabel}>生成結果</div>
-                <code className={styles.aiPreviewCode}>
-                  {aiResult || "ここにGmail検索条件が表示されます"}
-                </code>
-              </div>
-
-              <div className={styles.aiModalActions}>
-                {toast && (
-                  <div
-                    key={toastTick}
-                    className={styles.aiAppliedMsg}
-                    role="status"
-                    aria-live="polite"
-                  >
-                    <span className={styles.aiAppliedIcon} aria-hidden="true">
-                      ✓
-                    </span>
-                    <span className={styles.aiAppliedText}>{toast}</span>
-                  </div>
-                )}
-
-                <button
-                  type="button"
-                  className={styles.aiGhostButton}
-                  onClick={() => setAiOpen(false)}
-                >
-                  閉じる
-                </button>
-
-                <button
-                  type="button"
-                  className={styles.aiPrimaryButton}
-                  onClick={generateQuery}
-                  disabled={aiLoading}
-                >
-                  {aiLoading ? "生成中..." : "生成"}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        <AiQueryModal
+          open={aiOpen}
+          onClose={() => setAiOpen(false)}
+          onApply={(result) => {
+            handleApplyAiQuery(result);
+          }}
+        />
       </div>
     </main>
   );

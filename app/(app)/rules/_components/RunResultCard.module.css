@@ -1,0 +1,57 @@
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.badge {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #e8f7ee;
+  border: 1px solid #9fd9b3;
+  color: #177245;
+  white-space: nowrap;
+}
+
+.meta {
+  font-size: 13px;
+  color: #667085;
+  white-space: nowrap;
+}
+
+/* 失敗 */
+.error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.errorBadge {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #fee4e2;
+  border: 1px solid #fda29b;
+  color: #b42318;
+}
+
+.errorText {
+  font-size: 13px;
+  color: #7a271a;
+}
+
+/* スマホ */
+@media (max-width: 640px) {
+  .row {
+    gap: 6px;
+  }
+
+  .meta {
+    white-space: normal;
+  }
+}

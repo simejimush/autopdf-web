@@ -17,20 +17,17 @@ export default async function AppLayout({
     data: { user },
   } = await supabase.auth.getUser();
 
-  // ✅ 未ログインならログインへ
   if (!user) redirect("/login");
-  // --- banner data (Step3-1) ---
+
   const { data: gc } = await supabase
     .from("google_connections")
-    .select("id")
+    .select("id, status, updated_at, last_verified_at")
     .eq("user_id", user.id)
     .maybeSingle();
 
   const h = await headers();
   const nextUrl = h.get("next-url") ?? "";
   const pathname = nextUrl ? new URL(nextUrl, "http://localhost").pathname : "";
-
-  const isGoogleConnected = !!gc;
 
   const { data: rules } = await supabase
     .from("rules")
@@ -43,6 +40,7 @@ export default async function AppLayout({
   let lastRunStatus: "success" | "error" | "running" | "skipped" | null = null;
   let lastRunErrorCode: string | null = null;
   let lastRunMessage: string | null = null;
+  let lastRunAt: string | null = null;
 
   if (ruleIds.length > 0) {
     const { data: lastRun } = await supabase
@@ -58,15 +56,48 @@ export default async function AppLayout({
       lastRunStatus = lastRun.status;
       lastRunErrorCode = lastRun.error_code ?? null;
       lastRunMessage = lastRun.message ?? null;
+      lastRunAt = lastRun.finished_at ?? lastRun.started_at ?? null;
     }
   }
+
+  const isGoogleConnected = !!gc && gc.status === "connected";
+
+  const lastVerifiedAt = gc?.last_verified_at ?? null;
+
+  const isGoogleAuthError =
+    lastRunStatus === "error" &&
+    [
+      "GOOGLE_TOKEN_INVALID",
+      "google_oauth_invalid",
+      "invalid_grant",
+      "invalid_credentials",
+    ].includes(String(lastRunErrorCode ?? ""));
+
+  const isRecoveredGoogleAuthError =
+    isGoogleConnected &&
+    isGoogleAuthError &&
+    !!lastRunAt &&
+    !!lastVerifiedAt &&
+    new Date(lastVerifiedAt).getTime() > new Date(lastRunAt).getTime();
+
+  const effectiveLastRunStatus = isRecoveredGoogleAuthError
+    ? null
+    : lastRunStatus;
+
+  const effectiveLastRunErrorCode = isRecoveredGoogleAuthError
+    ? null
+    : lastRunErrorCode;
+
+  const effectiveLastRunMessage = isRecoveredGoogleAuthError
+    ? null
+    : lastRunMessage;
 
   const banner = buildGlobalBanner({
     isGoogleConnected,
     activeRuleCount,
-    lastRunStatus,
-    lastRunErrorCode,
-    lastRunMessage,
+    lastRunStatus: effectiveLastRunStatus,
+    lastRunErrorCode: effectiveLastRunErrorCode,
+    lastRunMessage: effectiveLastRunMessage,
     pathname,
   });
 

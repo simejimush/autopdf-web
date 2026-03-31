@@ -1,104 +1,210 @@
-# AutoPDF Agent Instructions
+# AutoPDF エージェント実行ルール
 
-This is a production SaaS project.
-Security, RLS correctness, and auditability are higher priority than speed of implementation.
+本プロジェクトは本番SaaSである。  
+**実装速度よりも「安全性・データ分離・再現性」を最優先とする。**
 
-The project MUST follow the rules defined in:
+必ず以下を遵守すること：
+
 /docs/quality-rules.md
 
-If there is any conflict, security and data isolation rules take precedence.
+ルールが衝突する場合は、セキュリティおよびデータ分離を優先する。
 
 ---
 
-# Core Principles
+# コア原則
 
-1. Never break user data isolation.
-2. Never bypass RLS assumptions.
-3. Never swallow errors silently.
-4. Always record important operations in `runs`.
-
----
-
-# Database Rules
-
-- All user data must be tied to `user_id`.
-- All queries must assume RLS is active.
-- Do not introduce tables without user ownership unless explicitly public.
-- Never expose cross-user data.
+1. ユーザーデータの分離を絶対に壊さない
+2. RLS前提を崩さない
+3. エラーを握り潰さない
+4. 重要処理は必ず `runs` に記録する
 
 ---
 
-# API Rules
+# DBルール
 
-- All APIs must validate authentication.
-- Unauthorized access must return 401.
-- Input must be validated before DB access.
-- Do not trust query parameters blindly.
-
----
-
-# Cron Rules
-
-- Cron endpoints must require a secret.
-- Cron should delegate to shared execution logic.
-- Cron must never expose internal state.
+- すべてのデータは `user_id` に紐づける
+- すべてのクエリは RLS 前提で設計する
+- ユーザー所有でないテーブルは原則作らない
+- 他ユーザーのデータは絶対に参照させない
 
 ---
 
-# Google API Rules
+# APIルール
 
-- Assume Google API calls can fail at any time.
-- Do not log tokens or secrets.
-- Handle token expiration gracefully.
-- All failures must update `runs` with `status=error` and a clear `error_code`.
-
----
-
-# Logging Rules
-
-- Critical operations must be recorded in `runs`.
-- Error messages must not contain secrets.
-- Avoid console.log for sensitive data.
+- 全APIで認証チェック必須
+- 未認証は必ず 401
+- DBアクセス前に入力検証を行う
+- クエリパラメータを信用しない
 
 ---
 
-# Code Structure Rules
+# Cronルール
 
-- Avoid duplicating business logic.
-- Keep Route handlers thin.
-- Put core logic into reusable functions under `/lib`.
-
----
-
-# Performance Rules
-
-- Avoid `SELECT *`.
-- Fetch only required fields.
-- Assume `runs` table will grow large.
+- Cronは必ずシークレット必須
+- 実行ロジックは共通関数へ委譲
+- 内部状態を外部に露出しない
 
 ---
 
-# UI / Frontend Rules
+# Google APIルール
 
-- This project does NOT use Tailwind.
-- Use CSS Modules for styling.
-- Prefer Japanese UI labels when possible.
-- Avoid large UI refactors.
-- Do not introduce new UI frameworks.
-
----
-
-# AI Development Workflow (CRITICAL)
-
-To prevent wasted time, repeated suggestions, and incorrect assumptions,
-AI must follow the workflow below.
+- Google APIは常に失敗する前提で扱う
+- トークン・シークレットはログに出さない
+- トークン失効を必ず考慮する
+- 失敗時は `runs` に error_code付きで記録
 
 ---
 
-## 1. Inspect before proposing changes
+# ログルール
 
-AI must **inspect real code or screenshots first**.
+- 重要処理は `runs` に記録
+- エラーに機密情報を含めない
+- console.logで機密を出さない
 
-Never propose speculative fixes.
+---
 
-Incorrect workflow:
+# コード構造ルール
+
+- ビジネスロジックの重複禁止
+- Routeは薄く保つ
+- コア処理は `/lib` に集約
+
+---
+
+# パフォーマンスルール
+
+- SELECT \* 禁止
+- 必要なカラムのみ取得
+- runsテーブルの肥大化を前提に設計
+
+---
+
+# UI / フロントエンドルール
+
+- Tailwindは使用しない
+- CSS Modulesを使用
+- UIは可能な限り日本語
+- 大規模UIリファクタは禁止
+- 新しいUIフレームワーク導入禁止
+
+---
+
+# UI安全ルール（重要）
+
+## 1. 既存機能の削除禁止
+
+以下の機能を消してはいけない：
+
+- ルール削除ボタン
+- 検索機能
+- ソート機能
+- 折りたたみ表示
+- 実行ボタン
+- 編集機能
+- 課金導線（アップグレード）
+
+---
+
+## 2. 重要UIファイルの全面置き換え禁止
+
+以下のファイルは丸ごと書き換えてはいけない：
+
+- app/(app)/rules/page.tsx
+- app/(app)/rules/[id]/page.tsx
+- app/(app)/rules/new/page.tsx
+- app/(app)/rules/RunButton.tsx
+
+変更は必ず「差分」で行うこと
+
+---
+
+## 3. UIとロジックの同時変更禁止
+
+以下を同時に変更してはいけない：
+
+- UI（レイアウト / CSS）
+- ロジック（API / 状態管理）
+
+---
+
+## 4. 不明コードの削除禁止
+
+理解できないコードは削除してはいけない  
+必要な場合は確認を取ること
+
+---
+
+## 5. UI変更前の現状確認必須
+
+変更前に必ず：
+
+- 実コード確認
+- 既存挙動の把握
+- スクリーンショット確認（あれば）
+
+推測で変更してはいけない
+
+---
+
+## 6. 複数ファイル変更は事前説明必須
+
+複数ファイルにまたがる変更は必ず：
+
+- 変更内容
+- 影響範囲
+- 影響する機能
+
+を事前に説明すること
+
+---
+
+## 7. 既存挙動の維持を最優先
+
+明示的な指示がない限り：
+
+- UI挙動
+- ボタン配置
+- 機能
+
+は変更してはいけない
+
+---
+
+# 開発運用ルール
+
+以下を必ず遵守：
+
+/docs/dev-rules.md
+
+---
+
+# AI開発ワークフロー（重要）
+
+## 1. 変更前に必ず調査する
+
+以下を必ず確認：
+
+- 対象コード
+- 関連ファイル
+- 実際のUI状態
+
+推測ベースで提案してはいけない
+
+---
+
+## 2. 小さく変更する
+
+一度に大きな変更をしない  
+1変更＝1目的
+
+---
+
+## 3. 既存機能を壊さない
+
+変更により既存機能が消える可能性がある場合は必ず事前に警告する
+
+---
+
+## 4. 安全な変更を優先
+
+「動く可能性」より「壊れない確実性」を優先する

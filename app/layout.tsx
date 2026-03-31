@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import AppToaster from "../components/providers/AppToaster";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -113,6 +114,7 @@ export default async function RootLayout({
         )}
 
         {children}
+        <AppToaster />
         <style>{`
   .ap-banner{
   background:#FEF3C7;
@@ -170,6 +172,19 @@ export default async function RootLayout({
     }
   }
 `}</style>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+      (function () {
+        try {
+          var saved = localStorage.getItem("theme");
+          var theme = saved === "dark" ? "dark" : "light";
+          document.documentElement.dataset.theme = theme;
+        } catch (e) {}
+      })();
+    `,
+          }}
+        />
       </body>
     </html>
   );

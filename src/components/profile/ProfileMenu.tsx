@@ -10,6 +10,7 @@ type Profile = {
   user_id: string;
   display_name: string | null;
   company_name: string | null;
+  plan?: "free" | "pro" | "pro_plus" | null;
 };
 
 export default function ProfileMenu() {
@@ -79,6 +80,10 @@ export default function ProfileMenu() {
   if (!profile) return null;
 
   const display = profile.display_name ?? "プロフィール未設定";
+  const plan = profile.plan ?? "free";
+
+  const planLabel =
+    plan === "pro" ? "Pro" : plan === "pro_plus" ? "Pro+" : "Free";
 
   async function signOut() {
     await supabase.auth.signOut();
@@ -90,13 +95,28 @@ export default function ProfileMenu() {
       <button
         onClick={() => setOpen(!open)}
         style={{
+          display: "inline-flex",
+          alignItems: "center",
           padding: "6px 12px",
           borderRadius: 999,
           background: "#f3f4f6",
+          border: "1px solid #e5e7eb",
           fontSize: 14,
+          fontWeight: 600,
+          color: "#111827",
+          cursor: "pointer",
+          maxWidth: 220,
         }}
       >
-        {display}
+        <span
+          style={{
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {display}
+        </span>
       </button>
 
       {open && (
@@ -115,8 +135,44 @@ export default function ProfileMenu() {
           }}
         >
           <div style={{ marginBottom: 12 }}>
-            <div style={{ fontWeight: 600 }}>{display}</div>
-            <div style={{ fontSize: 12, color: "#6b7280" }}>{email}</div>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                flexWrap: "wrap",
+              }}
+            >
+              <div style={{ fontWeight: 600 }}>{display}</div>
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  padding: "2px 8px",
+                  borderRadius: 999,
+                  fontSize: 11,
+                  fontWeight: 800,
+                  background:
+                    plan === "pro"
+                      ? "#e0f2fe"
+                      : plan === "pro_plus"
+                        ? "#fef3c7"
+                        : "#f3f4f6",
+                  color:
+                    plan === "pro"
+                      ? "#0369a1"
+                      : plan === "pro_plus"
+                        ? "#92400e"
+                        : "#6b7280",
+                }}
+              >
+                {planLabel}
+              </span>
+            </div>
+
+            <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
+              {email}
+            </div>
           </div>
 
           <button

@@ -2,6 +2,8 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { searchGmail, getGmailMessage } from "@/lib/google/gmail";
 import { emailToPdfBytes } from "@/lib/pdf/emailToPdf";
 import { uploadPdfToDrive } from "@/lib/google/drive";
+import { getRunErrorMessage } from "@/lib/runs/getRunErrorMessage";
+import { normalizeRunErrorCode } from "@/lib/runs/normalizeRunErrorCode";
 
 type ExecuteRuleParams = {
   ruleId: string;
@@ -167,15 +169,22 @@ export async function executeRule(
       errorCode: null,
       message: "Saved 1 PDF to Drive",
     };
-  } catch (e) {
-    const message = e instanceof Error ? e.message : "unknown error";
+  } catch (error) {
+    const errorCode = normalizeRunErrorCode(error);
+    const userFacing = getRunErrorMessage(errorCode);
+
+    const detail = (userFacing.action ?? userFacing.message ?? "").trim();
+
+    const safeMessage = detail
+      ? `${userFacing.title}。${detail}`
+      : userFacing.title;
 
     await supabaseAdmin
       .from("runs")
       .update({
         status: "error",
-        error_code: "EXECUTION_FAILED",
-        message,
+        error_code: errorCode,
+        message: safeMessage,
         finished_at: new Date().toISOString(),
       })
       .eq("id", params.runId);
@@ -185,8 +194,8 @@ export async function executeRule(
       processedCount: 0,
       savedCount: 0,
       skippedCount: 0,
-      errorCode: "EXECUTION_FAILED",
-      message,
+      errorCode,
+      message: safeMessage,
     };
   }
 }

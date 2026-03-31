@@ -101,7 +101,7 @@ const styles = `
   position:sticky;
   top:0;
   z-index:20;
-  background:rgba(247,248,251,0.85);
+  background: color-mix(in srgb, var(--background) 85%, transparent);
   backdrop-filter:saturate(1.2) blur(10px);
   border-bottom:1px solid var(--border);
 }
@@ -121,7 +121,7 @@ const styles = `
   align-items:center;
   gap:10px;
   text-decoration:none;
-  color:var(--text);
+  color:var(--fg);
   font-weight:900;
 }
 
@@ -129,7 +129,7 @@ const styles = `
   width:12px;
   height:12px;
   border-radius:4px;
-  background:var(--primary);
+  background:#0075e8;
   display:inline-block;
 }
 
@@ -151,13 +151,13 @@ const styles = `
 }
 
 .navLink:hover{
-  background:#eef2ff;
-  color:var(--text);
+  background:var(--surface-2);
+  color:var(--fg);
 }
 
 .navActive{
-  background:#eef2ff;
-  color:var(--text);
+  background:var(--surface-2);
+  color:var(--fg);
 }
 
 .right{
@@ -170,7 +170,7 @@ const styles = `
   display:flex;
   align-items:center;
   gap:8px;
-  padding:7px 10px; /* 8px -> 7px */
+  padding:7px 10px;
   border:1px solid var(--border);
   background:var(--surface);
   border-radius:999px;
@@ -181,32 +181,32 @@ const styles = `
   width:8px;
   height:8px;
   border-radius:999px;
-  background:#22c55e;
+  background:var(--ok);
 }
 
 .userEmail{
   font-size:12px;
   font-weight:800;
-  color:var(--text);
+  color:var(--fg);
   overflow:hidden;
   text-overflow:ellipsis;
   white-space:nowrap;
 }
 
 .btnGhost{
-  padding:6px 10px;          /* 小さく */
-  border-radius:999px;       /* 半円 */
+  padding:6px 10px;
+  border-radius:999px;
   border:1px solid var(--border);
   background:var(--surface);
-  color:var(--muted);        /* 目立ちすぎ防止 */
+  color:var(--muted);
   font-weight:900;
   font-size:12px;
   cursor:pointer;
 }
 
 .btnGhost:hover{
-  background:#f3f4f6;
-  color:var(--text);
+  background:var(--surface-2);
+  color:var(--fg);
 }
 
 .menuBtn{
@@ -217,6 +217,7 @@ const styles = `
   background:var(--surface);
   cursor:pointer;
   font-weight:900;
+  color:var(--fg);
 }
 
 .navMobile{
@@ -232,20 +233,20 @@ const styles = `
   padding:10px 12px;
   border-radius:12px;
   text-decoration:none;
-  color:var(--text);
+  color:var(--fg);
   font-weight:900;
 }
 
-.navMobileLink:hover{ background:#f3f4f6; }
+.navMobileLink:hover{ background:var(--surface-2); }
 
 .navMobileBtn{
   width:100%;
   margin-top:8px;
   padding:10px 12px;
   border-radius:12px;
-  border:1px solid #fecaca;
-  background:#fff1f2;
-  color:#b91c1c;
+  border:1px solid rgba(239,68,68,0.3);
+  background:rgba(239,68,68,0.08);
+  color:#ef4444;
   font-weight:900;
   cursor:pointer;
 }

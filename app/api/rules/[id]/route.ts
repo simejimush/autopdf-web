@@ -38,6 +38,7 @@ export async function PATCH(
   // 更新を許可するフィールドだけ拾う（安全）
   const update: any = {};
   if ("drive_folder_id" in body) update.drive_folder_id = body.drive_folder_id;
+  if ("query_label" in body) update.query_label = body.query_label;
   if ("subject_keywords" in body)
     update.subject_keywords = body.subject_keywords;
   if ("gmail_query" in body) update.gmail_query = body.gmail_query; // ★復活
@@ -129,4 +130,23 @@ export async function PATCH(
   if (error || !data) return jsonError("Failed to update rule", 500, error);
 
   return NextResponse.json({ data }, { status: 200 });
+}
+export async function DELETE(
+  _req: Request,
+  ctx: { params: Promise<{ id: string }> },
+) {
+  const { id } = await ctx.params;
+
+  if (!id) return jsonError("id is required", 400);
+
+  const { data, error } = await supabaseAdmin
+    .from("rules")
+    .delete()
+    .eq("id", id)
+    .select("id")
+    .single();
+
+  if (error || !data) return jsonError("Failed to delete rule", 500, error);
+
+  return NextResponse.json({ ok: true, deletedId: data.id }, { status: 200 });
 }

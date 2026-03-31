@@ -50,7 +50,6 @@ export function StatusSummaryCard(props: { summary: DashboardSummary }) {
         border: "1px solid rgba(0,0,0,0.10)",
         background: "white",
         padding: 16,
-        boxShadow: "0 10px 30px rgba(0,0,0,0.06)",
       }}
     >
       <div

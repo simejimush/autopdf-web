@@ -163,14 +163,7 @@ export default function DashboardPage() {
                       </div>
                     </div>
 
-                    <button
-                      className="btnMini"
-                      onClick={() =>
-                        alert("ここは後で「Driveを開く」などにする")
-                      }
-                    >
-                      詳細
-                    </button>
+                    <button className="btnMini">詳細</button>
                   </div>
                 ))}
               </div>

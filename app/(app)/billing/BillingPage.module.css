@@ -1,0 +1,204 @@
+.page {
+  min-height: 100%;
+}
+
+.container {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.h1 {
+  margin: 0;
+  font-size: 32px;
+  line-height: 1.2;
+  color: #0f172a;
+}
+
+.sub {
+  margin: 8px 0 0;
+  color: #64748b;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1.05fr 0.95fr;
+  gap: 18px;
+}
+
+.currentCard,
+.planCard {
+  border-radius: 20px;
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.sectionTitle {
+  font-size: 18px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.metaList {
+  display: grid;
+  gap: 12px;
+}
+
+.metaRow {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+.metaKey {
+  font-size: 13px;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.metaVal {
+  font-size: 14px;
+  color: #0f172a;
+  line-height: 1.6;
+}
+
+.notice {
+  margin-top: 18px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: #f8fafc;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  color: #334155;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.planEyebrow {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: #e0f2fe;
+  color: #0369a1;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.planName {
+  margin-top: 14px;
+  font-size: 24px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.planPrice {
+  margin-top: 6px;
+  font-size: 30px;
+  font-weight: 900;
+  color: #0f172a;
+}
+
+.planList {
+  margin: 18px 0 0;
+  padding-left: 20px;
+  color: #334155;
+  font-size: 14px;
+  line-height: 1.9;
+}
+
+.planActions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.primaryBtn {
+  width: 100%;
+}
+
+.backLink {
+  display: block;
+}
+
+.backLink :global(button) {
+  width: 100%;
+}
+
+.helpText {
+  margin: 12px 0 0;
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.6;
+}
+
+.error {
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(248, 113, 113, 0.28);
+  background: #fff1f2;
+}
+
+.errorTitle {
+  font-size: 13px;
+  font-weight: 800;
+  color: #b91c1c;
+}
+
+.errorMsg {
+  margin-top: 4px;
+  font-size: 13px;
+  color: #7f1d1d;
+  line-height: 1.6;
+}
+
+.checkoutBlock {
+  width: 100%;
+}
+
+.checkoutError {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #b91c1c;
+  line-height: 1.5;
+}
+
+@media (max-width: 860px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .container {
+    padding: 16px;
+  }
+
+  .h1 {
+    font-size: 28px;
+  }
+
+  .metaRow {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}

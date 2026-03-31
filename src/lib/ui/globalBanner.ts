@@ -72,7 +72,9 @@ export function buildGlobalBanner(input: Input): GlobalBanner | null {
     pathname,
   } = input;
 
-  // 1) Google未接続は最優先で赤
+  const isRulesPage = !!pathname?.startsWith("/rules");
+
+  // 1) Google未接続は最優先
   if (!isGoogleConnected) {
     return {
       variant: "error",
@@ -83,12 +85,7 @@ export function buildGlobalBanner(input: Input): GlobalBanner | null {
     };
   }
 
-  // 2) 直近エラーがあるなら赤
-  if (lastRunStatus === "error") {
-    return { variant: "error", ...errorCopy(lastRunErrorCode, lastRunMessage) };
-  }
-
-  // 3) 有効ルールが0なら黄
+  // 2) 有効ルールなし
   if (activeRuleCount === 0) {
     return {
       variant: "warning",
@@ -99,7 +96,26 @@ export function buildGlobalBanner(input: Input): GlobalBanner | null {
     };
   }
 
-  // 4) まだ一度も実行してないなら黄
+  // 3) 実行エラー
+  if (lastRunStatus === "error") {
+    return {
+      variant: "error",
+      ...errorCopy(lastRunErrorCode, lastRunMessage),
+    };
+  }
+
+  // 4) 実行中
+  if (lastRunStatus === "running") {
+    return {
+      variant: "info",
+      title: "自動保存を実行中です",
+      body: "処理が完了すると最新状態に更新されます。",
+      ctaLabel: "ルールへ",
+      ctaHref: "/rules",
+    };
+  }
+
+  // 5) まだ一度も実行していない
   if (!lastRunStatus) {
     return {
       variant: "warning",
@@ -110,9 +126,18 @@ export function buildGlobalBanner(input: Input): GlobalBanner | null {
     };
   }
 
-  // 5) successはページでミニ化（/rulesでは本文・ボタン無し）
-  const isRulesPage = !!pathname?.startsWith("/rules");
+  // 6) skipped
+  if (lastRunStatus === "skipped") {
+    return {
+      variant: "info",
+      title: "今回は保存対象がありませんでした",
+      body: "条件に一致するメールが無い場合は正常にスキップされます。",
+      ctaLabel: "ルールへ",
+      ctaHref: "/rules",
+    };
+  }
 
+  // 7) success
   if (isRulesPage) {
     return {
       variant: "success",
@@ -120,7 +145,6 @@ export function buildGlobalBanner(input: Input): GlobalBanner | null {
     };
   }
 
-  // 6) 基本の成功バナー
   return {
     variant: "success",
     title: "自動保存は正常です",

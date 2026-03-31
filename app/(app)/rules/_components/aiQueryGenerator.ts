@@ -328,8 +328,15 @@ function buildSubjectQuery(normalizedText: string) {
     return `subject:(${explicitKeyword})`;
   }
 
-  if (hasAny(normalizedText, ["注文確認", "注文確認メール"])) {
-    return "subject:(注文確認)";
+  if (
+    hasAny(normalizedText, [
+      "注文確認",
+      "注文確認メール",
+      "order confirmation",
+      "order confirmed",
+    ])
+  ) {
+    return 'subject:(注文確認 OR "order confirmation" OR "order confirmed")';
   }
 
   if (hasAny(normalizedText, ["利用明細", "ご利用明細"])) {
