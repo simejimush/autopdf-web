@@ -14,12 +14,7 @@ export default function RuleItemClient({
 
   return (
     <>
-      <RunButton
-        ruleId={rule.id}
-        disabled={disabled ?? false}
-        onStart={() => setRunning(true)}
-        onFinish={() => setRunning(false)}
-      />
+      <RunButton ruleId={rule.id} disabled={disabled ?? false} />
     </>
   );
 }
