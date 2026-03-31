@@ -4,6 +4,32 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+type RunHistoryRow = {
+  id: string;
+  status: string | null;
+  trigger: string | null;
+  message: string | null;
+  error_code: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  processed_count: number | null;
+  saved_count: number | null;
+  skipped_count: number | null;
+};
+
+type LatestRunRow = {
+  rule_id: string;
+  status: string | null;
+  trigger: string | null;
+  message: string | null;
+  error_code: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  processed_count: number | null;
+  saved_count: number | null;
+  skipped_count: number | null;
+};
+
 export async function GET(req: NextRequest) {
   const ruleId = req.nextUrl.searchParams.get("ruleId")?.trim();
 
@@ -42,7 +68,11 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    return NextResponse.json({ items: data ?? [] }, { status: 200 });
+    const items: RunHistoryRow[] = Array.isArray(data)
+      ? (data as RunHistoryRow[])
+      : [];
+
+    return NextResponse.json({ items }, { status: 200 });
   }
 
   // =========================
@@ -71,6 +101,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  const rows: LatestRunRow[] = Array.isArray(data)
+    ? (data as LatestRunRow[])
+    : [];
+
   const latestByRule: Record<
     string,
     {
@@ -86,7 +120,7 @@ export async function GET(req: NextRequest) {
     }
   > = {};
 
-  for (const r of data ?? []) {
+  for (const r of rows) {
     if (!latestByRule[r.rule_id]) {
       latestByRule[r.rule_id] = {
         status: r.status ?? null,
