@@ -597,7 +597,10 @@ export default async function RulesPage({
                   </details>
 
                   <div className={styles.cardFooter}>
-                    <DeleteButton ruleId={r.id} />
+                    <DeleteButton
+                      ruleId={r.id}
+                      ruleName={displayLabel ?? `${index + 1}.`}
+                    />
                   </div>
                 </CardPad>
               );
