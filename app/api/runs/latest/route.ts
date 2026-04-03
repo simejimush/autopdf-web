@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -82,7 +83,27 @@ function toLatestRunRows(value: unknown): LatestRunRow[] {
     .filter((row) => row.rule_id !== "");
 }
 
+async function requireUser() {
+  const supabase = await createSupabaseServerClient();
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser();
+
+  if (error || !user) {
+    return {
+      user: null,
+      error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
+    };
+  }
+
+  return { user, error: null };
+}
+
 export async function GET(req: NextRequest) {
+  const { user, error: authError } = await requireUser();
+  if (authError || !user) return authError;
+
   const ruleId = req.nextUrl.searchParams.get("ruleId")?.trim();
 
   // =========================
@@ -91,6 +112,17 @@ export async function GET(req: NextRequest) {
   if (ruleId) {
     if (!UUID_RE.test(ruleId)) {
       return NextResponse.json({ error: "Invalid ruleId" }, { status: 400 });
+    }
+
+    const { data: rule, error: ruleError } = await supabaseAdmin
+      .from("rules")
+      .select("id")
+      .eq("id", ruleId)
+      .eq("user_id", user.id)
+      .single();
+
+    if (ruleError || !rule) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
     const { data, error } = await supabaseAdmin
@@ -109,6 +141,7 @@ export async function GET(req: NextRequest) {
           "skipped_count",
         ].join(","),
       )
+      .eq("user_id", user.id)
       .eq("rule_id", ruleId)
       .order("started_at", { ascending: false })
       .limit(5);
@@ -144,6 +177,7 @@ export async function GET(req: NextRequest) {
         "skipped_count",
       ].join(","),
     )
+    .eq("user_id", user.id)
     .order("started_at", { ascending: false })
     .limit(500);
 

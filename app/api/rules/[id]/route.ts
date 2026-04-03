@@ -1,9 +1,27 @@
 // app/api/rules/[id]/route.ts
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function jsonError(message: string, status = 500, details?: unknown) {
   return NextResponse.json({ error: message, details }, { status });
+}
+
+async function requireUser() {
+  const supabase = await createSupabaseServerClient();
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser();
+
+  if (error || !user) {
+    return { user: null, error: jsonError("Unauthorized", 401) };
+  }
+
+  return { user, error: null };
 }
 
 export async function GET(
@@ -13,14 +31,21 @@ export async function GET(
   const { id } = await ctx.params;
 
   if (!id) return jsonError("id is required", 400);
+  if (!UUID_RE.test(id)) return jsonError("Invalid id", 400);
+
+  const { user, error: authError } = await requireUser();
+  if (authError || !user) return authError!;
 
   const { data, error } = await supabaseAdmin
     .from("rules")
     .select("*")
     .eq("id", id)
+    .eq("user_id", user.id)
     .single();
 
-  if (error || !data) return jsonError("Rule not found", 404, error);
+  if (error || !data) {
+    return jsonError("Rule not found", 404);
+  }
 
   return NextResponse.json({ data }, { status: 200 });
 }
@@ -32,34 +57,36 @@ export async function PATCH(
   const { id } = await ctx.params;
 
   if (!id) return jsonError("id is required", 400);
+  if (!UUID_RE.test(id)) return jsonError("Invalid id", 400);
 
-  const body = await req.json().catch(() => ({}) as any);
+  const { user, error: authError } = await requireUser();
+  if (authError || !user) return authError!;
 
-  // 更新を許可するフィールドだけ拾う（安全）
-  const update: any = {};
+  const body = await req.json().catch(() => ({}));
+
+  const update: Record<string, unknown> = {};
   if ("drive_folder_id" in body) update.drive_folder_id = body.drive_folder_id;
   if ("query_label" in body) update.query_label = body.query_label;
   if ("subject_keywords" in body)
     update.subject_keywords = body.subject_keywords;
-  if ("gmail_query" in body) update.gmail_query = body.gmail_query; // ★復活
-  if ("gmail_label_id" in body) update.gmail_label_id = body.gmail_label_id; // ★追加
+  if ("gmail_query" in body) update.gmail_query = body.gmail_query;
+  if ("gmail_label_id" in body) update.gmail_label_id = body.gmail_label_id;
   if ("is_active" in body) update.is_active = body.is_active;
   if ("run_timing" in body) update.run_timing = body.run_timing;
 
-  // 現在のDB状態を取得して、今回の更新とマージして「有効判定」する
   const { data: current, error: currentErr } = await supabaseAdmin
     .from("rules")
     .select(
-      "id, is_active, drive_folder_id, gmail_query, gmail_label_id, subject_keywords",
+      "id, user_id, is_active, drive_folder_id, gmail_query, gmail_label_id, subject_keywords",
     )
     .eq("id", id)
+    .eq("user_id", user.id)
     .single();
 
   if (currentErr || !current) {
-    return jsonError("Failed to load current rule", 500, currentErr);
+    return jsonError("Rule not found", 404);
   }
 
-  // マージ後の値（今回送られてこない項目は current を使う）
   const merged = {
     drive_folder_id:
       "drive_folder_id" in update
@@ -77,7 +104,6 @@ export async function PATCH(
         : current.subject_keywords,
   };
 
-  // subject_keywords を配列に正規化（textでもarrayでもOKにする）
   const normalizedKeywords: string[] = Array.isArray(merged.subject_keywords)
     ? merged.subject_keywords
         .map(String)
@@ -90,7 +116,6 @@ export async function PATCH(
           .filter(Boolean)
       : [];
 
-  // 「検索条件があるか」判定（gmail_query / gmail_label_id / subject_keywords のどれか）
   const hasQuery =
     (typeof merged.gmail_query === "string" &&
       merged.gmail_query.trim().length > 0) ||
@@ -98,7 +123,6 @@ export async function PATCH(
       merged.gmail_label_id.trim().length > 0) ||
     normalizedKeywords.length > 0;
 
-  // body から subject_keywords が来てて、型が文字列だったら update 側も配列に揃える
   if (
     "subject_keywords" in update &&
     typeof update.subject_keywords === "string"
@@ -106,7 +130,6 @@ export async function PATCH(
     update.subject_keywords = normalizedKeywords;
   }
 
-  // 未設定なら強制OFF（ただし is_active を明示指定してるならそれを尊重）
   if (!("is_active" in body)) {
     if (!hasQuery || !merged.drive_folder_id) {
       update.is_active = false;
@@ -115,7 +138,6 @@ export async function PATCH(
     }
   }
 
-  // 何も更新が無いなら 400
   if (Object.keys(update).length === 0) {
     return jsonError("No updatable fields provided", 400);
   }
@@ -124,13 +146,17 @@ export async function PATCH(
     .from("rules")
     .update(update)
     .eq("id", id)
+    .eq("user_id", user.id)
     .select("*")
     .single();
 
-  if (error || !data) return jsonError("Failed to update rule", 500, error);
+  if (error || !data) {
+    return jsonError("Failed to update rule", 500, error);
+  }
 
   return NextResponse.json({ data }, { status: 200 });
 }
+
 export async function DELETE(
   _req: Request,
   ctx: { params: Promise<{ id: string }> },
@@ -138,15 +164,22 @@ export async function DELETE(
   const { id } = await ctx.params;
 
   if (!id) return jsonError("id is required", 400);
+  if (!UUID_RE.test(id)) return jsonError("Invalid id", 400);
+
+  const { user, error: authError } = await requireUser();
+  if (authError || !user) return authError!;
 
   const { data, error } = await supabaseAdmin
     .from("rules")
     .delete()
     .eq("id", id)
+    .eq("user_id", user.id)
     .select("id")
     .single();
 
-  if (error || !data) return jsonError("Failed to delete rule", 500, error);
+  if (error || !data) {
+    return jsonError("Failed to delete rule", 404);
+  }
 
   return NextResponse.json({ ok: true, deletedId: data.id }, { status: 200 });
 }

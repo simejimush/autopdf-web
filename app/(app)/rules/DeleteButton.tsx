@@ -17,17 +17,21 @@ export default function DeleteButton({ ruleId, ruleName }: Props) {
   async function handleDelete() {
     setLoading(true);
 
-    const res = await fetch(`/api/rules/${ruleId}`, {
-      method: "DELETE",
-    });
+    try {
+      const res = await fetch(`/api/rules/${ruleId}`, {
+        method: "DELETE",
+      });
 
-    setLoading(false);
-
-    if (res.ok) {
-      router.refresh();
-      setOpen(false);
-    } else {
-      toast.error("削除に失敗しました");
+      if (res.ok) {
+        router.refresh();
+        setOpen(false);
+      } else {
+        toast.error("削除に失敗しました");
+      }
+    } catch (e) {
+      toast.error("通信エラーが発生しました");
+    } finally {
+      setLoading(false);
     }
   }
 
