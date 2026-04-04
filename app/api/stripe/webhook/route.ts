@@ -8,6 +8,39 @@ function jsonError(message: string, status = 500, details?: unknown) {
   return NextResponse.json({ error: message, details }, { status });
 }
 
+function toIsoFromUnix(value?: number | null) {
+  if (!value) return null;
+  return new Date(value * 1000).toISOString();
+}
+
+function getCurrentPeriodEndIso(subscription: Stripe.Subscription) {
+  const fromItem = subscription.items.data[0]?.current_period_end;
+  if (typeof fromItem === "number") {
+    return toIsoFromUnix(fromItem);
+  }
+  return null;
+}
+
+function resolvePlan(
+  billingStatus?: string | null,
+  currentPeriodEnd?: string | null,
+) {
+  if (!billingStatus) return "free";
+
+  if (billingStatus === "active" || billingStatus === "trialing") {
+    return "pro";
+  }
+
+  if (billingStatus === "canceled" && currentPeriodEnd) {
+    const endMs = new Date(currentPeriodEnd).getTime();
+    if (!Number.isNaN(endMs) && endMs > Date.now()) {
+      return "pro";
+    }
+  }
+
+  return "free";
+}
+
 export async function POST(req: NextRequest) {
   const secretKey = process.env.STRIPE_SECRET_KEY;
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -43,24 +76,37 @@ export async function POST(req: NextRequest) {
       const metadata = session.metadata ?? {};
       const userId =
         typeof metadata.user_id === "string" ? metadata.user_id : null;
-      const plan = metadata.plan === "pro" ? "pro" : "free";
 
       if (!userId) {
         return NextResponse.json({ received: true }, { status: 200 });
       }
+
+      const customerId =
+        typeof session.customer === "string" ? session.customer : null;
+      const subscriptionId =
+        typeof session.subscription === "string" ? session.subscription : null;
+
+      let billingStatus: string | null = "active";
+      let currentPeriodEnd: string | null = null;
+
+      if (subscriptionId) {
+        const subscription =
+          await stripe.subscriptions.retrieve(subscriptionId);
+        billingStatus = subscription.status;
+        currentPeriodEnd = getCurrentPeriodEndIso(subscription);
+      }
+
+      const plan = resolvePlan(billingStatus, currentPeriodEnd);
 
       const { error } = await supabaseAdmin
         .from("user_profiles")
         .update({
           plan,
           billing_provider: "stripe",
-          billing_customer_id:
-            typeof session.customer === "string" ? session.customer : null,
-          billing_subscription_id:
-            typeof session.subscription === "string"
-              ? session.subscription
-              : null,
-          billing_status: "active",
+          billing_customer_id: customerId,
+          billing_subscription_id: subscriptionId,
+          billing_status: billingStatus,
+          current_period_end: currentPeriodEnd,
           plan_updated_at: new Date().toISOString(),
         })
         .eq("user_id", userId);
@@ -81,17 +127,13 @@ export async function POST(req: NextRequest) {
           ? subscription.customer
           : null;
 
-      const billingStatus = subscription.status;
-      const plan =
-        billingStatus === "active" || billingStatus === "trialing"
-          ? "pro"
-          : "free";
+      if (!customerId) {
+        return NextResponse.json({ received: true }, { status: 200 });
+      }
 
-      const currentPeriodEnd = subscription.items.data[0]?.current_period_end
-        ? new Date(
-            subscription.items.data[0].current_period_end * 1000,
-          ).toISOString()
-        : null;
+      const billingStatus = subscription.status;
+      const currentPeriodEnd = getCurrentPeriodEndIso(subscription);
+      const plan = resolvePlan(billingStatus, currentPeriodEnd);
 
       const { error } = await supabaseAdmin
         .from("user_profiles")
