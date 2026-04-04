@@ -60,7 +60,7 @@ export default async function SettingsPage() {
   const displayName = profile?.display_name || "未設定";
 
   // ✅ ここ追加
-  const planLabel = getPlanLabel(profile?.plan);
+  const planLabel = getPlanLabel(profile?.plan ?? undefined);
   const isPro = profile?.plan === "pro";
 
   return (
