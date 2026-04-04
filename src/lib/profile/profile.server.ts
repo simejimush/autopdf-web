@@ -11,16 +11,6 @@ export type UserProfile = {
   plan: "free" | "pro" | "pro_plus" | null;
 };
 
-export type UserProfile = {
-  user_id: string;
-  display_name: string | null;
-  company_name: string | null;
-  industry: string | null;
-  employee_size: string | null;
-  marketing_opt_in: boolean;
-  plan: string; // ← 追加
-};
-
 export async function getOrCreateMyProfile(): Promise<
   UserProfile & { email: string | null }
 > {
