@@ -133,6 +133,12 @@ export async function POST(req: NextRequest) {
 
       const billingStatus = subscription.status;
       const currentPeriodEnd = getCurrentPeriodEndIso(subscription);
+      console.log("STRIPE SUBSCRIPTION RAW", {
+        subscriptionId: subscription.id,
+        status: subscription.status,
+        items: subscription.items.data,
+        currentPeriodEnd,
+      });
       const plan = resolvePlan(billingStatus, currentPeriodEnd);
 
       const { error } = await supabaseAdmin
