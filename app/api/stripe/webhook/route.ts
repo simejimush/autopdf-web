@@ -14,11 +14,7 @@ function toIsoFromUnix(value?: number | null) {
 }
 
 function getCurrentPeriodEndIso(subscription: Stripe.Subscription) {
-  const fromItem = subscription.items.data[0]?.current_period_end;
-  if (typeof fromItem === "number") {
-    return toIsoFromUnix(fromItem);
-  }
-  return null;
+  return toIsoFromUnix(subscription.current_period_end);
 }
 
 function resolvePlan(
