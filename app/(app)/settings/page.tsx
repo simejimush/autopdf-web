@@ -19,6 +19,12 @@ function formatDateTime(value?: string | null) {
   }).format(d);
 }
 
+function getPlanLabel(plan?: string) {
+  if (!plan) return "Free";
+  if (plan === "pro") return "Pro";
+  return "Free";
+}
+
 export default async function SettingsPage() {
   const supabase = await createSupabaseServerClient();
 
@@ -49,9 +55,13 @@ export default async function SettingsPage() {
   const googleEmail = isGoogleConnected ? "接続済み" : "未接続";
   const verifiedAt = formatDateTime(googleConnection?.last_verified_at);
   const updatedAt = formatDateTime(googleConnection?.updated_at);
-  const profile = await getMyProfileAction();
 
+  const profile = await getMyProfileAction();
   const displayName = profile?.display_name || "未設定";
+
+  // ✅ ここ追加
+  const planLabel = getPlanLabel(profile?.plan);
+  const isPro = profile?.plan === "pro";
 
   return (
     <main className={styles.page}>
@@ -66,6 +76,7 @@ export default async function SettingsPage() {
         </section>
 
         <div className={styles.grid}>
+          {/* Google連携 */}
           <section className={styles.card}>
             <div className={styles.cardHeader}>
               <div>
@@ -141,6 +152,7 @@ export default async function SettingsPage() {
             )}
           </section>
 
+          {/* アカウント */}
           <section className={styles.card}>
             <div className={styles.cardHeader}>
               <div>
@@ -178,6 +190,7 @@ export default async function SettingsPage() {
             </p>
           </section>
 
+          {/* 通知設定 */}
           <section className={styles.card}>
             <div className={styles.cardHeader}>
               <div>
@@ -197,6 +210,7 @@ export default async function SettingsPage() {
             </p>
           </section>
 
+          {/* ✅ プラン・請求 */}
           <section className={styles.card}>
             <div className={styles.cardHeader}>
               <div>
@@ -205,14 +219,25 @@ export default async function SettingsPage() {
                   契約プランや支払い情報の確認用エリアです。
                 </p>
               </div>
-
-              <span className={`${styles.badge} ${styles.badgeMuted}`}>
-                準備中
-              </span>
             </div>
 
-            <p className={styles.placeholderText}>
-              将来のマイページ機能に合わせて追加します。
+            <dl className={styles.infoList}>
+              <div className={styles.infoRow}>
+                <dt className={styles.label}>現在のプラン</dt>
+                <dd className={styles.value}>{planLabel}</dd>
+              </div>
+            </dl>
+
+            <div className={styles.actions}>
+              <Link href="/billing" className={styles.primaryBtn}>
+                プランを変更する
+              </Link>
+            </div>
+
+            <p className={styles.note}>
+              {profile?.plan === "pro"
+                ? "現在はProプランをご利用中です。解約や変更はこのボタンから確認できます。"
+                : "プラン変更や請求情報の確認はこのボタンから行えます。"}
             </p>
           </section>
         </div>

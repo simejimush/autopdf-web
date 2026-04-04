@@ -3,7 +3,6 @@ import Stripe from "stripe";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const secretKey = process.env.STRIPE_SECRET_KEY;
-const priceId = process.env.STRIPE_PRICE_ID_PRO;
 const appUrl = process.env.NEXT_PUBLIC_APP_URL;
 
 export async function POST() {
@@ -11,13 +10,6 @@ export async function POST() {
     if (!secretKey) {
       return NextResponse.json(
         { error: "STRIPE_SECRET_KEY is not set" },
-        { status: 500 },
-      );
-    }
-
-    if (!priceId) {
-      return NextResponse.json(
-        { error: "STRIPE_PRICE_ID_PRO is not set" },
         { status: 500 },
       );
     }
@@ -39,59 +31,30 @@ export async function POST() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // 👇 追加
     const { data: profile, error: profileErr } = await supabase
       .from("user_profiles")
-      .select("plan")
+      .select("billing_customer_id")
       .eq("user_id", user.id)
       .single();
 
-    if (profileErr) {
+    if (profileErr || !profile?.billing_customer_id) {
       return NextResponse.json(
-        { error: "Failed to load profile" },
-        { status: 500 },
-      );
-    }
-
-    const plan = profile?.plan ?? "free";
-
-    if (plan === "pro" || plan === "pro_plus") {
-      return NextResponse.json(
-        { error: "Already subscribed to a paid plan" },
+        { error: "Customer not found" },
         { status: 400 },
       );
     }
 
     const stripe = new Stripe(secretKey);
 
-    const session = await stripe.checkout.sessions.create({
-      mode: "subscription",
-      line_items: [
-        {
-          price: priceId,
-          quantity: 1,
-        },
-      ],
-      success_url: `${appUrl}/billing/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${appUrl}/billing/cancel`,
-      client_reference_id: user.id,
-      metadata: {
-        user_id: user.id,
-        plan: "pro",
-      },
+    const session = await stripe.billingPortal.sessions.create({
+      customer: profile.billing_customer_id,
+      return_url: `${appUrl}/billing`,
     });
-
-    if (!session.url) {
-      return NextResponse.json(
-        { error: "Failed to create checkout url" },
-        { status: 500 },
-      );
-    }
 
     return NextResponse.json({ url: session.url }, { status: 200 });
   } catch (error) {
     return NextResponse.json(
-      { error: "Failed to create Stripe checkout session", details: error },
+      { error: "Failed to create portal session", details: error },
       { status: 500 },
     );
   }

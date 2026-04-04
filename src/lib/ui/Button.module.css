@@ -63,12 +63,11 @@
 }
 
 .button[data-variant="outline"] {
-  background: #262626;
-  color: #111827;
-  border-color: rgba(17, 24, 39, 0.22);
+  background: #0ac5b2;
+  color: #ffffff;
 }
 .button[data-variant="outline"]:hover {
-  background: rgba(17, 24, 39, 0.04);
+  background: rgb(17 24 39 / 25%);
 }
 
 .button[data-variant="ghost"] {

@@ -1,4 +1,3 @@
-// autopdf-web/src/lib/profile/profile.server.ts
 import "server-only";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -9,6 +8,17 @@ export type UserProfile = {
   industry: string | null;
   employee_size: string | null;
   marketing_opt_in: boolean;
+  plan: "free" | "pro" | "pro_plus" | null;
+};
+
+export type UserProfile = {
+  user_id: string;
+  display_name: string | null;
+  company_name: string | null;
+  industry: string | null;
+  employee_size: string | null;
+  marketing_opt_in: boolean;
+  plan: string; // ← 追加
 };
 
 export async function getOrCreateMyProfile(): Promise<
@@ -35,7 +45,8 @@ export async function getOrCreateMyProfile(): Promise<
       company_name,
       industry,
       employee_size,
-      marketing_opt_in
+      marketing_opt_in,
+      plan
     `,
     )
     .eq("user_id", user.id)
@@ -66,7 +77,8 @@ export async function getOrCreateMyProfile(): Promise<
       company_name,
       industry,
       employee_size,
-      marketing_opt_in
+      marketing_opt_in,
+      plan
     `,
     )
     .eq("user_id", user.id)
@@ -106,7 +118,8 @@ export async function updateMyProfile(input: {
       company_name,
       industry,
       employee_size,
-      marketing_opt_in
+      marketing_opt_in,
+      plan
     `,
     )
     .single();

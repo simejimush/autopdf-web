@@ -14,13 +14,32 @@ export default function AppTopbar() {
   const router = useRouter();
   const [user, setUser] = useState<UserLite>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [plan, setPlan] = useState<"free" | "pro" | "pro_plus">("free");
 
   useEffect(() => {
     let cancelled = false;
-    supabase.auth.getUser().then(({ data }) => {
+
+    const load = async () => {
+      // user取得
+      const { data } = await supabase.auth.getUser();
       if (cancelled) return;
+
       setUser(data.user ? { email: data.user.email } : null);
-    });
+
+      // 👇 追加：profile取得
+      try {
+        const profile = await getMyProfileAction();
+        if (!cancelled && profile?.plan) {
+          setPlan(profile.plan);
+        }
+      } catch (e) {
+        // 失敗してもUI壊さない（Quality Rules）
+        console.error("failed to load profile", e);
+      }
+    };
+
+    load();
+
     return () => {
       cancelled = true;
     };
@@ -61,7 +80,9 @@ export default function AppTopbar() {
 
         <div className="right">
           <ProfileMenu />
-
+          <div className="planBadge">
+            {plan === "pro" ? "Pro" : plan === "pro_plus" ? "Pro+" : "Free"}
+          </div>
           <button
             className="menuBtn"
             onClick={() => setMenuOpen((v) => !v)}
@@ -249,6 +270,14 @@ const styles = `
   color:#ef4444;
   font-weight:900;
   cursor:pointer;
+}
+  .planBadge {
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 900;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
 }
 
 @media (max-width: 900px){

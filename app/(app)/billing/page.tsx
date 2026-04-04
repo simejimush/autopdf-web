@@ -1,4 +1,3 @@
-// app/(app)/billing/page.tsx
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import Link from "next/link";
@@ -6,6 +5,7 @@ import Link from "next/link";
 import styles from "./BillingPage.module.css";
 import { Button } from "@/lib/ui/Button";
 import CheckoutButton from "./_components/CheckoutButton";
+import PortalButton from "./_components/PortalButton";
 import { Badge, CardPad } from "@/lib/ui";
 
 type BillingResponse = {
@@ -13,6 +13,7 @@ type BillingResponse = {
   billing_provider?: string | null;
   billing_status?: string | null;
   current_period_end?: string | null;
+  cancel_at_period_end?: boolean;
   error?: string;
 };
 
@@ -88,8 +89,13 @@ export default async function BillingPage() {
   const billingProvider = json.billing_provider ?? null;
   const billingStatus = json.billing_status ?? null;
   const currentPeriodEnd = json.current_period_end ?? null;
+  const cancelAtPeriodEnd = json.cancel_at_period_end ?? false;
 
-  const isPro = plan === "pro";
+  const isPaid =
+    plan === "pro" ||
+    plan === "pro_plus" ||
+    billingStatus === "active" ||
+    billingStatus === "trialing";
 
   return (
     <div className={styles.page}>
@@ -98,7 +104,7 @@ export default async function BillingPage() {
           <div>
             <h1 className={styles.h1}>プラン / 請求</h1>
             <p className={styles.sub}>
-              現在のプラン確認と、Proプランへのアップグレードを行います。
+              現在のプラン確認と、プラン管理を行います。
             </p>
           </div>
         </div>
@@ -114,7 +120,7 @@ export default async function BillingPage() {
           <CardPad className={styles.currentCard}>
             <div className={styles.sectionHeader}>
               <div className={styles.sectionTitle}>現在の契約状態</div>
-              <Badge tone={isPro ? "ok" : "muted"} dot>
+              <Badge tone={isPaid ? "ok" : "muted"} dot>
                 {formatPlanLabel(plan)}
               </Badge>
             </div>
@@ -148,10 +154,59 @@ export default async function BillingPage() {
             </div>
 
             <div className={styles.notice}>
-              {isPro
-                ? "現在はProプランです。ルール数は無制限です。"
-                : "現在はFreeプランです。ルールは3件まで作成できます。"}
+              {billingStatus === "active" &&
+              cancelAtPeriodEnd &&
+              currentPeriodEnd ? (
+                <span className={styles.noticeSub}>
+                  {formatDate(currentPeriodEnd)} まで利用可能です
+                </span>
+              ) : billingStatus === "active" ? (
+                <>
+                  <strong>現在は有料プランをご利用中です。</strong>
+                  {currentPeriodEnd ? (
+                    <span className={styles.noticeSub}>
+                      次回更新日：{formatDate(currentPeriodEnd)}
+                    </span>
+                  ) : null}
+                </>
+              ) : billingStatus === "canceled" ? (
+                currentPeriodEnd ? (
+                  <span className={styles.noticeSub}>
+                    {formatDate(currentPeriodEnd)} まで利用可能です
+                  </span>
+                ) : (
+                  <strong>サブスクリプションは解約済みです。</strong>
+                )
+              ) : billingStatus === "past_due" ? (
+                <>
+                  <strong>お支払いに問題があります。</strong>
+                  <span className={styles.noticeSub}>
+                    カード情報を確認してください
+                  </span>
+                </>
+              ) : !billingStatus && !isPaid ? (
+                <>
+                  <strong>現在はFreeプランです。</strong>
+                  <span className={styles.noticeSub}>
+                    ルールは3件まで作成できます
+                  </span>
+                </>
+              ) : (
+                <>
+                  <strong>契約状態を確認してください。</strong>
+                  <span className={styles.noticeSub}>
+                    現在の状態: {formatBillingStatus(billingStatus)}
+                  </span>
+                </>
+              )}
             </div>
+
+            {/* 👇 Proのときだけ左カードに表示 */}
+            {isPaid && (
+              <div className={styles.portalWrap}>
+                <PortalButton className={styles.portalButton} />
+              </div>
+            )}
           </CardPad>
 
           <CardPad className={styles.planCard}>
@@ -167,7 +222,8 @@ export default async function BillingPage() {
             </ul>
 
             <div className={styles.planActions}>
-              <CheckoutButton />
+              {/* 👇 FreeのときだけCheckout */}
+              {!isPaid && <CheckoutButton />}
 
               <Link href="/rules" className={styles.backLink}>
                 <Button variant="outline" size="md">

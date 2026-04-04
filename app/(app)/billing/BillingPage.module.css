@@ -182,6 +182,48 @@
   line-height: 1.5;
 }
 
+.portalWrap {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-start;
+}
+
+.portalButton {
+  min-height: 32px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.portalButton:hover {
+  background: #e5e7eb;
+  border-color: #cbd5e1;
+}
+
+/* PortalButton の中の共通 Button をこの画面だけ上書き */
+.portalWrap :global(button) {
+  min-height: 32px;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 999px;
+
+  background: #f3f4f6 !important;
+  color: #374151 !important;
+  border: 1px solid #d1d5db !important;
+
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  box-shadow: none !important;
+}
+
+.portalWrap :global(button:hover) {
+  background: #e5e7eb !important;
+  border-color: #cbd5e1 !important;
+  color: #1f2937 !important;
+}
+
 @media (max-width: 860px) {
   .grid {
     grid-template-columns: 1fr;

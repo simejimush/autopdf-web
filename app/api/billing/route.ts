@@ -22,11 +22,12 @@ export async function GET() {
     .from("user_profiles")
     .select(
       `
-      plan,
-      billing_provider,
-      billing_status,
-      current_period_end
-    `,
+        plan,
+        billing_provider,
+        billing_status,
+        current_period_end,
+        cancel_at_period_end
+      `,
     )
     .eq("user_id", user.id)
     .maybeSingle();
@@ -41,6 +42,7 @@ export async function GET() {
       billing_provider: data?.billing_provider ?? null,
       billing_status: data?.billing_status ?? null,
       current_period_end: data?.current_period_end ?? null,
+      cancel_at_period_end: data?.cancel_at_period_end ?? false,
     },
     { status: 200 },
   );

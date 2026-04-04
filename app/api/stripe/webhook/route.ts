@@ -121,6 +121,7 @@ export async function POST(req: NextRequest) {
       event.type === "customer.subscription.deleted"
     ) {
       const subscription = event.data.object as Stripe.Subscription;
+      const cancelAtPeriodEnd = subscription.cancel_at_period_end;
 
       const customerId =
         typeof subscription.customer === "string"
@@ -150,6 +151,7 @@ export async function POST(req: NextRequest) {
           billing_subscription_id: subscription.id,
           billing_status: billingStatus,
           current_period_end: currentPeriodEnd,
+          cancel_at_period_end: cancelAtPeriodEnd,
           plan_updated_at: new Date().toISOString(),
         })
         .eq("billing_customer_id", customerId);
