@@ -59,9 +59,14 @@ export default async function SettingsPage() {
   const profile = await getMyProfileAction();
   const displayName = profile?.display_name || "未設定";
 
-  // ✅ ここ追加
   const planLabel = getPlanLabel(profile?.plan ?? undefined);
   const isPro = profile?.plan === "pro";
+  const isCancelAtPeriodEnd = profile?.cancel_at_period_end === true;
+  const billingDateLabel = isCancelAtPeriodEnd ? "終了予定" : "次回更新";
+  const billingDateValue =
+    isPro && profile?.current_period_end
+      ? formatDateTime(profile.current_period_end)
+      : null;
 
   return (
     <main className={styles.page}>
@@ -210,7 +215,7 @@ export default async function SettingsPage() {
             </p>
           </section>
 
-          {/* ✅ プラン・請求 */}
+          {/* プラン・請求 */}
           <section className={styles.card}>
             <div className={styles.cardHeader}>
               <div>
@@ -226,6 +231,13 @@ export default async function SettingsPage() {
                 <dt className={styles.label}>現在のプラン</dt>
                 <dd className={styles.value}>{planLabel}</dd>
               </div>
+
+              {billingDateValue ? (
+                <div className={styles.infoRow}>
+                  <dt className={styles.label}>{billingDateLabel}</dt>
+                  <dd className={styles.value}>{billingDateValue}</dd>
+                </div>
+              ) : null}
             </dl>
 
             <div className={styles.actions}>
@@ -235,9 +247,11 @@ export default async function SettingsPage() {
             </div>
 
             <p className={styles.note}>
-              {profile?.plan === "pro"
-                ? "現在はProプランをご利用中です。解約や変更はこのボタンから確認できます。"
-                : "プラン変更や請求情報の確認はこのボタンから行えます。"}
+              {isPro
+                ? isCancelAtPeriodEnd
+                  ? "現在の契約は期間終了までご利用いただけます。変更や確認は billing ページから行えます。"
+                  : "現在はProプランをご利用中です。変更や請求の確認は billing ページから行えます。"
+                : "プラン変更や請求情報の確認は billing ページから行えます。"}
             </p>
           </section>
         </div>
