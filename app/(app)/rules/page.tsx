@@ -627,10 +627,6 @@ export default async function RulesPage({
             })}
           </div>
         )}
-
-        <p className={styles.footnote}>
-          ※ いまは service role で取得（ログイン導線は後で置き換え）
-        </p>
       </div>
     </div>
   );
