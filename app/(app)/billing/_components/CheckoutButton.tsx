@@ -20,7 +20,9 @@ export default function CheckoutButton() {
       const json = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        throw new Error(json?.error || "決済ページの作成に失敗しました");
+        throw new Error(
+          json?.message || json?.error || "決済ページの作成に失敗しました",
+        );
       }
 
       if (!json?.url) {
