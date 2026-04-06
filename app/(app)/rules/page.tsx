@@ -328,9 +328,47 @@ export default async function RulesPage({
         ) : rules.length === 0 ? (
           <CardPad className={styles.emptyCard}>
             <div className={styles.emptyTitle}>{LABEL.empty}</div>
-            <div className={styles.emptySub}>
-              まずはルールを作成してください。
+
+            <div className={styles.emptyLead}>
+              最初にやることは3つだけです。
             </div>
+
+            <ol className={styles.onboardingSteps}>
+              <li className={styles.onboardingStep}>
+                <span className={styles.onboardingNumber}>①</span>
+                <div className={styles.onboardingBody}>
+                  <div className={styles.onboardingLabel}>
+                    Googleアカウントを接続
+                  </div>
+                  <div className={styles.onboardingHint}>
+                    GmailとGoogle Driveを使うために必要です
+                  </div>
+                </div>
+              </li>
+
+              <li className={styles.onboardingStep}>
+                <span className={styles.onboardingNumber}>②</span>
+                <div className={styles.onboardingBody}>
+                  <div className={styles.onboardingLabel}>ルールを1つ作成</div>
+                  <div className={styles.onboardingHint}>
+                    保存したいメール条件を設定します
+                  </div>
+                </div>
+              </li>
+
+              <li className={styles.onboardingStep}>
+                <span className={styles.onboardingNumber}>③</span>
+                <div className={styles.onboardingBody}>
+                  <div className={styles.onboardingLabel}>
+                    自動でPDF保存スタート
+                  </div>
+                  <div className={styles.onboardingHint}>
+                    条件に合うメールを自動でPDF化して保存します
+                  </div>
+                </div>
+              </li>
+            </ol>
+
             <Link href="/rules/new">
               <Button
                 variant="solid"

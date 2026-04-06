@@ -706,6 +706,83 @@
   opacity: 0.92;
 }
 
+.emptyLead {
+  margin-top: 10px;
+  color: var(--fg-soft);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.onboardingSteps {
+  list-style: none;
+  margin: 18px 0 22px;
+  padding: 0;
+  display: grid;
+  gap: 14px;
+  text-align: left;
+  max-width: 560px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.onboardingStep {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-subtle);
+}
+
+.onboardingNumber {
+  flex: 0 0 auto;
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.2;
+  color: var(--fg);
+}
+
+.onboardingBody {
+  min-width: 0;
+}
+
+.onboardingLabel {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--fg);
+  line-height: 1.5;
+}
+
+.onboardingHint {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+@media (max-width: 640px) {
+  .onboardingSteps {
+    gap: 10px;
+  }
+
+  .onboardingStep {
+    padding: 12px 14px;
+  }
+
+  .onboardingNumber {
+    font-size: 17px;
+  }
+
+  .onboardingLabel {
+    font-size: 14px;
+  }
+
+  .onboardingHint {
+    font-size: 12px;
+  }
+}
+
 @media (max-width: 768px) {
   .upgradeInlineWrap {
     justify-content: stretch;
