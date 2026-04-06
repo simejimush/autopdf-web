@@ -9,7 +9,27 @@ export type UserProfile = {
   employee_size: string | null;
   marketing_opt_in: boolean;
   plan: "free" | "pro" | "pro_plus" | null;
+  billing_status: string | null;
+  billing_customer_id: string | null;
+  billing_subscription_id: string | null;
+  current_period_end: string | null;
+  cancel_at_period_end: boolean | null;
 };
+
+const PROFILE_SELECT = `
+  user_id,
+  display_name,
+  company_name,
+  industry,
+  employee_size,
+  marketing_opt_in,
+  plan,
+  billing_status,
+  billing_customer_id,
+  billing_subscription_id,
+  current_period_end,
+  cancel_at_period_end
+`;
 
 export async function getOrCreateMyProfile(): Promise<
   UserProfile & { email: string | null }
@@ -25,20 +45,9 @@ export async function getOrCreateMyProfile(): Promise<
 
   const email = user.email ?? null;
 
-  // Try to read
   const { data: existing, error: selErr } = await supabase
     .from("user_profiles")
-    .select(
-      `
-      user_id,
-      display_name,
-      company_name,
-      industry,
-      employee_size,
-      marketing_opt_in,
-      plan
-    `,
-    )
+    .select(PROFILE_SELECT)
     .eq("user_id", user.id)
     .maybeSingle();
 
@@ -48,29 +57,17 @@ export async function getOrCreateMyProfile(): Promise<
     return { ...existing, email };
   }
 
-  // Create if missing
   const { error: insErr } = await supabase.from("user_profiles").insert({
     user_id: user.id,
   });
 
-  // If insert failed due to conflict, continue and re-select.
   if (insErr) {
     // no-op
   }
 
   const { data: created, error: sel2Err } = await supabase
     .from("user_profiles")
-    .select(
-      `
-      user_id,
-      display_name,
-      company_name,
-      industry,
-      employee_size,
-      marketing_opt_in,
-      plan
-    `,
-    )
+    .select(PROFILE_SELECT)
     .eq("user_id", user.id)
     .single();
 
@@ -101,17 +98,7 @@ export async function updateMyProfile(input: {
     .from("user_profiles")
     .update({ ...input })
     .eq("user_id", user.id)
-    .select(
-      `
-      user_id,
-      display_name,
-      company_name,
-      industry,
-      employee_size,
-      marketing_opt_in,
-      plan
-    `,
-    )
+    .select(PROFILE_SELECT)
     .single();
 
   if (error) throw error;
