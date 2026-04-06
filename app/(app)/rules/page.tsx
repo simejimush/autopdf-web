@@ -246,7 +246,6 @@ export default async function RulesPage({
 
   const RULE_LIMIT_FREE = 3;
   const isFree = plan === "free";
-  const remaining = isFree ? Math.max(RULE_LIMIT_FREE - rules.length, 0) : null;
   const isLimitReached = isFree && rules.length >= RULE_LIMIT_FREE;
 
   const filteredRules = filterRules(rules, query);
@@ -277,25 +276,6 @@ export default async function RulesPage({
             className={`${styles.btnNewRule} ${styles.fullWidthOnMobile}`}
           />
         </div>
-
-        {isFree && (
-          <div className={styles.upgradeInlineWrap}>
-            <div className={styles.upgradeInlineCard}>
-              <div className={styles.upgradeInlineText}>
-                <div className={styles.upgradeInlineTitle}>
-                  ルール作成は3件までです。
-                </div>
-                <div className={styles.upgradeInlineSub}>
-                  Proプランで無制限に作成できます。
-                </div>
-              </div>
-
-              <Link href="/billing" className={styles.upgradeInlineButton}>
-                Proにアップグレード
-              </Link>
-            </div>
-          </div>
-        )}
 
         {!json.error && (
           <div className={styles.listToolbar}>
