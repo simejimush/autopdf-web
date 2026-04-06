@@ -189,10 +189,6 @@ export default async function SettingsPage() {
                 <dd className={styles.valueMono}>{user.id}</dd>
               </div>
             </dl>
-
-            <p className={styles.note}>
-              表示名の編集は次のStepでモーダル対応していくのがおすすめです。
-            </p>
           </section>
 
           {/* 通知設定 */}
