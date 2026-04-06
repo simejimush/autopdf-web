@@ -277,7 +277,7 @@ export default async function RulesPage({
           />
         </div>
 
-        {!json.error && (
+        {!json.error && rules.length > 0 && (
           <div className={styles.listToolbar}>
             <form method="get" className={styles.toolbarForm}>
               <input
@@ -327,10 +327,12 @@ export default async function RulesPage({
           </div>
         ) : rules.length === 0 ? (
           <CardPad className={styles.emptyCard}>
-            <div className={styles.emptyTitle}>{LABEL.empty}</div>
+            <div className={styles.emptyTitle}>
+              最初のルールを作ってみましょう
+            </div>
 
             <div className={styles.emptyLead}>
-              最初にやることは3つだけです。
+              設定は3ステップで完了します。
             </div>
 
             <ol className={styles.onboardingSteps}>
@@ -375,7 +377,7 @@ export default async function RulesPage({
                 size="md"
                 className={`${styles.btnNewRule} ${styles.fullWidthOnMobile}`}
               >
-                {LABEL.newRule}
+                最初のルールを作成
               </Button>
             </Link>
           </CardPad>
