@@ -34,11 +34,6 @@ export default async function RootLayout({
   let hasActiveRule = false;
 
   // ✅ これを追加（returnの前に必ず存在させる）
-  let lastErrorRun: {
-    rule_id: string | null;
-    finished_at: string | null;
-    message: string | null;
-  } | null = null;
 
   if (user) {
     // Google接続判定
@@ -60,22 +55,6 @@ export default async function RootLayout({
 
     // 有効ルール判定（ここで確定）
     hasActiveRule = rulesArr.some((r) => r.is_active === true);
-
-    // 直近エラー（rule_idベース）
-    const ruleIds = rulesArr.map((x) => x.id);
-
-    if (ruleIds.length > 0) {
-      const { data: errRun } = await supabase
-        .from("runs")
-        .select("rule_id, finished_at, message")
-        .in("rule_id", ruleIds)
-        .eq("status", "error")
-        .order("finished_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      lastErrorRun = errRun ?? null;
-    }
   }
   return (
     <html lang="en" suppressHydrationWarning>
@@ -88,17 +67,6 @@ export default async function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {user && !isGoogleConnected && (
-          <div className="ap-banner">
-            <span className="ap-banner__text">
-              Googleアカウントが未接続です。自動実行を利用するには接続が必要です。
-            </span>
-
-            <a href="/api/google/connect" className="ap-banner__action">
-              <button className="ap-banner__btn">Googleに接続</button>
-            </a>
-          </div>
-        )}
         {user && isGoogleConnected && !hasActiveRule && (
           <div className="ap-banner ap-banner--info">
             <span className="ap-banner__text">
