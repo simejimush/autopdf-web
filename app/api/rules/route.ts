@@ -1,11 +1,17 @@
-// app/api/rules/route.ts
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const RULE_LIMIT_FREE = 3;
 
-function jsonError(message: string, status = 500, details?: unknown) {
-  return NextResponse.json({ error: message, details }, { status });
+function errorResponse(status: number, error_code: string, message: string) {
+  return NextResponse.json(
+    {
+      ok: false,
+      error_code,
+      message,
+    },
+    { status },
+  );
 }
 
 export async function GET() {
@@ -17,10 +23,9 @@ export async function GET() {
   } = await supabase.auth.getUser();
 
   if (userErr || !user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return errorResponse(401, "AUTH_REQUIRED", "ログインしてください。");
   }
 
-  // 🔹 plan取得
   const { data: profile, error: profileError } = await supabase
     .from("user_profiles")
     .select("plan")
@@ -28,7 +33,11 @@ export async function GET() {
     .maybeSingle();
 
   if (profileError) {
-    return jsonError("Failed to load user profile", 500, profileError);
+    return errorResponse(
+      500,
+      "DB_READ_FAILED",
+      "ユーザー情報の取得に失敗しました。",
+    );
   }
 
   const plan = profile?.plan ?? "free";
@@ -48,9 +57,22 @@ export async function GET() {
     )
     .order("created_at", { ascending: false });
 
-  if (error) return jsonError("Failed to load rules", 500, error);
+  if (error) {
+    return errorResponse(
+      500,
+      "DB_READ_FAILED",
+      "ルール一覧の取得に失敗しました。",
+    );
+  }
 
-  return NextResponse.json({ data: data ?? [], plan }, { status: 200 });
+  return NextResponse.json(
+    {
+      ok: true,
+      data: data ?? [],
+      plan,
+    },
+    { status: 200 },
+  );
 }
 
 export async function POST(req: Request) {
@@ -62,10 +84,9 @@ export async function POST(req: Request) {
   } = await supabase.auth.getUser();
 
   if (userErr || !user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return errorResponse(401, "AUTH_REQUIRED", "ログインしてください。");
   }
 
-  // 🔹 plan取得（POSTでも使う）
   const { data: profile, error: profileError } = await supabase
     .from("user_profiles")
     .select("plan")
@@ -73,7 +94,11 @@ export async function POST(req: Request) {
     .maybeSingle();
 
   if (profileError) {
-    return jsonError("Failed to load user profile", 500, profileError);
+    return errorResponse(
+      500,
+      "DB_READ_FAILED",
+      "ユーザー情報の取得に失敗しました。",
+    );
   }
 
   const plan = profile?.plan ?? "free";
@@ -84,17 +109,22 @@ export async function POST(req: Request) {
     .eq("user_id", user.id);
 
   if (countError) {
-    return jsonError("Failed to count rules", 500, countError);
+    return errorResponse(
+      500,
+      "DB_READ_FAILED",
+      "ルール数の確認に失敗しました。",
+    );
   }
 
-  // 🔹 Freeだけ制限
   if (plan === "free" && (count ?? 0) >= RULE_LIMIT_FREE) {
-    return NextResponse.json({ error: "RULE_LIMIT_EXCEEDED" }, { status: 403 });
+    return errorResponse(
+      403,
+      "RULE_LIMIT_EXCEEDED",
+      "Freeプランではルールは3件までです。",
+    );
   }
 
   const body = await req.json().catch(() => ({}));
-
-  console.log("POST /api/rules body", body);
 
   const drive_folder_id = String((body as any)?.drive_folder_id ?? "").trim();
   const gmail_query = (body as any)?.gmail_query
@@ -108,7 +138,11 @@ export async function POST(req: Request) {
     : "manual";
 
   if (!drive_folder_id) {
-    return jsonError("drive_folder_id is required", 400);
+    return errorResponse(
+      400,
+      "VALIDATION_ERROR",
+      "保存先フォルダIDは必須です。",
+    );
   }
 
   const insertRow = {
@@ -121,8 +155,6 @@ export async function POST(req: Request) {
     run_timing,
   };
 
-  console.log("POST /api/rules insertRow", insertRow);
-
   const { data, error } = await supabase
     .from("rules")
     .insert([insertRow])
@@ -132,8 +164,18 @@ export async function POST(req: Request) {
     .single();
 
   if (error || !data) {
-    return jsonError("Failed to create rule", 500, error);
+    return errorResponse(
+      500,
+      "DB_INSERT_FAILED",
+      "ルールの作成に失敗しました。",
+    );
   }
 
-  return NextResponse.json({ data }, { status: 201 });
+  return NextResponse.json(
+    {
+      ok: true,
+      data,
+    },
+    { status: 201 },
+  );
 }

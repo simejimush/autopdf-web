@@ -5,6 +5,17 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+function errorResponse(status: number, error_code: string, message: string) {
+  return NextResponse.json(
+    {
+      ok: false,
+      error_code,
+      message,
+    },
+    { status },
+  );
+}
+
 async function requireUser() {
   const supabase = await createSupabaseServerClient();
   const {
@@ -15,7 +26,7 @@ async function requireUser() {
   if (error || !user) {
     return {
       user: null,
-      error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
+      error: errorResponse(401, "AUTH_REQUIRED", "ログインしてください。"),
     };
   }
 
@@ -29,11 +40,11 @@ export async function GET(req: NextRequest) {
   const ruleId = req.nextUrl.searchParams.get("ruleId")?.trim();
 
   // =========================
-  // 🔹 履歴取得（ruleIdあり）
+  // 履歴取得（ruleIdあり）
   // =========================
   if (ruleId) {
     if (!UUID_RE.test(ruleId)) {
-      return NextResponse.json({ error: "Invalid ruleId" }, { status: 400 });
+      return errorResponse(400, "VALIDATION_ERROR", "ruleId形式が不正です。");
     }
 
     const { data, error } = await supabaseAdmin
@@ -57,17 +68,24 @@ export async function GET(req: NextRequest) {
       .limit(5);
 
     if (error) {
-      return NextResponse.json(
-        { error: error.message ?? "Failed to load runs" },
-        { status: 500 },
+      return errorResponse(
+        500,
+        "DB_READ_FAILED",
+        "実行履歴の取得に失敗しました。",
       );
     }
 
-    return NextResponse.json({ data: data ?? [] }, { status: 200 });
+    return NextResponse.json(
+      {
+        ok: true,
+        data: data ?? [],
+      },
+      { status: 200 },
+    );
   }
 
   // =========================
-  // 🔹 ルールごとの最新1件
+  // ルールごとの最新1件
   // =========================
   const { data, error } = await supabaseAdmin
     .from("runs")
@@ -77,7 +95,11 @@ export async function GET(req: NextRequest) {
     .limit(500);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return errorResponse(
+      500,
+      "DB_READ_FAILED",
+      "最新の実行結果の取得に失敗しました。",
+    );
   }
 
   const latestByRule: Record<
@@ -101,5 +123,11 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ data: latestByRule }, { status: 200 });
+  return NextResponse.json(
+    {
+      ok: true,
+      data: latestByRule,
+    },
+    { status: 200 },
+  );
 }

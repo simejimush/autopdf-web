@@ -18,26 +18,40 @@ function normalizeAppUrl(url: string) {
   return url.endsWith("/") ? url.slice(0, -1) : url;
 }
 
+function errorResponse(status: number, error_code: string, message: string) {
+  return NextResponse.json(
+    {
+      ok: false,
+      error_code,
+      message,
+    },
+    { status },
+  );
+}
+
 export async function POST() {
   try {
     if (!secretKey) {
-      return NextResponse.json(
-        { error: "STRIPE_SECRET_KEY is not set" },
-        { status: 500 },
+      return errorResponse(
+        500,
+        "INTERNAL_ERROR",
+        "決済の初期設定に問題があります。時間をおいて再度お試しください。",
       );
     }
 
     if (!priceId) {
-      return NextResponse.json(
-        { error: "STRIPE_PRICE_ID_PRO is not set" },
-        { status: 500 },
+      return errorResponse(
+        500,
+        "INTERNAL_ERROR",
+        "決済の初期設定に問題があります。時間をおいて再度お試しください。",
       );
     }
 
     if (!appUrl) {
-      return NextResponse.json(
-        { error: "NEXT_PUBLIC_APP_URL is not set" },
-        { status: 500 },
+      return errorResponse(
+        500,
+        "INTERNAL_ERROR",
+        "アプリの初期設定に問題があります。時間をおいて再度お試しください。",
       );
     }
 
@@ -48,7 +62,7 @@ export async function POST() {
     } = await supabase.auth.getUser();
 
     if (userErr || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return errorResponse(401, "AUTH_REQUIRED", "ログインしてください。");
     }
 
     const { data: profile, error: profileErr } = await supabase
@@ -60,9 +74,10 @@ export async function POST() {
       .single();
 
     if (profileErr) {
-      return NextResponse.json(
-        { error: "Failed to load profile" },
-        { status: 500 },
+      return errorResponse(
+        500,
+        "INTERNAL_ERROR",
+        "契約情報の確認に失敗しました。時間をおいて再度お試しください。",
       );
     }
 
@@ -80,12 +95,10 @@ export async function POST() {
       currentPeriodEnd.getTime() > now.getTime();
 
     if (isPaidPlan && isSubscriptionActive) {
-      return NextResponse.json(
-        {
-          error: "ALREADY_SUBSCRIBED",
-          message: "すでに有料プランをご利用中です。",
-        },
-        { status: 409 },
+      return errorResponse(
+        409,
+        "STRIPE_ALREADY_SUBSCRIBED",
+        "すでに有料プランをご利用中です。",
       );
     }
 
@@ -112,9 +125,10 @@ export async function POST() {
         .eq("user_id", user.id);
 
       if (updateCustomerErr) {
-        return NextResponse.json(
-          { error: "Failed to save Stripe customer" },
-          { status: 500 },
+        return errorResponse(
+          500,
+          "INTERNAL_ERROR",
+          "決済情報の保存に失敗しました。時間をおいて再度お試しください。",
         );
       }
     }
@@ -130,12 +144,10 @@ export async function POST() {
     );
 
     if (blockingSubscription) {
-      return NextResponse.json(
-        {
-          error: "ALREADY_SUBSCRIBED",
-          message: "すでに有効または処理中のサブスクリプションがあります。",
-        },
-        { status: 409 },
+      return errorResponse(
+        409,
+        "STRIPE_ALREADY_SUBSCRIBED",
+        "すでに有効または処理中のサブスクリプションがあります。",
       );
     }
 
@@ -151,7 +163,11 @@ export async function POST() {
 
     if (reusableSession?.url) {
       return NextResponse.json(
-        { url: reusableSession.url, reused: true },
+        {
+          ok: true,
+          url: reusableSession.url,
+          reused: true,
+        },
         { status: 200 },
       );
     }
@@ -183,17 +199,25 @@ export async function POST() {
     });
 
     if (!session.url) {
-      return NextResponse.json(
-        { error: "Failed to create checkout url" },
-        { status: 500 },
+      return errorResponse(
+        500,
+        "INTERNAL_ERROR",
+        "決済画面の作成に失敗しました。時間をおいて再度お試しください。",
       );
     }
 
-    return NextResponse.json({ url: session.url }, { status: 200 });
-  } catch {
     return NextResponse.json(
-      { error: "Failed to create Stripe checkout session" },
-      { status: 500 },
+      {
+        ok: true,
+        url: session.url,
+      },
+      { status: 200 },
+    );
+  } catch {
+    return errorResponse(
+      500,
+      "INTERNAL_ERROR",
+      "決済処理でエラーが発生しました。時間をおいて再度お試しください。",
     );
   }
 }

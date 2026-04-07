@@ -24,11 +24,11 @@ export default function DashboardPage() {
   const [user, setUser] = useState<User | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [summary, setSummary] = useState<any>(null);
+  const [pdfs] = useState<PdfItem[]>([]);
 
   useEffect(() => {
     let cancelled = false;
 
-    // URLの #access_token などを消す（見た目＆事故防止）
     if (typeof window !== "undefined" && window.location.hash) {
       history.replaceState(null, "", window.location.pathname);
     }
@@ -36,7 +36,6 @@ export default function DashboardPage() {
     (async () => {
       setErrorMsg(null);
       try {
-        // 1) ユーザー取得
         const { data, error } = await supabase.auth.getUser();
         if (error) throw error;
 
@@ -48,10 +47,8 @@ export default function DashboardPage() {
           );
         }
 
-        // 2) ステータスサマリー取得（追加）
         const res = await fetch("/api/dashboard/summary");
         if (!res.ok) {
-          // 401 等は summary 非表示にしてOK（エラー表示は増やさない）
           if (!cancelled) setSummary(null);
         } else {
           const s = await res.json();
@@ -78,27 +75,6 @@ export default function DashboardPage() {
     }
     router.replace("/login");
   };
-
-  const mockPdfs: PdfItem[] = [
-    {
-      id: "pdf_001",
-      title: "見積書_山田様",
-      createdAt: "2026-01-30 18:10",
-      status: "完了",
-    },
-    {
-      id: "pdf_002",
-      title: "請求書_佐藤様",
-      createdAt: "2026-01-30 17:42",
-      status: "完了",
-    },
-    {
-      id: "pdf_003",
-      title: "作業報告_現場A",
-      createdAt: "2026-01-30 16:05",
-      status: "処理中",
-    },
-  ];
 
   return (
     <div className="dash">
@@ -138,44 +114,45 @@ export default function DashboardPage() {
           )}
 
           <section className="grid">
-            {/* 最近作成したPDF */}
             <div className="card">
               <div className="cardHead">
                 <h2 className="h2">最近作成したPDF</h2>
-                <span className="muted">{mockPdfs.length} 件</span>
+                <span className="muted">{pdfs.length} 件</span>
               </div>
 
-              <div className="list">
-                {mockPdfs.map((pdf) => (
-                  <div key={pdf.id} className="row">
-                    <div className="rowMain">
-                      <div className="rowTitle">{pdf.title}</div>
-                      <div className="rowMeta">
-                        <span>{pdf.createdAt}</span>
-                        <span className="sep">•</span>
-                        <span
-                          className={
-                            pdf.status === "完了" ? "badgeOk" : "badgeWarn"
-                          }
-                        >
-                          {pdf.status}
-                        </span>
-                      </div>
-                    </div>
-
-                    <button className="btnMini">詳細</button>
+              {pdfs.length === 0 ? (
+                <div className="empty">
+                  <div className="emptyTitle">まだPDFは作成されていません</div>
+                  <div className="emptyText">
+                    「ルールを作成」→「実行」で自動作成されます。
                   </div>
-                ))}
-              </div>
+                </div>
+              ) : (
+                <div className="list">
+                  {pdfs.map((pdf) => (
+                    <div key={pdf.id} className="row">
+                      <div className="rowMain">
+                        <div className="rowTitle">{pdf.title}</div>
+                        <div className="rowMeta">
+                          <span>{pdf.createdAt}</span>
+                          <span className="sep">•</span>
+                          <span
+                            className={
+                              pdf.status === "完了" ? "badgeOk" : "badgeWarn"
+                            }
+                          >
+                            {pdf.status}
+                          </span>
+                        </div>
+                      </div>
 
-              <div className="cardFoot">
-                <span className="muted">
-                  ※ いまは仮データ。Drive連携後に実データへ差し替え。
-                </span>
-              </div>
+                      <button className="btnMini">詳細</button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
-            {/* アカウント */}
             <div className="card">
               <div className="cardHead">
                 <h2 className="h2">アカウント</h2>
@@ -290,7 +267,7 @@ const styles = `
 .grid{
   margin-top:16px;
   display:grid;
-  grid-template-columns: 2.6fr 1fr; /* ここだけ変更 */
+  grid-template-columns: 2.6fr 1fr;
   gap:14px;
 }
 
@@ -310,10 +287,6 @@ const styles = `
   margin-bottom:10px;
 }
 
-.cardFoot{
-  margin-top:12px;
-}
-
 .h2{
   margin:0;
   font-size:14px;
@@ -324,6 +297,27 @@ const styles = `
   color:var(--muted);
   font-size:12px;
   font-weight:800;
+}
+
+/* --- empty --- */
+.empty{
+  border:1px dashed var(--border);
+  border-radius:12px;
+  padding:24px 16px;
+  background:var(--surface);
+}
+
+.emptyTitle{
+  font-size:14px;
+  font-weight:900;
+  color:var(--fg);
+}
+
+.emptyText{
+  margin-top:6px;
+  color:var(--muted);
+  font-size:12px;
+  line-height:1.7;
 }
 
 /* --- list rows --- */
@@ -453,22 +447,22 @@ const styles = `
 .btnGhostFull:hover{ background:#f3f4f6; }
 
 .btnDangerFull {
-    width: auto;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 6px 12px;
-    border-radius: 12px;
-    border: 1px solid #fecaca;
-    background: #ffffff;
-    color: #b91c1c;
-    font-weight: 900;
-    cursor: pointer;
-    font-size: .65rem;
+  width: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 12px;
+  border-radius: 12px;
+  border: 1px solid #fecaca;
+  background: #ffffff;
+  color: #b91c1c;
+  font-weight: 900;
+  cursor: pointer;
+  font-size: .65rem;
 }
 
 .btnDangerFull:hover{ background:#ffe4e6; }
-/* --- responsive --- */
+
 @media (max-width: 900px){
   .grid{ grid-template-columns: 1fr; }
 }

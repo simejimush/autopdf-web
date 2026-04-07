@@ -5,19 +5,32 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 const secretKey = process.env.STRIPE_SECRET_KEY;
 const appUrl = process.env.NEXT_PUBLIC_APP_URL;
 
+function errorResponse(status: number, error_code: string, message: string) {
+  return NextResponse.json(
+    {
+      ok: false,
+      error_code,
+      message,
+    },
+    { status },
+  );
+}
+
 export async function POST() {
   try {
     if (!secretKey) {
-      return NextResponse.json(
-        { error: "STRIPE_SECRET_KEY is not set" },
-        { status: 500 },
+      return errorResponse(
+        500,
+        "INTERNAL_ERROR",
+        "請求管理の初期設定に問題があります。時間をおいて再度お試しください。",
       );
     }
 
     if (!appUrl) {
-      return NextResponse.json(
-        { error: "NEXT_PUBLIC_APP_URL is not set" },
-        { status: 500 },
+      return errorResponse(
+        500,
+        "INTERNAL_ERROR",
+        "アプリの初期設定に問題があります。時間をおいて再度お試しください。",
       );
     }
 
@@ -28,7 +41,7 @@ export async function POST() {
     } = await supabase.auth.getUser();
 
     if (userErr || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return errorResponse(401, "AUTH_REQUIRED", "ログインしてください。");
     }
 
     const { data: profile, error: profileErr } = await supabase
@@ -38,9 +51,10 @@ export async function POST() {
       .single();
 
     if (profileErr || !profile?.billing_customer_id) {
-      return NextResponse.json(
-        { error: "Customer not found" },
-        { status: 400 },
+      return errorResponse(
+        400,
+        "STRIPE_CUSTOMER_NOT_FOUND",
+        "請求情報が見つかりませんでした。",
       );
     }
 
@@ -51,11 +65,18 @@ export async function POST() {
       return_url: `${appUrl}/billing`,
     });
 
-    return NextResponse.json({ url: session.url }, { status: 200 });
-  } catch (error) {
     return NextResponse.json(
-      { error: "Failed to create portal session", details: error },
-      { status: 500 },
+      {
+        ok: true,
+        url: session.url,
+      },
+      { status: 200 },
+    );
+  } catch {
+    return errorResponse(
+      500,
+      "INTERNAL_ERROR",
+      "請求管理ページの作成に失敗しました。時間をおいて再度お試しください。",
     );
   }
 }

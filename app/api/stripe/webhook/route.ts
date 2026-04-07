@@ -4,8 +4,15 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 
-function jsonError(message: string, status = 500, details?: unknown) {
-  return NextResponse.json({ error: message, details }, { status });
+function errorResponse(status: number, error_code: string, message: string) {
+  return NextResponse.json(
+    {
+      ok: false,
+      error_code,
+      message,
+    },
+    { status },
+  );
 }
 
 function toIsoFromUnix(value?: number | null) {
@@ -46,18 +53,22 @@ export async function POST(req: NextRequest) {
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
   if (!secretKey) {
-    return jsonError("STRIPE_SECRET_KEY is not set", 500);
+    return errorResponse(500, "INTERNAL_ERROR", "Stripe設定に問題があります。");
   }
 
   if (!webhookSecret) {
-    return jsonError("STRIPE_WEBHOOK_SECRET is not set", 500);
+    return errorResponse(
+      500,
+      "INTERNAL_ERROR",
+      "Webhook設定に問題があります。",
+    );
   }
 
   const stripe = new Stripe(secretKey);
 
   const signature = req.headers.get("stripe-signature");
   if (!signature) {
-    return jsonError("Missing stripe-signature header", 400);
+    return errorResponse(400, "INVALID_REQUEST", "署名ヘッダーがありません。");
   }
 
   const body = await req.text();
@@ -65,8 +76,8 @@ export async function POST(req: NextRequest) {
   let event: Stripe.Event;
   try {
     event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
-  } catch (error) {
-    return jsonError("Invalid Stripe webhook signature", 400, error);
+  } catch {
+    return errorResponse(400, "INVALID_SIGNATURE", "Webhook署名が不正です。");
   }
 
   try {
@@ -112,7 +123,11 @@ export async function POST(req: NextRequest) {
         .eq("user_id", userId);
 
       if (error) {
-        return jsonError("Failed to update user_profiles", 500, error);
+        return errorResponse(
+          500,
+          "DB_UPDATE_FAILED",
+          "ユーザー情報の更新に失敗しました。",
+        );
       }
     }
 
@@ -121,7 +136,6 @@ export async function POST(req: NextRequest) {
       event.type === "customer.subscription.deleted"
     ) {
       const subscription = event.data.object as Stripe.Subscription;
-      const cancelAtPeriodEnd = subscription.cancel_at_period_end;
 
       const customerId =
         typeof subscription.customer === "string"
@@ -134,12 +148,6 @@ export async function POST(req: NextRequest) {
 
       const billingStatus = subscription.status;
       const currentPeriodEnd = getCurrentPeriodEndIso(subscription);
-      console.log("STRIPE SUBSCRIPTION RAW", {
-        subscriptionId: subscription.id,
-        status: subscription.status,
-        items: subscription.items.data,
-        currentPeriodEnd,
-      });
       const plan = resolvePlan(billingStatus, currentPeriodEnd);
 
       const { error } = await supabaseAdmin
@@ -151,18 +159,22 @@ export async function POST(req: NextRequest) {
           billing_subscription_id: subscription.id,
           billing_status: billingStatus,
           current_period_end: currentPeriodEnd,
-          cancel_at_period_end: cancelAtPeriodEnd,
+          cancel_at_period_end: subscription.cancel_at_period_end,
           plan_updated_at: new Date().toISOString(),
         })
         .eq("billing_customer_id", customerId);
 
       if (error) {
-        return jsonError("Failed to update user_profiles", 500, error);
+        return errorResponse(
+          500,
+          "DB_UPDATE_FAILED",
+          "ユーザー情報の更新に失敗しました。",
+        );
       }
     }
 
     return NextResponse.json({ received: true }, { status: 200 });
-  } catch (error) {
-    return jsonError("Webhook handling failed", 500, error);
+  } catch {
+    return errorResponse(500, "INTERNAL_ERROR", "Webhook処理に失敗しました。");
   }
 }

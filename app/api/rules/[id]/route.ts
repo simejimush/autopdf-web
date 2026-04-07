@@ -1,4 +1,3 @@
-// app/api/rules/[id]/route.ts
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -6,8 +5,15 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-function jsonError(message: string, status = 500, details?: unknown) {
-  return NextResponse.json({ error: message, details }, { status });
+function errorResponse(status: number, error_code: string, message: string) {
+  return NextResponse.json(
+    {
+      ok: false,
+      error_code,
+      message,
+    },
+    { status },
+  );
 }
 
 async function requireUser() {
@@ -18,7 +24,10 @@ async function requireUser() {
   } = await supabase.auth.getUser();
 
   if (error || !user) {
-    return { user: null, error: jsonError("Unauthorized", 401) };
+    return {
+      user: null,
+      error: errorResponse(401, "AUTH_REQUIRED", "ログインしてください。"),
+    };
   }
 
   return { user, error: null };
@@ -30,8 +39,9 @@ export async function GET(
 ) {
   const { id } = await ctx.params;
 
-  if (!id) return jsonError("id is required", 400);
-  if (!UUID_RE.test(id)) return jsonError("Invalid id", 400);
+  if (!id) return errorResponse(400, "INVALID_REQUEST", "idが必要です。");
+  if (!UUID_RE.test(id))
+    return errorResponse(400, "INVALID_REQUEST", "id形式が不正です。");
 
   const { user, error: authError } = await requireUser();
   if (authError || !user) return authError!;
@@ -44,10 +54,10 @@ export async function GET(
     .single();
 
   if (error || !data) {
-    return jsonError("Rule not found", 404);
+    return errorResponse(404, "NOT_FOUND", "ルールが見つかりません。");
   }
 
-  return NextResponse.json({ data }, { status: 200 });
+  return NextResponse.json({ ok: true, data }, { status: 200 });
 }
 
 export async function PATCH(
@@ -56,8 +66,9 @@ export async function PATCH(
 ) {
   const { id } = await ctx.params;
 
-  if (!id) return jsonError("id is required", 400);
-  if (!UUID_RE.test(id)) return jsonError("Invalid id", 400);
+  if (!id) return errorResponse(400, "INVALID_REQUEST", "idが必要です。");
+  if (!UUID_RE.test(id))
+    return errorResponse(400, "INVALID_REQUEST", "id形式が不正です。");
 
   const { user, error: authError } = await requireUser();
   if (authError || !user) return authError!;
@@ -84,7 +95,7 @@ export async function PATCH(
     .single();
 
   if (currentErr || !current) {
-    return jsonError("Rule not found", 404);
+    return errorResponse(404, "NOT_FOUND", "ルールが見つかりません。");
   }
 
   const merged = {
@@ -139,7 +150,11 @@ export async function PATCH(
   }
 
   if (Object.keys(update).length === 0) {
-    return jsonError("No updatable fields provided", 400);
+    return errorResponse(
+      400,
+      "INVALID_REQUEST",
+      "更新対象の項目がありません。",
+    );
   }
 
   const { data, error } = await supabaseAdmin
@@ -151,10 +166,14 @@ export async function PATCH(
     .single();
 
   if (error || !data) {
-    return jsonError("Failed to update rule", 500, error);
+    return errorResponse(
+      500,
+      "DB_UPDATE_FAILED",
+      "ルールの更新に失敗しました。",
+    );
   }
 
-  return NextResponse.json({ data }, { status: 200 });
+  return NextResponse.json({ ok: true, data }, { status: 200 });
 }
 
 export async function DELETE(
@@ -163,8 +182,9 @@ export async function DELETE(
 ) {
   const { id } = await ctx.params;
 
-  if (!id) return jsonError("id is required", 400);
-  if (!UUID_RE.test(id)) return jsonError("Invalid id", 400);
+  if (!id) return errorResponse(400, "INVALID_REQUEST", "idが必要です。");
+  if (!UUID_RE.test(id))
+    return errorResponse(400, "INVALID_REQUEST", "id形式が不正です。");
 
   const { user, error: authError } = await requireUser();
   if (authError || !user) return authError!;
@@ -178,7 +198,7 @@ export async function DELETE(
     .single();
 
   if (error || !data) {
-    return jsonError("Failed to delete rule", 404);
+    return errorResponse(404, "NOT_FOUND", "ルールの削除に失敗しました。");
   }
 
   return NextResponse.json({ ok: true, deletedId: data.id }, { status: 200 });
