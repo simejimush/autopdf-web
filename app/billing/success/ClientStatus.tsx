@@ -176,20 +176,7 @@ export default function ClientStatus({
           <Link href="/dashboard" className={styles.primaryLink}>
             ダッシュボードへ
           </Link>
-
-          <Link href="/billing" className={styles.secondaryLink}>
-            billing を確認
-          </Link>
         </div>
-
-        <details className={styles.details}>
-          <summary className={styles.summary}>詳細を表示</summary>
-          <div className={styles.detailsBody}>
-            <div className={styles.noteRow}>
-              <strong>Session ID:</strong> {sessionId}
-            </div>
-          </div>
-        </details>
       </div>
     </section>
   );
