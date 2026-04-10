@@ -110,7 +110,7 @@ export default async function AppLayout({
         className="appContainer"
         style={{ paddingTop: 12, paddingBottom: 0 }}
       >
-        {/* <GlobalBanner banner={banner} /> */}
+        {!pathname.startsWith("/rules") && <GlobalBanner banner={banner} />}
       </div>
 
       <main className="appContainer">{children}</main>
