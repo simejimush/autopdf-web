@@ -36,18 +36,10 @@ export function GlobalBanner({ banner }: { banner: Banner | null }) {
         ) : null}
       </div>
 
-      {b.ctaHref && b.ctaLabel ? (
+      {b.variant === "error" && b.ctaHref && b.ctaLabel ? (
         <Link
           href={b.ctaHref}
-          className={`shrink-0 rounded-lg px-3 py-2 text-sm font-medium border ${
-            b.variant === "error"
-              ? "bg-red-600 text-white border-red-600 hover:bg-red-700"
-              : b.variant === "warning"
-                ? "bg-amber-500 text-white border-amber-500 hover:bg-amber-600"
-                : b.variant === "success"
-                  ? "bg-emerald-500 text-white border-emerald-500 hover:bg-emerald-600"
-                  : "bg-slate-200 text-slate-900 border-slate-300 hover:bg-slate-300"
-          }`}
+          className="shrink-0 rounded-lg px-3 py-2 text-sm font-medium border bg-[#ff8181] text-white border-[#ff8181] hover:brightness-95"
         >
           {b.ctaLabel}
         </Link>
