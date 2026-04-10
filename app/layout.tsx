@@ -67,79 +67,9 @@ export default async function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {user && isGoogleConnected && !hasActiveRule && (
-          <div className="ap-banner ap-banner--info">
-            <span className="ap-banner__text">
-              有効なルールがありません。まずはルールを作成してください。
-            </span>
-
-            <a href="/rules/new" className="ap-banner__action">
-              <button className="ap-banner__btn ap-banner__btn--info">
-                ルールを作成
-              </button>
-            </a>
-          </div>
-        )}
-
         {children}
         <AppToaster />
-        <style>{`
-  .ap-banner{
-  background:#FEF3C7;
-  border-bottom:1px solid #F59E0B;
-  padding:12px 20px;
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  gap:12px;
-  font-size:14px;
-  color:#1F2937; /* ← 追加してもOK */
-}
-  .ap-banner__text{
-  line-height:1.4;
-  color:#1F2937; /* ← 追加（濃いグレー） */
-  font-weight:500;
-}
-  .ap-banner__action{
-    flex:0 0 auto;
-  }
-  .ap-banner__btn{
-    background:#4F46E5;
-    color:#fff;
-    padding:8px 14px;
-    border-radius:999px;
-    border:none;
-    cursor:pointer;
-    font-weight:600;
-    white-space:nowrap;
-  }
-    .ap-banner--info{
-  background:#E0F2FE;
-  border-bottom:1px solid #38BDF8;
-}
-.ap-banner__btn--info{
-  background:#2563EB;
-}
-  .ap-banner--danger{
-  background:#FEE2E2;
-  border-bottom:1px solid #FCA5A5;
-}
-.ap-banner__btn--danger{
-  background:#DC2626;
-}
 
-  /* ✅ スマホだけ：テキストの下にボタン、ボタンは右寄せ（3枚目の配置） */
-  @media (max-width: 640px){
-    .ap-banner{
-      flex-direction:column;
-      align-items:stretch;
-    }
-    .ap-banner__action{
-      display:flex;
-      justify-content:flex-end;
-    }
-  }
-`}</style>
         <script
           dangerouslySetInnerHTML={{
             __html: `
