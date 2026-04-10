@@ -1,4 +1,3 @@
-// autopdf-web/src/lib/ui/globalBanner.ts
 export type GlobalBannerVariant = "error" | "warning" | "success" | "info";
 
 export type GlobalBanner = {
@@ -48,7 +47,7 @@ function errorCopy(errorCode?: string | null, message?: string | null) {
       return {
         title: "一時的に制限されています",
         body: "しばらくしてから再実行してください（Google側の制限の可能性）。",
-        ctaLabel: "ルールへ",
+        ctaLabel: "ルールを確認",
         ctaHref: "/rules",
       };
 
@@ -63,16 +62,8 @@ function errorCopy(errorCode?: string | null, message?: string | null) {
 }
 
 export function buildGlobalBanner(input: Input): GlobalBanner | null {
-  const {
-    isGoogleConnected,
-    activeRuleCount,
-    lastRunStatus,
-    lastRunErrorCode,
-    lastRunMessage,
-    pathname,
-  } = input;
-
-  const isRulesPage = !!pathname?.startsWith("/rules");
+  const { isGoogleConnected, lastRunStatus, lastRunErrorCode, lastRunMessage } =
+    input;
 
   // 1) Google未接続は最優先
   if (!isGoogleConnected) {
@@ -85,18 +76,7 @@ export function buildGlobalBanner(input: Input): GlobalBanner | null {
     };
   }
 
-  // 2) 有効ルールなし
-  if (activeRuleCount === 0) {
-    return {
-      variant: "warning",
-      title: "有効なルールがありません",
-      body: "ルールをONにすると自動保存が始まります。",
-      ctaLabel: "ルールを作成",
-      ctaHref: "/rules/new",
-    };
-  }
-
-  // 3) 実行エラー
+  // 2) 実行エラーのみ表示
   if (lastRunStatus === "error") {
     return {
       variant: "error",
@@ -104,52 +84,6 @@ export function buildGlobalBanner(input: Input): GlobalBanner | null {
     };
   }
 
-  // 4) 実行中
-  if (lastRunStatus === "running") {
-    return {
-      variant: "info",
-      title: "自動保存を実行中です",
-      body: "処理が完了すると最新状態に更新されます。",
-      ctaLabel: "ルールへ",
-      ctaHref: "/rules",
-    };
-  }
-
-  // 5) まだ一度も実行していない
-  if (!lastRunStatus) {
-    return {
-      variant: "warning",
-      title: "まだ一度も実行されていません",
-      body: "手動実行で動作確認すると安心です。",
-      ctaLabel: "ルールへ",
-      ctaHref: "/rules",
-    };
-  }
-
-  // 6) skipped
-  if (lastRunStatus === "skipped") {
-    return {
-      variant: "info",
-      title: "今回は保存対象がありませんでした",
-      body: "条件に一致するメールが無い場合は正常にスキップされます。",
-      ctaLabel: "ルールへ",
-      ctaHref: "/rules",
-    };
-  }
-
-  // 7) success
-  if (isRulesPage) {
-    return {
-      variant: "success",
-      title: "自動保存は正常です",
-    };
-  }
-
-  return {
-    variant: "success",
-    title: "自動保存は正常です",
-    body: "最新の処理状態はルール画面で確認できます。",
-    ctaLabel: "ルールへ",
-    ctaHref: "/rules",
-  };
+  // 3) それ以外は表示しない
+  return null;
 }
