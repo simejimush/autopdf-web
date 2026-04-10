@@ -37,6 +37,7 @@ export default function DeleteButton({ ruleId, ruleName }: Props) {
 
   return (
     <>
+      {/* トリガー */}
       <button
         type="button"
         style={{
@@ -54,6 +55,7 @@ export default function DeleteButton({ ruleId, ruleName }: Props) {
         削除
       </button>
 
+      {/* モーダル */}
       {open && (
         <div
           style={{
@@ -70,30 +72,78 @@ export default function DeleteButton({ ruleId, ruleName }: Props) {
           <div
             style={{
               background: "#fff",
-              padding: 20,
+              padding: 24,
               borderRadius: 16,
               width: 360,
+              boxShadow: "0 10px 30px rgba(0,0,0,0.1)",
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <h3>ルールを削除しますか？</h3>
+            {/* タイトル */}
+            <h3
+              style={{
+                fontWeight: 700,
+                fontSize: 16,
+                marginBottom: 8,
+              }}
+            >
+              ルールを削除しますか？
+            </h3>
 
-            <p style={{ fontSize: 14 }}>
+            {/* 本文 */}
+            <p
+              style={{
+                fontSize: 14,
+                color: "#4b5563",
+                lineHeight: 1.5,
+              }}
+            >
               「{ruleName}」を削除します。
               <br />
               この操作は元に戻せません。
             </p>
 
-            <div style={{ marginTop: 16, display: "flex", gap: 10 }}>
-              <button onClick={() => setOpen(false)}>キャンセル</button>
+            {/* ボタンエリア */}
+            <div
+              style={{
+                marginTop: 20,
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: 10,
+              }}
+            >
+              {/* キャンセル */}
+              <button
+                onClick={() => setOpen(false)}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: "#6b7280",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                キャンセル
+              </button>
 
+              {/* 削除 */}
               <button
                 style={{
-                  background: "#dc2626",
-                  color: "#fff",
+                  background: "#cb3636",
+                  color: "#ffffff",
                   borderRadius: 8,
-                  padding: "6px 12px",
+                  padding: "6px 14px",
+                  fontWeight: 600,
+                  border: "none",
+                  cursor: "pointer",
+                  transition: "0.15s",
                 }}
+                onMouseOver={(e) =>
+                  (e.currentTarget.style.background = "#b91c1c")
+                }
+                onMouseOut={(e) =>
+                  (e.currentTarget.style.background = "#cb3636")
+                }
                 disabled={loading}
                 onClick={handleDelete}
               >
