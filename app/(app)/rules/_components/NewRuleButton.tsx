@@ -7,16 +7,19 @@ import styles from "../RulesPage.module.css";
 
 type Props = {
   isLimitReached: boolean;
+  isGoogleConnected?: boolean;
   className?: string;
   label: string;
 };
 
 export default function NewRuleButton({
   isLimitReached,
+  isGoogleConnected = true,
   className,
   label,
 }: Props) {
   const [isOpen, setIsOpen] = useState(false);
+  const isDisabled = !isGoogleConnected;
 
   useEffect(() => {
     if (!isOpen) return;
@@ -42,7 +45,14 @@ export default function NewRuleButton({
         variant="solid"
         size="md"
         className={className}
+        disabled={isDisabled}
+        aria-disabled={isDisabled}
+        title={
+          isDisabled ? "Google接続を完了するとルールを作成できます" : undefined
+        }
         onClick={() => {
+          if (isDisabled) return;
+
           if (isLimitReached) {
             setIsOpen(true);
           } else {

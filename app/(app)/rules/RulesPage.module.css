@@ -302,7 +302,7 @@
 }
 
 .emptyTitle {
-  font-size: 14px;
+  font-size: 18px;
   font-weight: 900;
   color: var(--fg);
 }
@@ -320,15 +320,27 @@
   color: rgba(15, 23, 42, 0.6);
 }
 
-/* buttons */
 .btnNewRule {
   background: #0ac5b2 !important;
   color: #fff !important;
   border: 1px solid rgba(0, 0, 0, 0.04) !important;
+  transition:
+    opacity 0.15s ease,
+    filter 0.15s ease;
 }
 
 .btnNewRule:hover {
   filter: brightness(0.97);
+}
+
+/* 🔴 追加：disabled状態 */
+.btnNewRule:disabled,
+.btnNewRule[aria-disabled="true"] {
+  background: #cbd5e1 !important;
+  color: #64748b !important;
+  cursor: not-allowed;
+  filter: none;
+  opacity: 0.85;
 }
 
 .btnRun {
@@ -732,7 +744,7 @@
   padding: 14px 16px;
   border: 1px solid var(--border);
   border-radius: 14px;
-  background: var(--bg-subtle);
+  background: var(--background);
 }
 
 .onboardingNumber {
@@ -759,6 +771,33 @@
   font-size: 13px;
   line-height: 1.6;
   color: var(--muted);
+}
+
+.onboardingStepDone {
+  border-color: rgba(34, 197, 94, 0.28);
+  background: rgba(34, 197, 94, 0.06);
+}
+
+.onboardingStepDone .onboardingNumber {
+  color: #16a34a;
+}
+
+.onboardingStepDone .onboardingLabel {
+  color: #166534;
+}
+
+.onboardingStepActive {
+  border-color: rgba(10, 197, 178, 0.32);
+  background: rgba(10, 197, 178, 0.08);
+  box-shadow: 0 0 0 1px rgba(10, 197, 178, 0.08);
+}
+
+.onboardingStepActive .onboardingNumber {
+  color: #0891b2;
+}
+
+.onboardingStepActive .onboardingLabel {
+  color: #0f172a;
 }
 
 @media (max-width: 640px) {

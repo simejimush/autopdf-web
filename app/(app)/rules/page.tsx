@@ -1,3 +1,4 @@
+//app\(app)\rules\page.tsx
 import { getRuleStatus } from "@/lib/rules/status";
 import RunButton from "./RunButton";
 import CopyButton from "./CopyButton";
@@ -12,6 +13,7 @@ import { Button } from "@/lib/ui/Button";
 import Link from "next/link";
 import DeleteButton from "./DeleteButton";
 import NewRuleButton from "./_components/NewRuleButton";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type RunLite = {
   id: string;
@@ -227,6 +229,15 @@ export default async function RulesPage({
 
   const cookie = h.get("cookie") ?? "";
 
+  const supabase = await createSupabaseServerClient();
+  const { data: googleConnection } = await supabase
+    .from("google_connections")
+    .select("status")
+    .eq("status", "connected")
+    .maybeSingle();
+
+  const isGoogleConnected = googleConnection?.status === "connected";
+
   const res = await fetch(`${baseUrl}/api/rules`, {
     cache: "no-store",
     headers: { cookie },
@@ -272,6 +283,7 @@ export default async function RulesPage({
 
           <NewRuleButton
             isLimitReached={isLimitReached}
+            isGoogleConnected={isGoogleConnected}
             label={LABEL.newRule}
             className={`${styles.btnNewRule} ${styles.fullWidthOnMobile}`}
           />
@@ -336,19 +348,31 @@ export default async function RulesPage({
             </div>
 
             <ol className={styles.onboardingSteps}>
-              <li className={styles.onboardingStep}>
-                <span className={styles.onboardingNumber}>①</span>
+              <li
+                className={`${styles.onboardingStep} ${
+                  isGoogleConnected ? styles.onboardingStepDone : ""
+                }`}
+              >
+                <span className={styles.onboardingNumber}>
+                  {isGoogleConnected ? "✓" : "①"}
+                </span>
                 <div className={styles.onboardingBody}>
                   <div className={styles.onboardingLabel}>
                     Googleアカウントを接続
                   </div>
                   <div className={styles.onboardingHint}>
-                    GmailとGoogle Driveを使うために必要です
+                    {isGoogleConnected
+                      ? "接続完了。Gmail/Drive連携の準備ができています。"
+                      : "Gmail/Drive連携が必要です。まずはGoogle接続を完了してください。"}
                   </div>
                 </div>
               </li>
 
-              <li className={styles.onboardingStep}>
+              <li
+                className={`${styles.onboardingStep} ${
+                  isGoogleConnected ? styles.onboardingStepActive : ""
+                }`}
+              >
                 <span className={styles.onboardingNumber}>②</span>
                 <div className={styles.onboardingBody}>
                   <div className={styles.onboardingLabel}>ルールを1つ作成</div>
@@ -371,15 +395,27 @@ export default async function RulesPage({
               </li>
             </ol>
 
-            <Link href="/rules/new">
+            {isGoogleConnected ? (
+              <Link href="/rules/new">
+                <Button
+                  variant="solid"
+                  size="md"
+                  className={`${styles.btnNewRule} ${styles.fullWidthOnMobile}`}
+                >
+                  最初のルールを作成
+                </Button>
+              </Link>
+            ) : (
               <Button
                 variant="solid"
                 size="md"
+                disabled
+                title="Google接続を完了するとルールを作成できます"
                 className={`${styles.btnNewRule} ${styles.fullWidthOnMobile}`}
               >
                 最初のルールを作成
               </Button>
-            </Link>
+            )}
           </CardPad>
         ) : (
           <div className={styles.list}>
