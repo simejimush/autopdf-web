@@ -490,13 +490,15 @@ export default async function RulesPage({
 
                       <RuleToggle id={r.id} isActive={r.is_active} />
 
-                      <Badge
-                        tone={badgeTone(st)}
-                        dot
-                        title={reasonsText || undefined}
-                      >
-                        {statusJa(st.status)}
-                      </Badge>
+                      {isMissing ? (
+                        <Badge
+                          tone={badgeTone(st)}
+                          dot
+                          title={reasonsText || undefined}
+                        >
+                          {statusJa(st.status)}
+                        </Badge>
+                      ) : null}
                     </div>
 
                     <div className={styles.actions}>
