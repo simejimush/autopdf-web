@@ -281,12 +281,14 @@ export default async function RulesPage({
             <p className={styles.sub}>自動実行のルールを管理します。</p>
           </div>
 
-          <NewRuleButton
-            isLimitReached={isLimitReached}
-            isGoogleConnected={isGoogleConnected}
-            label={LABEL.newRule}
-            className={`${styles.btnNewRule} ${styles.fullWidthOnMobile}`}
-          />
+          {rules.length > 0 && (
+            <NewRuleButton
+              isLimitReached={isLimitReached}
+              isGoogleConnected={isGoogleConnected}
+              label={LABEL.newRule}
+              className={`${styles.btnNewRule} ${styles.fullWidthOnMobile}`}
+            />
+          )}
         </div>
 
         {!json.error && rules.length > 0 && (
