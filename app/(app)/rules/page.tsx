@@ -370,28 +370,22 @@ export default async function RulesPage({
                 </div>
               </li>
 
-              <Link href="/rules/new" className={styles.onboardingLink}>
-  <li
-    className={`${styles.onboardingStep} ${
-      isGoogleConnected ? styles.onboardingStepActive : ""
-    }`}
-  >
-    <span className={styles.onboardingNumber}>②</span>
-    <div className={styles.onboardingBody}>
-      <div className={styles.onboardingLabel}>ルールを1つ作成</div>
-      <div className={styles.onboardingHint}>
-        保存したいメール条件を設定します
-      </div>
-    </div>
-  </li>
-</Link>
-                <span className={styles.onboardingNumber}>②</span>
-                <div className={styles.onboardingBody}>
-                  <div className={styles.onboardingLabel}>ルールを1つ作成</div>
-                  <div className={styles.onboardingHint}>
-                    保存したいメール条件を設定します
+              <li
+                className={`${styles.onboardingStep} ${
+                  isGoogleConnected ? styles.onboardingStepActive : ""
+                }`}
+              >
+                <Link href="/rules/new" className={styles.onboardingLink}>
+                  <span className={styles.onboardingNumber}>②</span>
+                  <div className={styles.onboardingBody}>
+                    <div className={styles.onboardingLabel}>
+                      ルールを1つ作成
+                    </div>
+                    <div className={styles.onboardingHint}>
+                      保存したいメール条件を設定します
+                    </div>
                   </div>
-                </div>
+                </Link>
               </li>
 
               <li className={styles.onboardingStep}>

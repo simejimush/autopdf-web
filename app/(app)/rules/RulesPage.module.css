@@ -805,6 +805,11 @@
   text-decoration: none;
   color: inherit;
 }
+.onboardingLink {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+}
 
 @media (max-width: 640px) {
   .onboardingSteps {
