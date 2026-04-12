@@ -800,6 +800,12 @@
   color: #0f172a;
 }
 
+.onboardingLink {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+}
+
 @media (max-width: 640px) {
   .onboardingSteps {
     gap: 10px;
