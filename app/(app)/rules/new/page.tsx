@@ -83,15 +83,22 @@ export default function NewRulePage() {
 
       router.push("/rules");
       router.refresh();
+      return;
     } catch (err: any) {
       setError(err.message ?? "Unexpected error");
-    } finally {
       setLoading(false);
     }
   }
 
   return (
     <>
+      <style>{`
+  @keyframes ap-dot-flashing {
+    0% { opacity: 0.25; transform: scale(0.85); }
+    50% { opacity: 1; transform: scale(1); }
+    100% { opacity: 0.25; transform: scale(0.85); }
+  }
+`}</style>
       <main style={page}>
         <div style={container}>
           <div style={header}>
@@ -117,7 +124,36 @@ export default function NewRulePage() {
                 disabled={loading}
                 style={primaryButton}
               >
-                {loading ? "作成中..." : "作成"}
+                {loading ? (
+                  <span style={loadingText}>
+                    <span>作成中</span>
+                    <span style={loadingDots} aria-hidden="true">
+                      <span
+                        style={{
+                          ...loadingDotBase,
+                          left: 0,
+                          animationDelay: "0s",
+                        }}
+                      />
+                      <span
+                        style={{
+                          ...loadingDotBase,
+                          left: 10,
+                          animationDelay: "0.2s",
+                        }}
+                      />
+                      <span
+                        style={{
+                          ...loadingDotBase,
+                          left: 20,
+                          animationDelay: "0.4s",
+                        }}
+                      />
+                    </span>
+                  </span>
+                ) : (
+                  "作成"
+                )}
               </button>
             </div>
           </div>
@@ -253,7 +289,36 @@ export default function NewRulePage() {
                 戻る
               </button>
               <button type="submit" disabled={loading} style={primaryButton}>
-                {loading ? "作成中..." : "作成"}
+                {loading ? (
+                  <span style={loadingText}>
+                    <span>作成中</span>
+                    <span style={loadingDots} aria-hidden="true">
+                      <span
+                        style={{
+                          ...loadingDotBase,
+                          left: 0,
+                          animationDelay: "0s",
+                        }}
+                      />
+                      <span
+                        style={{
+                          ...loadingDotBase,
+                          left: 10,
+                          animationDelay: "0.2s",
+                        }}
+                      />
+                      <span
+                        style={{
+                          ...loadingDotBase,
+                          left: 20,
+                          animationDelay: "0.4s",
+                        }}
+                      />
+                    </span>
+                  </span>
+                ) : (
+                  "作成"
+                )}
               </button>
             </div>
           </form>
@@ -495,6 +560,30 @@ const errorBox: React.CSSProperties = {
   border: "1px solid #fecaca",
   color: "#b91c1c",
   fontSize: 14,
+};
+
+const loadingText: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 8,
+};
+
+const loadingDots: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  position: "relative",
+  width: 28,
+  height: 8,
+};
+
+const loadingDotBase: React.CSSProperties = {
+  position: "absolute",
+  top: 0,
+  width: 8,
+  height: 8,
+  borderRadius: "999px",
+  background: "#ffffff",
+  animation: "ap-dot-flashing 1s infinite linear alternate",
 };
 
 const modalOverlay: React.CSSProperties = {
