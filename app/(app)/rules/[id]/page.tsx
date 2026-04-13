@@ -650,12 +650,13 @@ export default function RuleEditPage() {
         const text = await res.text().catch(() => "");
         throw new Error(text || `Failed to update rule (${res.status})`);
       }
+
       setDirty(false);
       router.push("/rules");
       router.refresh();
+      return;
     } catch (e: any) {
       setError(e?.message ?? "Unexpected error");
-    } finally {
       setSaving(false);
     }
   }
