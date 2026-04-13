@@ -66,6 +66,30 @@ async function copyToClipboard(text: string) {
   }
 }
 
+const loadingText: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 8,
+};
+
+const loadingDots: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  position: "relative",
+  width: 28,
+  height: 8,
+};
+
+const loadingDotBase: React.CSSProperties = {
+  position: "absolute",
+  top: 0,
+  width: 8,
+  height: 8,
+  borderRadius: "999px",
+  background: "#ffffff",
+  animation: "ap-dot-flashing 1s infinite linear alternate",
+};
+
 export default function RuleEditPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
@@ -638,6 +662,13 @@ export default function RuleEditPage() {
 
   return (
     <main className={styles.page}>
+      <style>{`
+      @keyframes ap-dot-flashing {
+        0% { opacity: 0.25; transform: scale(0.85); }
+        50% { opacity: 1; transform: scale(1); }
+        100% { opacity: 0.25; transform: scale(0.85); }
+      }
+    `}</style>
       <div className={styles.container}>
         <div className={styles.header}>
           <div>
