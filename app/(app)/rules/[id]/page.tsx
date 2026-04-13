@@ -667,7 +667,38 @@ export default function RuleEditPage() {
               }}
               disabled={saving || loading || !rule}
             >
-              {saving ? "保存中..." : dirty ? "保存（未保存あり）" : "保存"}
+              {saving ? (
+                <span style={loadingText}>
+                  <span>保存中</span>
+                  <span style={loadingDots} aria-hidden="true">
+                    <span
+                      style={{
+                        ...loadingDotBase,
+                        left: 0,
+                        animationDelay: "0s",
+                      }}
+                    />
+                    <span
+                      style={{
+                        ...loadingDotBase,
+                        left: 10,
+                        animationDelay: "0.2s",
+                      }}
+                    />
+                    <span
+                      style={{
+                        ...loadingDotBase,
+                        left: 20,
+                        animationDelay: "0.4s",
+                      }}
+                    />
+                  </span>
+                </span>
+              ) : dirty ? (
+                "保存（未保存あり）"
+              ) : (
+                "保存"
+              )}
             </button>
           </div>
         </div>
@@ -859,7 +890,38 @@ export default function RuleEditPage() {
                 className={styles.primaryButton}
                 disabled={saving}
               >
-                {saving ? "保存中..." : dirty ? "保存（未保存あり）" : "保存"}
+                {saving ? (
+                  <span style={loadingText}>
+                    <span>保存中</span>
+                    <span style={loadingDots} aria-hidden="true">
+                      <span
+                        style={{
+                          ...loadingDotBase,
+                          left: 0,
+                          animationDelay: "0s",
+                        }}
+                      />
+                      <span
+                        style={{
+                          ...loadingDotBase,
+                          left: 10,
+                          animationDelay: "0.2s",
+                        }}
+                      />
+                      <span
+                        style={{
+                          ...loadingDotBase,
+                          left: 20,
+                          animationDelay: "0.4s",
+                        }}
+                      />
+                    </span>
+                  </span>
+                ) : dirty ? (
+                  "保存（未保存あり）"
+                ) : (
+                  "保存"
+                )}
               </button>
             </div>
           </form>
