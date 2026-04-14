@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Button } from "@/lib/ui/Button";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 
 export default function CopyButton({ ruleId }: { ruleId: string }) {
   const router = useRouter();
@@ -23,10 +24,11 @@ export default function CopyButton({ ruleId }: { ruleId: string }) {
       }
 
       router.refresh();
-      setLoading(false); // ← これ追加（重要）
+      toast.success("ルールをコピーしました（一覧の上に追加されました）");
+      setLoading(false);
     } catch (e) {
       console.error(e);
-      alert("複製に失敗しました");
+      toast.error("複製に失敗しました");
       setLoading(false);
     }
   }
