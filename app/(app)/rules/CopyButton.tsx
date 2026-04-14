@@ -2,26 +2,32 @@
 
 import * as React from "react";
 import { Button } from "@/lib/ui/Button";
+import { useRouter } from "next/navigation";
 
-function cx(...xs: Array<string | undefined | false | null>) {
-  return xs.filter(Boolean).join(" ");
-}
-
-export default function CopyButton({
-  text,
-  className,
-}: {
-  text: string;
-  className?: string;
-}) {
-  const [ok, setOk] = React.useState(false);
+export default function CopyButton({ ruleId }: { ruleId: string }) {
+  const router = useRouter();
+  const [loading, setLoading] = React.useState(false);
 
   async function onCopy() {
+    if (loading) return;
+
+    setLoading(true);
+
     try {
-      await navigator.clipboard.writeText(text);
-      setOk(true);
-      setTimeout(() => setOk(false), 900);
-    } catch {}
+      const res = await fetch(`/api/rules/${ruleId}/duplicate`, {
+        method: "POST",
+      });
+
+      if (!res.ok) {
+        throw new Error("複製に失敗しました");
+      }
+
+      router.refresh();
+    } catch (e) {
+      console.error(e);
+      alert("複製に失敗しました");
+      setLoading(false);
+    }
   }
 
   return (
@@ -30,10 +36,9 @@ export default function CopyButton({
       variant="outline"
       size="sm"
       onClick={onCopy}
-      className={cx(ok ? "btnCopySuccess" : "btnOutline", className)}
-      title="検索条件をコピー"
+      disabled={loading}
     >
-      {ok ? "コピー済み" : "コピー"}
+      {loading ? "複製中..." : "コピー"}
     </Button>
   );
 }

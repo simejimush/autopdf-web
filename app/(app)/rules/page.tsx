@@ -345,10 +345,6 @@ export default async function RulesPage({
               最初のルールを作ってみましょう
             </div>
 
-            <div className={styles.emptyLead}>
-              設定は3ステップで完了します。
-            </div>
-
             <ol className={styles.onboardingSteps}>
               <li
                 className={`${styles.onboardingStep} ${
@@ -526,7 +522,7 @@ export default async function RulesPage({
                         </Button>
                       </Link>
 
-                      <CopyButton text={displayQuery} />
+                      <CopyButton ruleId={r.id} />
                     </div>
                   </CardHeader>
 
