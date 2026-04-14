@@ -23,6 +23,7 @@ export default function CopyButton({ ruleId }: { ruleId: string }) {
       }
 
       router.refresh();
+      setLoading(false); // ← これ追加（重要）
     } catch (e) {
       console.error(e);
       alert("複製に失敗しました");
@@ -31,14 +32,78 @@ export default function CopyButton({ ruleId }: { ruleId: string }) {
   }
 
   return (
-    <Button
-      type="button"
-      variant="outline"
-      size="sm"
-      onClick={onCopy}
-      disabled={loading}
-    >
-      {loading ? "複製中..." : "コピー"}
-    </Button>
+    <>
+      <style>{`
+        @keyframes ap-dot-flashing {
+          0% { opacity: 0.25; transform: scale(0.85); }
+          50% { opacity: 1; transform: scale(1); }
+          100% { opacity: 0.25; transform: scale(0.85); }
+        }
+      `}</style>
+
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={onCopy}
+        disabled={loading}
+      >
+        {loading ? (
+          <span
+            style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
+          >
+            <span>複製中</span>
+            <span
+              style={{
+                display: "inline-flex",
+                position: "relative",
+                width: 28,
+                height: 8,
+              }}
+              aria-hidden="true"
+            >
+              <span
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  width: 8,
+                  height: 8,
+                  borderRadius: "999px",
+                  background: "#ffffff",
+                  animation: "ap-dot-flashing 1s infinite linear alternate",
+                  animationDelay: "0s",
+                }}
+              />
+              <span
+                style={{
+                  position: "absolute",
+                  left: 10,
+                  width: 8,
+                  height: 8,
+                  borderRadius: "999px",
+                  background: "#ffffff",
+                  animation: "ap-dot-flashing 1s infinite linear alternate",
+                  animationDelay: "0.2s",
+                }}
+              />
+              <span
+                style={{
+                  position: "absolute",
+                  left: 20,
+                  width: 8,
+                  height: 8,
+                  borderRadius: "999px",
+                  background: "#ffffff",
+                  animation: "ap-dot-flashing 1s infinite linear alternate",
+                  animationDelay: "0.4s",
+                }}
+              />
+            </span>
+          </span>
+        ) : (
+          "コピー"
+        )}
+      </Button>
+    </>
   );
 }
