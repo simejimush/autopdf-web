@@ -271,13 +271,14 @@ const styles = `
   font-weight:900;
   cursor:pointer;
 }
-  .planBadge {
+.planBadge {
   padding: 4px 8px;
   border-radius: 999px;
   font-size: 11px;
   font-weight: 900;
-  border: 1px solid var(--border);
-  background: var(--surface-2);
+  border: 1px solid #bae6fd;
+  background: #e0f2fe;
+  color: #0369a1;
 }
 
 @media (max-width: 900px){
