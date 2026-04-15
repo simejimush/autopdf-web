@@ -241,7 +241,7 @@ export default function NewRulePage() {
                 </div>
               </div>
 
-              <label style={field}>
+              <div style={field}>
                 <div style={fieldLabelRow}>
                   <span style={fieldLabel}>
                     Gmail検索条件 <span style={required}>必須</span>
@@ -275,8 +275,9 @@ export default function NewRulePage() {
                   rows={5}
                   spellCheck={false}
                   style={textarea}
+                  aria-label="Gmail検索条件"
                 />
-              </label>
+              </div>
             </section>
 
             <div style={footerActions}>
