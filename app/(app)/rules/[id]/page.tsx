@@ -852,7 +852,7 @@ export default function RuleEditPage() {
                 </div>
               </div>
 
-              <label className={styles.field}>
+              <div className={styles.field}>
                 <div className={`${styles.fieldLabel} ${styles.fieldLabelRow}`}>
                   <span>
                     Gmail検索条件 <span className={styles.required}>必須</span>
@@ -889,6 +889,7 @@ export default function RuleEditPage() {
                   placeholder="例: label:INBOX is:unread newer_than:7d subject:(請求書)"
                   rows={4}
                   spellCheck={false}
+                  aria-label="Gmail検索条件"
                 />
 
                 {queryWarnings.length > 0 && (
@@ -905,7 +906,7 @@ export default function RuleEditPage() {
                   「AI生成」、または Gmail の検索演算子を直接入力できます。 例:
                   label:INBOX is:unread newer_than:7d subject:(請求書)
                 </span>
-              </label>
+              </div>
             </section>
 
             <div className={styles.footerActions}>
