@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import styles from "./AdminErrorsPage.module.css";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
 const ADMIN_EMAIL = "sencho96@gmail.com";
 
@@ -49,7 +50,7 @@ export default async function AdminErrorsPage() {
     redirect("/dashboard");
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from("runs")
     .select(
       "id, status, error_code, message, user_id, rule_id, trigger, started_at, finished_at",
