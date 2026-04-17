@@ -1,20 +1,30 @@
-// autopdf-web/app/api/cron/route.ts
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { executeRule } from "@/lib/runs/executeRule";
 
 type RuleRow = {
   id: string;
-  // 有効フラグはプロジェクトにより名前が違う可能性があるので両対応
+  user_id?: string | null;
   is_enabled?: boolean | null;
   enabled?: boolean | null;
   is_active?: boolean | null;
 };
 
-export async function GET(req: Request) {
-  // --- Auth guard（ブラウザ直叩き対策 & Vercel Cron用）---
-  const url = new URL(req.url);
+type CronResultRow = {
+  id: string;
+  ok: boolean;
+  runId?: string;
+  error?: string;
+  message?: string;
+};
 
-  // ?secret=xxx で呼ぶ方式（VercelのCronで設定しやすい）
+function isEnabledRule(rule: RuleRow): boolean {
+  const value = rule.is_active ?? rule.is_enabled ?? rule.enabled;
+  return value === undefined ? true : Boolean(value);
+}
+
+export async function GET(req: Request) {
+  const url = new URL(req.url);
   const secret = url.searchParams.get("secret") ?? "";
   const expected = process.env.CRON_SECRET ?? "";
 
@@ -32,10 +42,8 @@ export async function GET(req: Request) {
   }
 
   console.log("[cron] Cron triggered");
-  console.log("### NEW VERSION (fetch /api/rules/:id/run) ###");
 
-  // --- 1) rules を取得 ---
-  // カラム名差異で詰まらないように、まずは * で取ってJS側でフィルタする
+  // 互換性優先で * 取得し、JS側で有効判定する
   const { data, error } = await supabaseAdmin.from("rules").select("*");
 
   if (error) {
@@ -47,15 +55,7 @@ export async function GET(req: Request) {
   }
 
   const rules = (data ?? []) as RuleRow[];
-
-  // --- 2) 有効ルールだけ抽出 ---
-  // 優先順: is_active -> is_enabled -> enabled -> (未定義なら有効扱い)
-  const enabledRules = rules.filter((r) => {
-    const v =
-      (r as any).is_active ?? (r as any).is_enabled ?? (r as any).enabled;
-
-    return v === undefined ? true : Boolean(v);
-  });
+  const enabledRules = rules.filter(isEnabledRule);
 
   console.log(
     "[cron] total rules:",
@@ -64,51 +64,82 @@ export async function GET(req: Request) {
     enabledRules.length,
   );
 
-  // --- 3) 逐次実行（安全優先） ---
   let ok = 0;
   let ng = 0;
 
-  const results: Array<{ id: string; status: number; body?: any }> = [];
+  const results: CronResultRow[] = [];
 
-  // デプロイ先の origin を使って内部APIを叩く
-  const origin = url.origin;
-
-  for (const r of enabledRules) {
-    const id = r.id;
-
+  for (const rule of enabledRules) {
     try {
-      const runRes = await fetch(`${origin}/api/rules/${id}/run`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          // run側が cron secret を受け付ける実装なら、ここで渡す
-          "x-cron-secret": expected,
-        },
-        body: JSON.stringify({ trigger: "cron" }),
-        cache: "no-store",
-      });
-
-      const status = runRes.status;
-
-      let body: any = null;
-      try {
-        body = await runRes.json();
-      } catch {
-        body = null;
+      if (!rule.id || !rule.user_id) {
+        ng++;
+        console.error("[cron] Skip invalid rule row:", rule);
+        results.push({
+          id: rule.id ?? "(unknown)",
+          ok: false,
+          error: "Invalid rule row: missing id or user_id",
+        });
+        continue;
       }
 
-      if (status >= 200 && status < 300) ok++;
+      const startedAt = new Date().toISOString();
+
+      const { data: run, error: runErr } = await supabaseAdmin
+        .from("runs")
+        .insert({
+          user_id: rule.user_id,
+          rule_id: rule.id,
+          trigger: "cron",
+          status: "running",
+          processed_count: 0,
+          saved_count: 0,
+          skipped_count: 0,
+          message: "Run started",
+          started_at: startedAt,
+        })
+        .select("id")
+        .single();
+
+      if (runErr || !run) {
+        ng++;
+        console.error("[cron] Failed to create run:", rule.id, runErr);
+        results.push({
+          id: rule.id,
+          ok: false,
+          error: runErr?.message ?? "Failed to create run",
+        });
+        continue;
+      }
+
+      const result = await executeRule({
+        ruleId: rule.id,
+        userId: rule.user_id,
+        runId: run.id,
+      });
+
+      if (result.ok) ok++;
       else ng++;
 
-      console.log("[cron] rule done:", id, "status:", status);
-      results.push({ id, status, body });
-    } catch (e: any) {
-      ng++;
-      console.error("[cron] rule failed:", id, e?.message ?? e);
+      console.log("[cron] rule done:", rule.id, "ok:", result.ok);
+
       results.push({
-        id,
-        status: 500,
-        body: { error: e?.message ?? String(e) },
+        id: rule.id,
+        ok: result.ok,
+        runId: run.id,
+        message: result.message,
+        ...(result.ok ? {} : { error: result.errorCode ?? "UNKNOWN" }),
+      });
+    } catch (error) {
+      ng++;
+      const message =
+        error instanceof Error ? error.message : "Unknown cron error";
+
+      console.error("[cron] rule failed:", rule.id, message);
+
+      results.push({
+        id: rule.id,
+        ok: false,
+        error: message,
       });
     }
   }

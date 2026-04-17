@@ -4,6 +4,7 @@ import { emailToPdfBytes } from "@/lib/pdf/emailToPdf";
 import { uploadPdfToDrive } from "@/lib/google/drive";
 import { getRunErrorMessage } from "@/lib/runs/getRunErrorMessage";
 import { normalizeRunErrorCode } from "@/lib/runs/normalizeRunErrorCode";
+import { updateGoogleConnectionHealth } from "@/lib/monitoring/updateGoogleConnectionHealth";
 
 type ExecuteRuleParams = {
   ruleId: string;
@@ -55,6 +56,11 @@ export async function executeRule(
         })
         .eq("id", params.runId);
 
+      await updateGoogleConnectionHealth({
+        userId: params.userId,
+        event: "success",
+      });
+
       return {
         ok: true,
         processedCount: 0,
@@ -88,6 +94,11 @@ export async function executeRule(
           finished_at: new Date().toISOString(),
         })
         .eq("id", params.runId);
+
+      await updateGoogleConnectionHealth({
+        userId: params.userId,
+        event: "success",
+      });
 
       return {
         ok: true,
@@ -161,6 +172,11 @@ export async function executeRule(
       })
       .eq("id", params.runId);
 
+    await updateGoogleConnectionHealth({
+      userId: params.userId,
+      event: "success",
+    });
+
     return {
       ok: true,
       processedCount: 1,
@@ -188,6 +204,12 @@ export async function executeRule(
         finished_at: new Date().toISOString(),
       })
       .eq("id", params.runId);
+
+    await updateGoogleConnectionHealth({
+      userId: params.userId,
+      event: "error",
+      errorCode,
+    });
 
     return {
       ok: false,

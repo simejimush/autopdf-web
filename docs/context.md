@@ -189,3 +189,33 @@ AIや新しい開発者は以下の順で読むと構造を理解しやすいで
 - 既存の主要OKケースを壊さない
 - 明示的 subject 指定ケースのみ安全に保持できる
 - sender / file signal の既存挙動に副作用を出さない
+
+## 監視 / 通知 / 運用（今後の重要導線）
+
+※ 監視機能を実装したら、この章を更新すること  
+※ AutoPDFでは「処理停止を早く検知する」ことが重要
+
+### 管理者向け監視UI
+
+- app/(app)/admin/errors/page.tsx: 最新エラー一覧 / user_id / rule_id / error_code / 発生時刻の確認画面
+- app/(app)/admin/errors/AdminErrorsPage.module.css: 管理画面CSS
+
+### 監視の共通ロジック
+
+- src/lib/monitoring/normalizeRunError.ts: 例外 → error_code / message への正規化
+- src/lib/monitoring/notifySlack.ts: 管理者向けSlack通知
+- src/lib/monitoring/notifyUser.ts: ユーザー向けメール通知
+- src/lib/monitoring/healthcheck.ts: 「24時間成功ゼロ」などのヘルスチェック判定
+- src/lib/monitoring/monitoringTypes.ts: 監視用の型定義（必要なら追加）
+
+### 実行系と監視の接点
+
+- app/api/rules/[id]/run/route.ts: 手動実行から監視共通処理を呼ぶ入口
+- app/api/cron/route.ts: 定期実行 / ヘルスチェック / 通知起点
+- src/lib/runs/ または src/lib/execution/: runs記録と通知判定を共通化する層（実装時に整理）
+
+### 状態保持で重要になるテーブル
+
+- runs: 実行成否 / error_code / message / started_at / finished_at
+- google_connections: 接続状態 / last_success_at / last_error_code / reauth_required などの監視用状態
+- rules: 有効ルール有無の判定に使用

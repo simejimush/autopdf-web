@@ -19,16 +19,20 @@ Gmail / Google Drive API 用トークン保存。
 | refresh_token_enc | text        | 暗号化リフレッシュトークン |
 | token_expiry_at   | timestamptz | アクセストークン期限       |
 | last_verified_at  | timestamptz | 最終接続確認               |
+| last_success_at   | timestamptz | 最終成功時刻               |
+| last_error_at     | timestamptz | 最終エラー時刻             |
+| last_error_code   | text        | 最終エラーコード           |
+| reauth_required   | boolean     | 再認証が必要か             |
 | created_at        | timestamptz | 作成日時                   |
 | updated_at        | timestamptz | 更新日時                   |
 
 ### Index
 
-```
 google_connections_pkey (id)
 
-google_connections_user_id_key
+google_connections_user_id_key  
 (user_id UNIQUE)
+
 ```
 
 ---
@@ -64,7 +68,9 @@ google_connections_user_id_key
 ### Index
 
 ```
+
 rules_pkey (id)
+
 ```
 
 ---
@@ -92,6 +98,7 @@ rules_pkey (id)
 ### Index
 
 ```
+
 runs_pkey (id)
 
 runs_status_updated_at_idx
@@ -102,6 +109,7 @@ runs_user_started_idx
 
 runs_rule_id_started_at_idx
 (rule_id, started_at DESC)
+
 ```
 
 ---
@@ -124,6 +132,7 @@ Gmailメールの二重処理防止テーブル
 ### Index
 
 ```
+
 processed_emails_pkey (id)
 
 processed_emails_rule_msg_uniq
@@ -134,6 +143,7 @@ processed_emails_user_idx
 
 processed_emails_rule_idx
 (rule_id)
+
 ```
 
 用途
@@ -158,10 +168,18 @@ processed_emails_rule_idx
 | marketing_opt_in | boolean     | マーケ同意    |
 | created_at       | timestamptz | 作成日時      |
 | updated_at       | timestamptz | 更新日時      |
+| plan | text | プラン種別（free / pro / pro_plus） ※default: free |
+
+#### planについて
+
+- free: 無料プラン
+- pro: 有料プラン（メイン）
+- pro_plus: 上位プラン（将来用）
 
 ### Index
 
 ```
+
 user_profiles_pkey (id)
 
 user_profiles_user_id_key
@@ -169,6 +187,7 @@ user_profiles_user_id_key
 
 user_profiles_user_id_idx
 (user_id)
+
 ```
 
 ---
@@ -176,6 +195,7 @@ user_profiles_user_id_idx
 # Table Relationships
 
 ```
+
 auth.users
 │
 ├── user_profiles
@@ -183,9 +203,10 @@ auth.users
 ├── google_connections
 │
 ├── rules
-│   └── runs
+│ └── runs
 │
 └── processed_emails
+
 ```
 
 ---
@@ -193,6 +214,7 @@ auth.users
 # Core Processing Flow
 
 ```
+
 Gmail
 ↓
 rules (検索条件)
@@ -206,6 +228,7 @@ PDF生成
 Google Drive
 ↓
 processed_emails (重複処理防止)
+
 ```
 
 ---
@@ -229,3 +252,4 @@ processed_emails (重複処理防止)
 
 - google_connections_pkey (id)
 - google_connections_user_id_key (user_id)
+```
