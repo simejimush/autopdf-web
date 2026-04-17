@@ -79,6 +79,7 @@ export async function POST(_req: NextRequest, context: RouteContext) {
       ruleId: rule.id,
       userId: user.id,
       runId: run.id,
+      trigger: "manual",
     });
 
     return NextResponse.json({

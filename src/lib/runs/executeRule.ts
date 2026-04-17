@@ -5,11 +5,13 @@ import { uploadPdfToDrive } from "@/lib/google/drive";
 import { getRunErrorMessage } from "@/lib/runs/getRunErrorMessage";
 import { normalizeRunErrorCode } from "@/lib/runs/normalizeRunErrorCode";
 import { updateGoogleConnectionHealth } from "@/lib/monitoring/updateGoogleConnectionHealth";
+import { notifySlack } from "@/lib/monitoring/notifySlack";
 
 type ExecuteRuleParams = {
   ruleId: string;
   userId: string;
   runId: string;
+  trigger: "manual" | "cron";
 };
 
 type ExecuteResult = {
@@ -20,6 +22,15 @@ type ExecuteResult = {
   errorCode: string | null;
   message: string;
 };
+
+const SLACK_NOTIFY_ERROR_CODES = new Set([
+  "GOOGLE_TOKEN_INVALID",
+  "GOOGLE_PERMISSION_DENIED",
+  "DRIVE_FOLDER_INVALID",
+  "DRIVE_UPLOAD_FAILED",
+  "DB_INSERT_FAILED",
+  "UNKNOWN",
+]);
 
 export async function executeRule(
   params: ExecuteRuleParams,
@@ -204,6 +215,31 @@ export async function executeRule(
         finished_at: new Date().toISOString(),
       })
       .eq("id", params.runId);
+
+    if (SLACK_NOTIFY_ERROR_CODES.has(errorCode)) {
+      console.log("[monitoring] notifySlack target:", {
+        errorCode,
+        ruleId: params.ruleId,
+        trigger: params.trigger,
+      });
+      try {
+        await notifySlack({
+          errorCode,
+          message: safeMessage,
+          userId: params.userId,
+          ruleId: params.ruleId,
+          trigger: params.trigger,
+          occurredAt: new Date().toISOString(),
+        });
+      } catch (notifyError) {
+        const notifyMessage =
+          notifyError instanceof Error
+            ? notifyError.message
+            : "Unknown Slack notify error";
+
+        console.error("[monitoring] Slack notify failed:", notifyMessage);
+      }
+    }
 
     await updateGoogleConnectionHealth({
       userId: params.userId,

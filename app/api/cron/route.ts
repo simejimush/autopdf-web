@@ -115,6 +115,7 @@ export async function GET(req: Request) {
         ruleId: rule.id,
         userId: rule.user_id,
         runId: run.id,
+        trigger: "cron",
       });
 
       if (result.ok) ok++;
