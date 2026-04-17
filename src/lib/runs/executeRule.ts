@@ -217,11 +217,6 @@ export async function executeRule(
       .eq("id", params.runId);
 
     if (SLACK_NOTIFY_ERROR_CODES.has(errorCode)) {
-      console.log("[monitoring] notifySlack target:", {
-        errorCode,
-        ruleId: params.ruleId,
-        trigger: params.trigger,
-      });
       try {
         await notifySlack({
           errorCode,
