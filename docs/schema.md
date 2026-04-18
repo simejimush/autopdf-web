@@ -9,22 +9,24 @@ AutoPDF の Supabase (PostgreSQL) のテーブル構造とインデックス。
 Google OAuth 接続情報  
 Gmail / Google Drive API 用トークン保存。
 
-| column            | type        | description                |
-| ----------------- | ----------- | -------------------------- |
-| id                | uuid        | PK                         |
-| user_id           | uuid        | auth.users.id              |
-| status            | text        | 接続状態                   |
-| scopes            | text        | OAuth scopes               |
-| access_token_enc  | text        | 暗号化アクセストークン     |
-| refresh_token_enc | text        | 暗号化リフレッシュトークン |
-| token_expiry_at   | timestamptz | アクセストークン期限       |
-| last_verified_at  | timestamptz | 最終接続確認               |
-| last_success_at   | timestamptz | 最終成功時刻               |
-| last_error_at     | timestamptz | 最終エラー時刻             |
-| last_error_code   | text        | 最終エラーコード           |
-| reauth_required   | boolean     | 再認証が必要か             |
-| created_at        | timestamptz | 作成日時                   |
-| updated_at        | timestamptz | 更新日時                   |
+| column                        | type        | description                  |
+| ----------------------------- | ----------- | ---------------------------- |
+| id                            | uuid        | PK                           |
+| user_id                       | uuid        | auth.users.id                |
+| status                        | text        | 接続状態                     |
+| scopes                        | text        | OAuth scopes                 |
+| access_token_enc              | text        | 暗号化アクセストークン       |
+| refresh_token_enc             | text        | 暗号化リフレッシュトークン   |
+| token_expiry_at               | timestamptz | アクセストークン期限         |
+| last_verified_at              | timestamptz | 最終接続確認                 |
+| last_success_at               | timestamptz | 最終成功時刻                 |
+| last_error_at                 | timestamptz | 最終エラー時刻               |
+| last_error_code               | text        | 最終エラーコード             |
+| reauth_required               | boolean     | 再認証が必要か               |
+| last_user_notified_at         | timestamptz | 最終ユーザー通知時刻         |
+| last_user_notified_error_code | text        | 最終ユーザー通知エラーコード |
+| created_at                    | timestamptz | 作成日時                     |
+| updated_at                    | timestamptz | 更新日時                     |
 
 ### Index
 

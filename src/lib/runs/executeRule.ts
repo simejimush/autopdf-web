@@ -6,6 +6,7 @@ import { getRunErrorMessage } from "@/lib/runs/getRunErrorMessage";
 import { normalizeRunErrorCode } from "@/lib/runs/normalizeRunErrorCode";
 import { updateGoogleConnectionHealth } from "@/lib/monitoring/updateGoogleConnectionHealth";
 import { notifySlack } from "@/lib/monitoring/notifySlack";
+import { notifyUser } from "@/lib/monitoring/notifyUser";
 
 type ExecuteRuleParams = {
   ruleId: string;
@@ -23,6 +24,16 @@ type ExecuteResult = {
   message: string;
 };
 
+async function getUserEmail(userId: string): Promise<string | null> {
+  const { data, error } = await supabaseAdmin.auth.admin.getUserById(userId);
+
+  if (error || !data?.user?.email) {
+    return null;
+  }
+
+  return data.user.email;
+}
+
 const SLACK_NOTIFY_ERROR_CODES = new Set([
   "GOOGLE_TOKEN_INVALID",
   "GOOGLE_PERMISSION_DENIED",
@@ -30,6 +41,11 @@ const SLACK_NOTIFY_ERROR_CODES = new Set([
   "DRIVE_UPLOAD_FAILED",
   "DB_INSERT_FAILED",
   "UNKNOWN",
+]);
+
+const USER_NOTIFY_ERROR_CODES = new Set<string>([
+  "GOOGLE_TOKEN_INVALID",
+  "GOOGLE_PERMISSION_DENIED",
 ]);
 
 export async function executeRule(
@@ -241,6 +257,34 @@ export async function executeRule(
       event: "error",
       errorCode,
     });
+
+    if (USER_NOTIFY_ERROR_CODES.has(errorCode)) {
+      try {
+        const userEmail = await getUserEmail(params.userId);
+
+        if (userEmail) {
+          await notifyUser({
+            userId: params.userId,
+            userEmail,
+            ruleId: params.ruleId,
+            errorCode:
+              errorCode === "GOOGLE_TOKEN_INVALID"
+                ? "GOOGLE_TOKEN_INVALID"
+                : "GOOGLE_PERMISSION_DENIED",
+            message: safeMessage,
+            trigger: params.trigger,
+            occurredAt: new Date().toISOString(),
+          });
+        }
+      } catch (notifyError) {
+        const notifyMessage =
+          notifyError instanceof Error
+            ? notifyError.message
+            : "Unknown user notify error";
+
+        console.error("[monitoring] User notify failed:", notifyMessage);
+      }
+    }
 
     return {
       ok: false,
