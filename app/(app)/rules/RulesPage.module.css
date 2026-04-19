@@ -321,7 +321,7 @@
 }
 
 .btnNewRule {
-  background: #0ac5b2 !important;
+  background: #6242d5 !important;
   color: #fff !important;
   border: 1px solid rgba(0, 0, 0, 0.04) !important;
   transition:
@@ -364,8 +364,8 @@
 }
 
 .btnCopySuccess {
-  background: #0ac5b2;
-  color: #052d2a;
+  background: #6242d5;
+  color: #ffffff;
   border: 1px solid rgba(0, 0, 0, 0.04);
 }
 
@@ -787,17 +787,17 @@
 }
 
 .onboardingStepActive {
-  border-color: rgba(10, 197, 178, 0.32);
-  background: rgba(10, 197, 178, 0.08);
-  box-shadow: 0 0 0 1px rgba(10, 197, 178, 0.08);
+  border-color: rgba(98, 66, 213, 0.4);
+  background: rgba(98, 66, 213, 0.12);
+  box-shadow: 0 0 0 1px rgba(98, 66, 213, 0.12);
 }
 
 .onboardingStepActive .onboardingNumber {
-  color: #0891b2;
+  color: #8b74e8;
 }
 
 .onboardingStepActive .onboardingLabel {
-  color: #0f172a;
+  color: #e2e8f0;
 }
 
 .onboardingLink {
