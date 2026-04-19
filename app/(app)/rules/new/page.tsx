@@ -3,14 +3,6 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import AiQueryModal from "../_components/AiQueryModal";
-import styles from "../[id]/RuleEditPage.module.css";
-
-type SenderStrength = "weak" | "strong";
-
-type SenderCandidate = {
-  value: string;
-  strength: SenderStrength;
-};
 
 function extractFolderId(input: string) {
   const trimmed = input.trim();
@@ -182,6 +174,7 @@ export default function NewRulePage() {
                 />
               </label>
             </section>
+
             <section style={card}>
               <div style={cardHeader}>
                 <div>
@@ -360,12 +353,12 @@ const title: React.CSSProperties = {
   fontSize: 28,
   lineHeight: 1.2,
   fontWeight: 800,
-  color: "#0f172a",
+  color: "var(--fg)",
 };
 
 const subtitle: React.CSSProperties = {
   margin: "8px 0 0",
-  color: "#64748b",
+  color: "var(--muted)",
   fontSize: 14,
   lineHeight: 1.6,
 };
@@ -381,11 +374,11 @@ const form: React.CSSProperties = {
 };
 
 const card: React.CSSProperties = {
-  background: "#ffffff",
-  border: "1px solid rgba(15, 23, 42, 0.08)",
+  background: "var(--surface)",
+  border: "1px solid var(--border)",
   borderRadius: 18,
   padding: 20,
-  boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)",
+  boxShadow: "var(--sh-2)",
 };
 
 const cardHeader: React.CSSProperties = {
@@ -395,14 +388,14 @@ const cardHeader: React.CSSProperties = {
 const cardTitle: React.CSSProperties = {
   fontSize: 22,
   fontWeight: 800,
-  color: "#0f172a",
+  color: "var(--fg)",
 };
 
 const cardDesc: React.CSSProperties = {
   marginTop: 6,
   fontSize: 14,
   lineHeight: 1.6,
-  color: "#64748b",
+  color: "var(--muted)",
 };
 
 const row: React.CSSProperties = {
@@ -413,7 +406,7 @@ const row: React.CSSProperties = {
 const label: React.CSSProperties = {
   fontSize: 14,
   fontWeight: 700,
-  color: "#334155",
+  color: "var(--fg)",
 };
 
 const valueLine: React.CSSProperties = {
@@ -431,7 +424,7 @@ const toggle: React.CSSProperties = {
 const toggleText: React.CSSProperties = {
   fontSize: 14,
   fontWeight: 700,
-  color: "#0f172a",
+  color: "var(--fg)",
 };
 
 const field: React.CSSProperties = {
@@ -442,7 +435,7 @@ const field: React.CSSProperties = {
 const fieldLabel: React.CSSProperties = {
   fontSize: 14,
   fontWeight: 700,
-  color: "#0f172a",
+  color: "var(--fg)",
 };
 
 const fieldLabelRow: React.CSSProperties = {
@@ -473,9 +466,9 @@ const input: React.CSSProperties = {
   width: "100%",
   padding: "12px 14px",
   borderRadius: 12,
-  border: "1px solid rgba(15, 23, 42, 0.14)",
-  background: "#ffffff",
-  color: "#0f172a",
+  border: "1px solid var(--border)",
+  background: "var(--surface)",
+  color: "var(--fg)",
   fontSize: 14,
   lineHeight: 1.5,
   boxSizing: "border-box",
@@ -486,9 +479,9 @@ const textarea: React.CSSProperties = {
   minHeight: 140,
   padding: "14px 16px",
   borderRadius: 12,
-  border: "1px solid rgba(15, 23, 42, 0.16)",
-  background: "#ffffff",
-  color: "#0f172a",
+  border: "1px solid var(--border)",
+  background: "var(--surface)",
+  color: "var(--fg)",
   fontSize: 14,
   lineHeight: 1.6,
   resize: "vertical",
@@ -498,7 +491,7 @@ const textarea: React.CSSProperties = {
 const help: React.CSSProperties = {
   fontSize: 13,
   lineHeight: 1.6,
-  color: "#64748b",
+  color: "var(--muted)",
 };
 
 const primaryButton: React.CSSProperties = {
@@ -515,9 +508,9 @@ const primaryButton: React.CSSProperties = {
 const ghostButton: React.CSSProperties = {
   padding: "11px 16px",
   borderRadius: 12,
-  border: "1px solid rgba(15, 23, 42, 0.12)",
-  background: "#ffffff",
-  color: "#0f172a",
+  border: "1px solid var(--border)",
+  background: "var(--surface)",
+  color: "var(--fg)",
   fontSize: 14,
   fontWeight: 700,
   cursor: "pointer",
@@ -526,9 +519,9 @@ const ghostButton: React.CSSProperties = {
 const aiButton: React.CSSProperties = {
   padding: "8px 12px",
   borderRadius: 10,
-  border: "1px solid rgba(15, 23, 42, 0.12)",
-  background: "#ffffff",
-  color: "#0f172a",
+  border: "1px solid var(--border)",
+  background: "var(--surface)",
+  color: "var(--fg)",
   fontSize: 13,
   fontWeight: 700,
   cursor: "pointer",
@@ -586,145 +579,4 @@ const loadingDotBase: React.CSSProperties = {
   borderRadius: "999px",
   background: "#ffffff",
   animation: "ap-dot-flashing 1s infinite linear alternate",
-};
-
-const modalOverlay: React.CSSProperties = {
-  position: "fixed",
-  inset: 0,
-  background: "rgba(15, 23, 42, 0.45)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  padding: 16,
-  zIndex: 1000,
-};
-
-const aiModal: React.CSSProperties = {
-  width: "100%",
-  maxWidth: 640,
-  background: "#ffffff",
-  borderRadius: 20,
-  boxShadow: "0 24px 80px rgba(15, 23, 42, 0.18)",
-  border: "1px solid rgba(15, 23, 42, 0.08)",
-  padding: 20,
-};
-
-const aiModalHeader: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: 12,
-  marginBottom: 12,
-};
-
-const aiModalTitle: React.CSSProperties = {
-  fontSize: 28,
-  fontWeight: 800,
-  color: "#0f172a",
-};
-
-const aiModalClose: React.CSSProperties = {
-  border: "none",
-  background: "transparent",
-  fontSize: 24,
-  lineHeight: 1,
-  cursor: "pointer",
-  color: "#64748b",
-};
-
-const aiModalText: React.CSSProperties = {
-  margin: "0 0 12px",
-  fontSize: 14,
-  lineHeight: 1.6,
-  color: "#475569",
-};
-
-const aiTextarea: React.CSSProperties = {
-  width: "100%",
-  minHeight: 120,
-  padding: "14px 16px",
-  borderRadius: 14,
-  border: "1px solid rgba(15, 23, 42, 0.14)",
-  background: "#ffffff",
-  color: "#0f172a",
-  fontSize: 14,
-  lineHeight: 1.6,
-  resize: "vertical",
-  boxSizing: "border-box",
-};
-
-const aiExamples: React.CSSProperties = {
-  marginTop: 16,
-  display: "grid",
-  gap: 8,
-};
-
-const aiExamplesTitle: React.CSSProperties = {
-  fontSize: 13,
-  fontWeight: 700,
-  color: "#475569",
-};
-
-const aiExample: React.CSSProperties = {
-  border: "none",
-  background: "transparent",
-  textAlign: "left",
-  padding: 0,
-  color: "#313131",
-  fontSize: 12,
-  cursor: "pointer",
-};
-
-const aiPreviewBox: React.CSSProperties = {
-  marginTop: 16,
-  padding: 14,
-  borderRadius: 14,
-  background: "#eef7ff",
-  border: "1px solid rgba(15, 23, 42, 0.08)",
-};
-
-const aiPreviewLabel: React.CSSProperties = {
-  fontSize: 13,
-  fontWeight: 700,
-  color: "#475569",
-  marginBottom: 8,
-};
-
-const aiPreviewCode: React.CSSProperties = {
-  display: "block",
-  whiteSpace: "pre-wrap",
-  wordBreak: "break-word",
-  fontSize: 14,
-  lineHeight: 1.6,
-  color: "#0f172a",
-};
-
-const aiModalActions: React.CSSProperties = {
-  marginTop: 18,
-  display: "flex",
-  justifyContent: "flex-end",
-  gap: 10,
-  flexWrap: "wrap",
-};
-
-const aiGhostButton: React.CSSProperties = {
-  padding: "10px 14px",
-  borderRadius: 999,
-  border: "1px solid rgba(15, 23, 42, 0.12)",
-  background: "#ffffff",
-  color: "#0f172a",
-  fontSize: 14,
-  fontWeight: 700,
-  cursor: "pointer",
-};
-
-const aiPrimaryButton: React.CSSProperties = {
-  padding: "10px 14px",
-  borderRadius: 999,
-  border: "1px solid #1d4ed8",
-  background: "#2563eb",
-  color: "#ffffff",
-  fontSize: 14,
-  fontWeight: 700,
-  cursor: "pointer",
 };
