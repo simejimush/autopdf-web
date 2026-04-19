@@ -213,6 +213,7 @@ export async function executeRule(
       message: "Saved 1 PDF to Drive",
     };
   } catch (error) {
+    console.error("[executeRule] raw error:", error);
     const errorCode = normalizeRunErrorCode(error);
     const userFacing = getRunErrorMessage(errorCode);
 
