@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import AiQueryModal from "../_components/AiQueryModal";
+import styles from "../[id]/RuleEditPage.module.css";
 
 type SenderStrength = "weak" | "strong";
 
