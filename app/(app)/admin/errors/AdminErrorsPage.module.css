@@ -279,16 +279,19 @@
   }
 }
 .errorCode {
-  display: inline-block;
-  max-width: 220px;
-  padding: 4px 10px;
+  display: inline-flex;
+  align-items: center;
+  max-width: 250px;
+  min-height: 32px;
+  padding: 6px 12px;
   border-radius: 999px;
   background: #fff1f2;
   color: #b91c1c;
   font-size: 12px;
   font-weight: 800;
-  line-height: 1.4;
-  word-break: break-word;
+  line-height: 1.35;
+  word-break: normal;
+  overflow-wrap: anywhere;
 }
 
 .idCode {
