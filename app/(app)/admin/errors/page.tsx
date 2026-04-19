@@ -219,7 +219,6 @@ export default async function AdminErrorsPage({
               <thead>
                 <tr>
                   <th>発生時刻</th>
-                  <th>status</th>
                   <th>error_code</th>
                   <th>message</th>
                   <th>user_id</th>
@@ -231,26 +230,29 @@ export default async function AdminErrorsPage({
               <tbody>
                 {rows.map((row) => (
                   <tr key={row.id}>
-                    <td>{formatDateTime(row.started_at)}</td>
-                    <td>
-                      <span className={styles.statusBadge}>
-                        {row.status ?? "-"}
-                      </span>
+                    <td className={styles.timeCell}>
+                      {formatDateTime(row.started_at)}
                     </td>
                     <td>
-                      <code className={styles.code}>
+                      <code className={`${styles.code} ${styles.errorCode}`}>
                         {row.error_code ?? "-"}
                       </code>
                     </td>
                     <td className={styles.messageCell}>{row.message ?? "-"}</td>
                     <td>
-                      <code className={styles.code}>{row.user_id ?? "-"}</code>
+                      <code className={`${styles.code} ${styles.idCode}`}>
+                        {row.user_id ?? "-"}
+                      </code>
                     </td>
                     <td>
-                      <code className={styles.code}>{row.rule_id ?? "-"}</code>
+                      <code className={`${styles.code} ${styles.idCode}`}>
+                        {row.rule_id ?? "-"}
+                      </code>
                     </td>
-                    <td>{row.trigger ?? "-"}</td>
-                    <td>{formatDateTime(row.finished_at)}</td>
+                    <td className={styles.triggerCell}>{row.trigger ?? "-"}</td>
+                    <td className={styles.timeCell}>
+                      {formatDateTime(row.finished_at)}
+                    </td>
                   </tr>
                 ))}
               </tbody>

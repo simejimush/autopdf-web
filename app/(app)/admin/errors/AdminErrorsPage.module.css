@@ -75,7 +75,7 @@
 .table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 1120px;
+  min-width: 980px;
 }
 
 .table thead th {
@@ -110,21 +110,6 @@
   background: #f8fafc;
 }
 
-.statusBadge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 56px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: #fee2e2;
-  color: #b91c1c;
-  font-size: 12px;
-  font-weight: 800;
-  line-height: 1.2;
-  text-transform: lowercase;
-}
-
 .code {
   display: inline-block;
   max-width: 260px;
@@ -139,11 +124,14 @@
 }
 
 .messageCell {
-  min-width: 280px;
-  max-width: 420px;
+  min-width: 320px;
+  max-width: 520px;
   white-space: normal;
   word-break: break-word;
+  color: #0f172a;
+  font-weight: 500;
 }
+
 .filters {
   display: grid;
   grid-template-columns: 220px 180px minmax(260px, 1fr) auto;
@@ -289,4 +277,37 @@
   .title {
     font-size: 24px;
   }
+}
+.errorCode {
+  display: inline-block;
+  max-width: 220px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #fff1f2;
+  color: #b91c1c;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.idCode {
+  max-width: 180px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #64748b;
+}
+
+.timeCell {
+  white-space: nowrap;
+  color: #475569;
+  font-size: 12px;
+}
+
+.triggerCell {
+  white-space: nowrap;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: lowercase;
 }
