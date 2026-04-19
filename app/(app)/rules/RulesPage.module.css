@@ -49,10 +49,10 @@
   padding: 0 8px;
   border-radius: 999px;
   border: 1px solid var(--border);
-  background: rgba(15, 23, 42, 0.03);
+  background: var(--surface);
   font-size: 12px;
   font-weight: 900;
-  color: rgba(15, 23, 42, 0.75);
+  color: var(--fg);
 }
 
 .fullWidthOnMobile {
@@ -337,7 +337,7 @@
 .btnNewRule:disabled,
 .btnNewRule[aria-disabled="true"] {
   background: #cbd5e1 !important;
-  color: #64748b !important;
+  color: #64748b5c !important;
   cursor: not-allowed;
   filter: none;
   opacity: 0.85;

@@ -457,9 +457,9 @@ const styles = `
   justify-content: center;
   padding: 6px 12px;
   border-radius: 12px;
-  border: 1px solid #fecaca;
+  border: 1px solid #940000;
   background: var(--surface);
-  color: #b91c1c;
+  color: #ff0000;
   font-weight: 900;
   cursor: pointer;
   font-size: .65rem;
