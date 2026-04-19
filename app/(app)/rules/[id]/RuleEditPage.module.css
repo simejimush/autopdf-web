@@ -18,6 +18,7 @@
   font-size: 22px;
   font-weight: 700;
   margin: 0;
+  color: var(--fg);
 }
 
 .subtitle {
@@ -53,11 +54,11 @@
 }
 
 .card {
-  background: #fff;
-  border: 1px solid rgba(15, 23, 42, 0.1);
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 16px;
   padding: 18px;
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--sh-2);
 }
 
 .cardHeader {
