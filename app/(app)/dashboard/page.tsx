@@ -291,6 +291,7 @@ const styles = `
   margin:0;
   font-size:14px;
   letter-spacing:-0.01em;
+  color:var(--fg);
 }
 
 .muted{
@@ -415,11 +416,14 @@ const styles = `
 .kvVal{
   font-size:13px;
   font-weight:900;
+  color:var(--fg);
+  word-break:break-word;
 }
 
 .mono{
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size:12px;
+  color:var(--fg);
 }
 
 .actions{
@@ -454,7 +458,7 @@ const styles = `
   padding: 6px 12px;
   border-radius: 12px;
   border: 1px solid #fecaca;
-  background: #ffffff;
+  background: var(--surface);
   color: #b91c1c;
   font-weight: 900;
   cursor: pointer;

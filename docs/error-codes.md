@@ -197,3 +197,4 @@ error_code は「原因の識別」だけでなく、監視・通知の起点と
 - 上記は監視MVP時点の初期方針とする
 - 実運用で通知過多になった場合は、error_code 単位で通知条件を見直す
 - user_notify = yes の場合でも、同一ユーザーへの重複通知は抑制を検討する
+- 現行実装（2026-04 時点）の初期ユーザー通知対象は `GOOGLE_TOKEN_INVALID` / `GOOGLE_PERMISSION_DENIED` の2つに限定する

@@ -1,4 +1,3 @@
-// autopdf-web/src/components/dashboard/StatusSummaryCard.tsx
 "use client";
 
 import type { DashboardSummary } from "@/lib/dashboard/summary";
@@ -21,16 +20,36 @@ function Stat(props: { label: string; value: string; hint?: string }) {
       style={{
         padding: 12,
         borderRadius: 14,
-        border: "1px solid rgba(0,0,0,0.08)",
-        background: "rgba(255,255,255,0.7)",
+        border: "1px solid var(--border, rgba(148, 163, 184, 0.2))",
+        background: "var(--surface-2, rgba(255,255,255,0.7))",
       }}
     >
-      <div style={{ fontSize: 12, opacity: 0.7 }}>{props.label}</div>
-      <div style={{ fontSize: 20, fontWeight: 700, marginTop: 4 }}>
+      <div
+        style={{
+          fontSize: 12,
+          color: "var(--muted, #64748b)",
+        }}
+      >
+        {props.label}
+      </div>
+      <div
+        style={{
+          fontSize: 20,
+          fontWeight: 700,
+          marginTop: 4,
+          color: "var(--fg, #0f172a)",
+        }}
+      >
         {props.value}
       </div>
       {props.hint ? (
-        <div style={{ fontSize: 12, opacity: 0.6, marginTop: 2 }}>
+        <div
+          style={{
+            fontSize: 12,
+            color: "var(--muted, #64748b)",
+            marginTop: 2,
+          }}
+        >
           {props.hint}
         </div>
       ) : null}
@@ -47,24 +66,53 @@ export function StatusSummaryCard(props: { summary: DashboardSummary }) {
     <section
       style={{
         borderRadius: 18,
-        border: "1px solid rgba(0,0,0,0.10)",
-        background: "white",
+        border: "1px solid var(--border, rgba(148, 163, 184, 0.2))",
+        background: "var(--surface, #ffffff)",
         padding: 16,
+        boxShadow: "var(--sh-2, 0 8px 24px rgba(15, 23, 42, 0.06))",
       }}
     >
       <div
         style={{ display: "flex", justifyContent: "space-between", gap: 12 }}
       >
         <div>
-          <div style={{ fontSize: 14, fontWeight: 700 }}>稼働ステータス</div>
-          <div style={{ fontSize: 12, opacity: 0.7, marginTop: 2 }}>
+          <div
+            style={{
+              fontSize: 14,
+              fontWeight: 700,
+              color: "var(--fg, #0f172a)",
+            }}
+          >
+            稼働ステータス
+          </div>
+          <div
+            style={{
+              fontSize: 12,
+              color: "var(--muted, #64748b)",
+              marginTop: 2,
+            }}
+          >
             直近7日間のサマリー
           </div>
         </div>
 
-        <div style={{ fontSize: 12, opacity: 0.7, textAlign: "right" }}>
+        <div
+          style={{
+            fontSize: 12,
+            color: "var(--muted, #64748b)",
+            textAlign: "right",
+          }}
+        >
           <div>直近実行</div>
-          <div style={{ fontWeight: 700, opacity: 0.9 }}>{last}</div>
+          <div
+            style={{
+              fontWeight: 700,
+              color: "var(--fg, #0f172a)",
+              marginTop: 2,
+            }}
+          >
+            {last}
+          </div>
         </div>
       </div>
 
