@@ -89,7 +89,7 @@ export async function notifyUser(
   }
 
   await sendEmail({
-    to: payload.userEmail,
+    to: "sencho96@gmail.com",
     subject: buildReconnectMailSubject(),
     text: buildReconnectMailText(),
   });
