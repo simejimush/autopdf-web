@@ -377,7 +377,17 @@
 .btnOutline:hover {
   background: var(--bg-subtle);
 }
+:global([data-theme="dark"]) .btnOutline {
+  border: 1px solid #940000;
+  background: var(--surface);
+  color: #ff0000;
+}
 
+:global([data-theme="dark"]) .btnOutline:hover {
+  background: var(--bg-subtle);
+  border-color: #940000;
+  color: #ff0000;
+}
 .btnCopySuccess {
   background: #6242d5;
   color: #ffffff;
