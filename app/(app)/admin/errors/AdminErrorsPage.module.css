@@ -29,7 +29,7 @@
   margin: 8px 0 0;
   font-size: 14px;
   line-height: 1.6;
-  color: #64748b;
+  color: var(--muted, #64748b);
 }
 
 .count {
@@ -41,8 +41,9 @@
   height: 36px;
   padding: 0 12px;
   border-radius: 999px;
-  background: #e2e8f0;
-  color: #0f172a;
+  background: var(--surface, #ffffff);
+  border: 1px solid var(--border, #e2e8f0);
+  color: var(--fg, #0f172a);
   font-size: 14px;
   font-weight: 700;
 }
@@ -53,9 +54,9 @@
   padding: 18px 20px;
   font-size: 14px;
   line-height: 1.7;
-  border: 1px solid #e2e8f0;
-  background: #ffffff;
-  color: #334155;
+  border: 1px solid var(--border, #e2e8f0);
+  background: var(--surface, #ffffff);
+  color: var(--fg-soft, #334155);
 }
 
 .errorBox {
@@ -66,10 +67,10 @@
 
 .tableWrap {
   overflow-x: auto;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--border, #e2e8f0);
   border-radius: 20px;
-  background: #ffffff;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+  background: var(--surface, #ffffff);
+  box-shadow: var(--sh-2, 0 8px 24px rgba(15, 23, 42, 0.06));
 }
 
 .table {
@@ -82,14 +83,14 @@
   position: sticky;
   top: 0;
   z-index: 1;
-  background: #f8fafc;
-  color: #475569;
+  background: var(--surface-2, #f8fafc);
+  color: var(--fg-soft, #475569);
   font-size: 12px;
   font-weight: 800;
   text-align: left;
   letter-spacing: 0.04em;
   padding: 14px 16px;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--border, #e2e8f0);
   white-space: nowrap;
 }
 
@@ -97,9 +98,10 @@
   padding: 14px 16px;
   font-size: 13px;
   line-height: 1.6;
-  color: #0f172a;
-  border-bottom: 1px solid #eef2f7;
+  color: var(--fg, #0f172a);
+  border-bottom: 1px solid var(--border, #eef2f7);
   vertical-align: top;
+  background: transparent;
 }
 
 .table tbody tr:last-child td {
@@ -107,7 +109,7 @@
 }
 
 .table tbody tr:hover td {
-  background: #f8fafc;
+  background: var(--surface-2, #f8fafc);
 }
 
 .code {
@@ -119,7 +121,7 @@
     "Courier New", monospace;
   font-size: 12px;
   line-height: 1.6;
-  color: #0f172a;
+  color: var(--fg, #0f172a);
   word-break: break-all;
 }
 
@@ -128,7 +130,7 @@
   max-width: 520px;
   white-space: normal;
   word-break: break-word;
-  color: #0f172a;
+  color: var(--fg, #0f172a);
   font-weight: 500;
 }
 
@@ -139,10 +141,10 @@
   align-items: end;
   margin-bottom: 20px;
   padding: 16px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--border, #e2e8f0);
   border-radius: 20px;
-  background: #ffffff;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
+  background: var(--surface, #ffffff);
+  box-shadow: var(--sh-2, 0 8px 24px rgba(15, 23, 42, 0.04));
 }
 
 .filterGroup {
@@ -161,17 +163,17 @@
   line-height: 1.4;
   font-weight: 800;
   letter-spacing: 0.04em;
-  color: #475569;
+  color: var(--fg-soft, #475569);
 }
 
 .select,
 .input {
   width: 100%;
   height: 40px;
-  border: 1px solid #dbe3ee;
+  border: 1px solid var(--border, #dbe3ee);
   border-radius: 12px;
-  background: #ffffff;
-  color: #0f172a;
+  background: var(--surface, #ffffff);
+  color: var(--fg, #0f172a);
   font-size: 14px;
   padding: 0 12px;
   outline: none;
@@ -184,7 +186,7 @@
 }
 
 .input::placeholder {
-  color: #94a3b8;
+  color: var(--muted, #94a3b8);
 }
 
 .actions {
@@ -226,13 +228,13 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid #dbe3ee;
-  background: #ffffff;
-  color: #334155;
+  border: 1px solid var(--border, #dbe3ee);
+  background: var(--surface, #ffffff);
+  color: var(--fg-soft, #334155);
 }
 
 .secondaryButton:hover {
-  background: #f8fafc;
+  background: var(--surface-2, #f8fafc);
 }
 
 @media (max-width: 1100px) {
@@ -260,6 +262,7 @@
     justify-content: center;
   }
 }
+
 @media (max-width: 900px) {
   .container {
     padding: 16px;
@@ -278,6 +281,7 @@
     font-size: 24px;
   }
 }
+
 .errorCode {
   display: inline-flex;
   align-items: center;
@@ -298,18 +302,18 @@
   max-width: 180px;
   font-size: 11px;
   line-height: 1.5;
-  color: #64748b;
+  color: var(--muted, #64748b);
 }
 
 .timeCell {
   white-space: nowrap;
-  color: #475569;
+  color: var(--fg-soft, #475569);
   font-size: 12px;
 }
 
 .triggerCell {
   white-space: nowrap;
-  color: #334155;
+  color: var(--fg-soft, #334155);
   font-size: 12px;
   font-weight: 700;
   text-transform: lowercase;
