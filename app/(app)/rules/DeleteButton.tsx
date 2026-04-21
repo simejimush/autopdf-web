@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
@@ -12,7 +12,26 @@ type Props = {
 export default function DeleteButton({ ruleId, ruleName }: Props) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [isDark, setIsDark] = useState(false);
   const router = useRouter();
+
+  useEffect(() => {
+    const root = document.documentElement;
+
+    const syncTheme = () => {
+      setIsDark(root.dataset.theme === "dark");
+    };
+
+    syncTheme();
+
+    const observer = new MutationObserver(syncTheme);
+    observer.observe(root, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
+
+    return () => observer.disconnect();
+  }, []);
 
   async function handleDelete() {
     setLoading(true);
@@ -28,7 +47,7 @@ export default function DeleteButton({ ruleId, ruleName }: Props) {
       } else {
         toast.error("削除に失敗しました");
       }
-    } catch (e) {
+    } catch {
       toast.error("通信エラーが発生しました");
     } finally {
       setLoading(false);
@@ -37,15 +56,14 @@ export default function DeleteButton({ ruleId, ruleName }: Props) {
 
   return (
     <>
-      {/* トリガー */}
       <button
         type="button"
         style={{
           padding: "2px 10px",
           borderRadius: 999,
-          border: "1px solid #fecaca",
-          background: "#fff",
-          color: "#b91c1c",
+          border: isDark ? "1px solid #940000" : "1px solid #fecaca",
+          background: isDark ? "var(--surface)" : "#fff",
+          color: isDark ? "#ff0000" : "#b91c1c",
           fontSize: 12,
           fontWeight: 600,
           cursor: "pointer",
@@ -55,7 +73,6 @@ export default function DeleteButton({ ruleId, ruleName }: Props) {
         削除
       </button>
 
-      {/* モーダル */}
       {open && (
         <div
           style={{
@@ -71,30 +88,31 @@ export default function DeleteButton({ ruleId, ruleName }: Props) {
         >
           <div
             style={{
-              background: "#fff",
+              background: "var(--surface)",
+              color: "var(--fg)",
               padding: 24,
               borderRadius: 16,
               width: 360,
               boxShadow: "0 10px 30px rgba(0,0,0,0.1)",
+              border: "1px solid var(--border)",
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            {/* タイトル */}
             <h3
               style={{
                 fontWeight: 700,
                 fontSize: 16,
                 marginBottom: 8,
+                color: "var(--fg)",
               }}
             >
               ルールを削除しますか？
             </h3>
 
-            {/* 本文 */}
             <p
               style={{
                 fontSize: 14,
-                color: "#4b5563",
+                color: "var(--muted)",
                 lineHeight: 1.5,
               }}
             >
@@ -103,7 +121,6 @@ export default function DeleteButton({ ruleId, ruleName }: Props) {
               この操作は元に戻せません。
             </p>
 
-            {/* ボタンエリア */}
             <div
               style={{
                 marginTop: 20,
@@ -112,13 +129,12 @@ export default function DeleteButton({ ruleId, ruleName }: Props) {
                 gap: 10,
               }}
             >
-              {/* キャンセル */}
               <button
                 onClick={() => setOpen(false)}
                 style={{
                   background: "transparent",
                   border: "none",
-                  color: "#6b7280",
+                  color: "var(--muted)",
                   fontWeight: 600,
                   cursor: "pointer",
                 }}
@@ -126,7 +142,6 @@ export default function DeleteButton({ ruleId, ruleName }: Props) {
                 キャンセル
               </button>
 
-              {/* 削除 */}
               <button
                 style={{
                   background: "#cb3636",
