@@ -115,11 +115,11 @@ export default function LoginPage() {
 
 const styles = `
 :root{
-  --bg:#f7f8fb;
-  --surface:#ffffff;
-  --border:#e5e7eb;
-  --text:#111827;
-  --muted:#6b7280;
+  --bg:var(--bg, #f7f8fb);
+  --surface:var(--surface, #ffffff);
+  --border:var(--border, #e5e7eb);
+  --text:var(--fg, #111827);
+  --muted:var(--muted, #6b7280);
   --primary:#2563eb;
 }
 
@@ -144,7 +144,7 @@ const styles = `
   border:1px solid var(--border);
   border-radius:16px;
   padding:18px;
-  box-shadow:0 10px 30px rgba(17,24,39,0.06);
+  box-shadow:var(--sh-2, 0 10px 30px rgba(17,24,39,0.06));
 }
 
 .head{
@@ -165,6 +165,7 @@ const styles = `
   margin:0;
   font-size:22px;
   letter-spacing:-0.02em;
+  color:var(--text);
 }
 
 .sub{
