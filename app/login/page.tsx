@@ -58,7 +58,21 @@ export default function LoginPage() {
       <div className="wrap">
         <div className="card">
           <div className="head">
-            <div className="logo">AutoPDF</div>
+            <div className="logo" aria-label="AutoPDF">
+              <span className="logoMark" aria-hidden="true">
+                <img
+                  className="logoMarkLight"
+                  src="/logo-symbol-light.svg"
+                  alt=""
+                />
+                <img
+                  className="logoMarkDark"
+                  src="/logo-symbol-dark.svg"
+                  alt=""
+                />
+              </span>
+              <span>AutoPDF</span>
+            </div>
             <h1 className="title">ログイン</h1>
             <p className="sub">
               Googleアカウントでログインして、GmailとDriveの自動化を始めましょう。
@@ -155,10 +169,43 @@ const styles = `
 }
 
 .logo{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  width:max-content;
   font-weight:900;
   letter-spacing:-0.02em;
   color:var(--text);
   font-size:14px;
+}
+
+.logoMark{
+  position:relative;
+  width:24px;
+  height:24px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  flex:0 0 24px;
+}
+
+.logoMark img{
+  width:24px;
+  height:24px;
+  display:block;
+  object-fit:contain;
+}
+
+.logoMarkDark{
+  display:none !important;
+}
+
+html[data-theme="dark"] .logoMarkLight{
+  display:none !important;
+}
+
+html[data-theme="dark"] .logoMarkDark{
+  display:block !important;
 }
 
 .title{

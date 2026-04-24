@@ -58,8 +58,15 @@ export default function AppTopbar() {
       <style>{styles}</style>
 
       <div className="topbarInner">
-        <a className="brand" href="/dashboard">
-          <span className="brandMark" aria-hidden="true" />
+        <a className="brand" href="/dashboard" aria-label="AutoPDF">
+          <span className="brandMark" aria-hidden="true">
+            <img
+              className="brandMarkLight"
+              src="/logo-symbol-light.svg"
+              alt=""
+            />
+            <img className="brandMarkDark" src="/logo-symbol-dark.svg" alt="" />
+          </span>
           <span className="brandName">AutoPDF</span>
         </a>
 
@@ -140,18 +147,39 @@ const styles = `
 .brand{
   display:flex;
   align-items:center;
-  gap:10px;
+  gap:4px;
   text-decoration:none;
   color:var(--fg);
   font-weight:900;
 }
 
 .brandMark{
-  width:12px;
-  height:12px;
-  border-radius:4px;
-  background:#0075e8;
-  display:inline-block;
+  position:relative;
+  width:24px;
+  height:24px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  flex:0 0 24px;
+}
+
+.brandMark img{
+  width:24px;
+  height:24px;
+  display:block;
+  object-fit:contain;
+}
+
+.brandMarkDark{
+  display:none !important;
+}
+
+html[data-theme="dark"] .brandMarkLight{
+  display:none !important;
+}
+
+html[data-theme="dark"] .brandMarkDark{
+  display:block !important;
 }
 
 .brandName{ letter-spacing:-0.02em; }
