@@ -47,6 +47,7 @@ export default function CopyButton({ ruleId }: { ruleId: string }) {
         type="button"
         variant="outline"
         size="sm"
+        className="copyButton"
         onClick={onCopy}
         disabled={loading}
       >

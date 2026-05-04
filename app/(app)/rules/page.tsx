@@ -484,6 +484,18 @@ export default async function RulesPage({
                 >
                   <CardHeader className={styles.cardHeader}>
                     <div className={styles.leftTop}>
+                      <span
+                        className={[
+                          styles.statusDotInline,
+                          isMissing
+                            ? styles.statusDotDanger
+                            : !r.is_active
+                              ? styles.statusDotMuted
+                              : styles.statusDotReady,
+                        ].join(" ")}
+                        aria-hidden="true"
+                      />
+
                       <div className={styles.ruleTitle}>
                         {displayLabel
                           ? `${index + 1}. ${truncate(displayLabel)}`
