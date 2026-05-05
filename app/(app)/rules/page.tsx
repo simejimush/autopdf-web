@@ -14,6 +14,7 @@ import Link from "next/link";
 import DeleteButton from "./DeleteButton";
 import NewRuleButton from "./_components/NewRuleButton";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import RuleActions from "./RuleActions";
 
 type RunLite = {
   id: string;
@@ -156,6 +157,31 @@ function toTimeValue(value?: string | null) {
 
 function normalizeLabel(label?: string | null) {
   return (label ?? "").trim().toLocaleLowerCase("ja");
+}
+
+function getRuleIcon(rule: Rule) {
+  const text =
+    `${rule.query_label ?? ""} ${rule.gmail_query ?? ""}`.toLowerCase();
+
+  if (
+    text.includes("stripe") ||
+    text.includes("明細") ||
+    text.includes("カード") ||
+    text.includes("決済")
+  ) {
+    return "credit_card";
+  }
+
+  if (
+    text.includes("見積") ||
+    text.includes("請求") ||
+    text.includes("領収") ||
+    text.includes("pdf")
+  ) {
+    return "description";
+  }
+
+  return "mail";
 }
 
 function normalizeSortKey(value?: string): SortKey {
@@ -467,6 +493,8 @@ export default async function RulesPage({
                     ? "err"
                     : "muted";
 
+              const ruleIcon = getRuleIcon(r);
+
               return (
                 <CardPad
                   key={r.id}
@@ -496,6 +524,14 @@ export default async function RulesPage({
                         aria-hidden="true"
                       />
 
+                      <span className={styles.ruleTypeIcon} aria-hidden="true">
+                        <span
+                          className={`material-symbols-outlined ${styles.ruleTypeIconGlyph}`}
+                        >
+                          {ruleIcon}
+                        </span>
+                      </span>
+
                       <div className={styles.ruleTitle}>
                         {displayLabel
                           ? `${index + 1}. ${truncate(displayLabel)}`
@@ -515,54 +551,21 @@ export default async function RulesPage({
                       ) : null}
                     </div>
 
-                    <div className={styles.actions}>
-                      <RunButton
-                        ruleId={r.id}
-                        disabled={st.status !== "ready"}
-                      />
-
-                      <Link
-                        href={`/rules/${r.id}`}
-                        className={styles.btnEditLink}
-                      >
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className={styles.btnEdit}
-                        >
-                          {LABEL.edit}
-                        </Button>
-                      </Link>
-
-                      <CopyButton ruleId={r.id} />
-                    </div>
+                    <RuleActions
+                      ruleId={r.id}
+                      disabled={st.status !== "ready"}
+                      editLabel={LABEL.edit}
+                    />
                   </CardHeader>
 
-                  <div className={styles.metaGridCompact}>
-                    <div className={styles.metaItem}>
-                      <div
-                        className={`${styles.metaKey} ${styles.metaKeyLastRun}`}
-                      >
-                        <span
-                          className={`material-symbols-outlined ${styles.metaIcon}`}
-                        >
-                          play_arrow
-                        </span>
-                        {LABEL.lastRun}
-                      </div>
+                  <div className={styles.runSummaryLine} title={lastRunTitle}>
+                    <Badge tone={lastRunTone}>{lastRunStatus}</Badge>
 
-                      <div className={styles.metaBlock}>
-                        <div className={styles.lastRunRow}>
-                          <Badge tone={lastRunTone} title={lastRunTitle}>
-                            {lastRunStatus}
-                          </Badge>
-                        </div>
-                        <div className={styles.lastRunAt}>{lastRunAt}</div>
-                        <div className={styles.lastRunSummary}>
-                          {lastRunSummary}
-                        </div>
-                      </div>
-                    </div>
+                    <span className={styles.runSummaryText}>{lastRunAt}</span>
+
+                    <span className={styles.runSummaryText}>
+                      {lastRunSummary}
+                    </span>
                   </div>
 
                   <details className={styles.detailsWrap}>
