@@ -5,6 +5,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { StatusSummaryCard } from "@/components/dashboard/StatusSummaryCard";
+import FreePlanAd from "@/components/ads/FreePlanAd";
+import { resolveEffectivePlan } from "@/lib/billing/resolveEffectivePlan";
 
 type User = {
   id: string;
@@ -25,6 +27,7 @@ export default function DashboardPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [summary, setSummary] = useState<any>(null);
   const [pdfs] = useState<PdfItem[]>([]);
+  const [plan, setPlan] = useState<string>("free");
 
   useEffect(() => {
     let cancelled = false;
@@ -35,6 +38,7 @@ export default function DashboardPage() {
 
     (async () => {
       setErrorMsg(null);
+
       try {
         const { data, error } = await supabase.auth.getUser();
         if (error) throw error;
@@ -47,7 +51,20 @@ export default function DashboardPage() {
           );
         }
 
+        if (data.user) {
+          const { data: profile } = await supabase
+            .from("user_profiles")
+            .select("plan, billing_status, current_period_end")
+            .eq("user_id", data.user.id)
+            .maybeSingle();
+
+          if (!cancelled) {
+            setPlan(resolveEffectivePlan(profile));
+          }
+        }
+
         const res = await fetch("/api/dashboard/summary");
+
         if (!res.ok) {
           if (!cancelled) setSummary(null);
         } else {
@@ -68,13 +85,18 @@ export default function DashboardPage() {
 
   const signOut = async () => {
     setErrorMsg(null);
+
     const { error } = await supabase.auth.signOut();
+
     if (error) {
       setErrorMsg(error.message);
       return;
     }
+
     router.replace("/login");
   };
+
+  const isFree = plan === "free";
 
   return (
     <div className="dash">
@@ -180,6 +202,8 @@ export default function DashboardPage() {
               </div>
             </div>
           </section>
+
+          {isFree ? <FreePlanAd /> : null}
         </>
       )}
     </div>
@@ -431,7 +455,7 @@ const styles = `
   display:flex;
   flex-direction:column;
   gap:8px;
-  align-items:flex-start; 
+  align-items:flex-start;
 }
 
 .btnGhostFull{

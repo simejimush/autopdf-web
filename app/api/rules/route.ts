@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { resolveEffectivePlan } from "@/lib/billing/resolveEffectivePlan";
 
 const RULE_LIMIT_FREE = 3;
 
@@ -28,7 +29,7 @@ export async function GET() {
 
   const { data: profile, error: profileError } = await supabase
     .from("user_profiles")
-    .select("plan")
+    .select("plan, billing_status, current_period_end")
     .eq("user_id", user.id)
     .maybeSingle();
 
@@ -40,7 +41,7 @@ export async function GET() {
     );
   }
 
-  const plan = profile?.plan ?? "free";
+  const plan = resolveEffectivePlan(profile);
 
   const { data, error } = await supabase
     .from("rules")
@@ -89,7 +90,7 @@ export async function POST(req: Request) {
 
   const { data: profile, error: profileError } = await supabase
     .from("user_profiles")
-    .select("plan")
+    .select("plan, billing_status, current_period_end")
     .eq("user_id", user.id)
     .maybeSingle();
 
@@ -101,7 +102,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const plan = profile?.plan ?? "free";
+  const plan = resolveEffectivePlan(profile);
 
   const { count, error: countError } = await supabase
     .from("rules")

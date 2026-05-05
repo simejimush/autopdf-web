@@ -1,6 +1,7 @@
 // app/api/billing/route.ts
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { resolveEffectivePlan } from "@/lib/billing/resolveEffectivePlan";
 
 function jsonError(message: string, status = 500, details?: unknown) {
   return NextResponse.json({ error: message, details }, { status });
@@ -36,9 +37,11 @@ export async function GET() {
     return jsonError("Failed to load billing profile", 500, error);
   }
 
+  const plan = resolveEffectivePlan(data);
+
   return NextResponse.json(
     {
-      plan: data?.plan ?? "free",
+      plan,
       billing_provider: data?.billing_provider ?? null,
       billing_status: data?.billing_status ?? null,
       current_period_end: data?.current_period_end ?? null,

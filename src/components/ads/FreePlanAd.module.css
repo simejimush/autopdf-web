@@ -1,0 +1,32 @@
+.adBox {
+  margin-top: 24px;
+  border: 1px dashed var(--border);
+  background: var(--surface);
+  border-radius: 16px;
+  padding: 14px 16px;
+  color: var(--fg);
+}
+
+.label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 900;
+  letter-spacing: -0.01em;
+}
+
+.text {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+}

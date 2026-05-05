@@ -15,6 +15,7 @@ import DeleteButton from "./DeleteButton";
 import NewRuleButton from "./_components/NewRuleButton";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import RuleActions from "./RuleActions";
+import FreePlanAd from "@/components/ads/FreePlanAd";
 
 type RunLite = {
   id: string;
@@ -682,6 +683,8 @@ export default async function RulesPage({
             })}
           </div>
         )}
+
+        {!json.error && isFree ? <FreePlanAd /> : null}
       </div>
     </div>
   );

@@ -1,5 +1,6 @@
 import "server-only";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { resolveEffectivePlan } from "@/lib/billing/resolveEffectivePlan";
 
 export type UserProfile = {
   user_id: string;
@@ -54,7 +55,11 @@ export async function getOrCreateMyProfile(): Promise<
   if (selErr) throw selErr;
 
   if (existing) {
-    return { ...existing, email };
+    return {
+      ...existing,
+      plan: resolveEffectivePlan(existing),
+      email,
+    };
   }
 
   const { error: insErr } = await supabase.from("user_profiles").insert({
@@ -73,7 +78,11 @@ export async function getOrCreateMyProfile(): Promise<
 
   if (sel2Err) throw sel2Err;
 
-  return { ...created, email };
+  return {
+    ...created,
+    plan: resolveEffectivePlan(created),
+    email,
+  };
 }
 
 export async function updateMyProfile(input: {
@@ -103,5 +112,9 @@ export async function updateMyProfile(input: {
 
   if (error) throw error;
 
-  return { ...data, email };
+  return {
+    ...data,
+    plan: resolveEffectivePlan(data),
+    email,
+  };
 }

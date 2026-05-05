@@ -4,6 +4,7 @@ import styles from "./SettingsPage.module.css";
 import ProfileEditButton from "./ProfileEditButton";
 import ThemeToggle from "./ThemeToggle";
 import { getMyProfileAction } from "@/app/actions/profile";
+import FreePlanAd from "@/components/ads/FreePlanAd";
 
 function formatDateTime(value?: string | null) {
   if (!value) return "未確認";
@@ -61,6 +62,7 @@ export default async function SettingsPage() {
 
   const planLabel = getPlanLabel(profile?.plan ?? undefined);
   const isPro = profile?.plan === "pro";
+  const isFree = (profile?.plan ?? "free") === "free";
   const isCancelAtPeriodEnd = profile?.cancel_at_period_end === true;
   const billingDateLabel = isCancelAtPeriodEnd ? "終了予定" : "次回更新";
   const billingDateValue =
@@ -251,6 +253,8 @@ export default async function SettingsPage() {
             </p>
           </section>
         </div>
+
+        {isFree ? <FreePlanAd /> : null}
 
         <ThemeToggle />
       </div>
