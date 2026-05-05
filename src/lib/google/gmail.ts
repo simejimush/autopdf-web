@@ -1,12 +1,22 @@
 import { google, gmail_v1 } from "googleapis";
 import { getOAuthClientForUser } from "./auth";
 
+export type GmailAttachment = {
+  attachmentId: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+};
+
 function decodeBase64Url(input?: string | null) {
   if (!input) return "";
-  return Buffer.from(
-    input.replace(/-/g, "+").replace(/_/g, "/"),
-    "base64",
-  ).toString("utf-8");
+  return decodeBase64UrlToBuffer(input).toString("utf-8");
+}
+
+function decodeBase64UrlToBuffer(input?: string | null) {
+  if (!input) return Buffer.from("");
+
+  return Buffer.from(input.replace(/-/g, "+").replace(/_/g, "/"), "base64");
 }
 
 async function readPartBodyData(params: {
@@ -89,6 +99,32 @@ async function collectPartsByMime(params: {
   return out;
 }
 
+function collectAttachments(
+  part?: gmail_v1.Schema$MessagePart,
+): GmailAttachment[] {
+  if (!part) return [];
+
+  const out: GmailAttachment[] = [];
+
+  const filename = (part.filename ?? "").trim();
+  const attachmentId = part.body?.attachmentId ?? "";
+
+  if (filename && attachmentId) {
+    out.push({
+      attachmentId,
+      filename,
+      mimeType: part.mimeType ?? "application/octet-stream",
+      size: Number(part.body?.size ?? 0),
+    });
+  }
+
+  for (const child of part.parts ?? []) {
+    out.push(...collectAttachments(child));
+  }
+
+  return out;
+}
+
 async function extractBodyText(params: {
   gmail: gmail_v1.Gmail;
   messageId: string;
@@ -122,8 +158,6 @@ async function extractBodyText(params: {
   const plainJoined = plainTexts.join("\n\n").trim();
   const htmlJoined = htmlTexts.join("\n\n").trim();
 
-  // HTMLメールは text/plain が短い要約になっていることがあるので、
-  // 長い方を採用する
   if (htmlJoined.length > plainJoined.length) {
     return htmlJoined;
   }
@@ -197,5 +231,27 @@ export async function getGmailMessage({
     date: pick("Date"),
     snippet: res.data.snippet ?? "",
     bodyText,
+    attachments: collectAttachments(res.data.payload),
   };
+}
+
+export async function getGmailAttachment({
+  userId,
+  messageId,
+  attachmentId,
+}: {
+  userId: string;
+  messageId: string;
+  attachmentId: string;
+}) {
+  const oauth2Client = await getOAuthClientForUser(userId);
+  const gmail = google.gmail({ version: "v1", auth: oauth2Client });
+
+  const res = await gmail.users.messages.attachments.get({
+    userId: "me",
+    messageId,
+    id: attachmentId,
+  });
+
+  return decodeBase64UrlToBuffer(res.data.data);
 }

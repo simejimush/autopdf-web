@@ -1,7 +1,12 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { searchGmail, getGmailMessage } from "@/lib/google/gmail";
 import { emailToPdfBytes } from "@/lib/pdf/emailToPdf";
-import { uploadPdfToDrive } from "@/lib/google/drive";
+import {
+  searchGmail,
+  getGmailMessage,
+  getGmailAttachment,
+  type GmailAttachment,
+} from "@/lib/google/gmail";
+import { uploadFileToDrive, uploadPdfToDrive } from "@/lib/google/drive";
 import { getRunErrorMessage } from "@/lib/runs/getRunErrorMessage";
 import { normalizeRunErrorCode } from "@/lib/runs/normalizeRunErrorCode";
 import { updateGoogleConnectionHealth } from "@/lib/monitoring/updateGoogleConnectionHealth";
@@ -47,6 +52,57 @@ const USER_NOTIFY_ERROR_CODES = new Set<string>([
   "GOOGLE_TOKEN_INVALID",
   "GOOGLE_PERMISSION_DENIED",
 ]);
+
+const ALLOWED_ATTACHMENT_EXTENSIONS = new Set([".pdf", ".csv", ".xlsx"]);
+
+const ALLOWED_ATTACHMENT_MIME_TYPES = new Set([
+  "application/pdf",
+  "text/csv",
+  "application/csv",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+]);
+
+function sanitizeFilename(value?: string | null, fallback = "file") {
+  const cleaned = (value ?? fallback)
+    .replace(/[\\/:*?"<>|]/g, "_")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return (cleaned || fallback).slice(0, 120);
+}
+
+function getLowerExtension(filename: string) {
+  const index = filename.lastIndexOf(".");
+  if (index < 0) return "";
+  return filename.slice(index).toLowerCase();
+}
+
+function isAllowedAttachment(attachment: GmailAttachment) {
+  const ext = getLowerExtension(attachment.filename);
+  const mimeType = attachment.mimeType.toLowerCase();
+
+  return (
+    ALLOWED_ATTACHMENT_EXTENSIONS.has(ext) ||
+    ALLOWED_ATTACHMENT_MIME_TYPES.has(mimeType)
+  );
+}
+
+function buildAttachmentFilename(params: {
+  safeSubject: string;
+  messageId: string;
+  index: number;
+  attachmentFilename: string;
+}) {
+  const safeAttachmentName = sanitizeFilename(
+    params.attachmentFilename,
+    `attachment-${params.index + 1}`,
+  );
+
+  return `${params.safeSubject}_${params.messageId}_attachment-${
+    params.index + 1
+  }_${safeAttachmentName}`;
+}
 
 export async function executeRule(
   params: ExecuteRuleParams,
@@ -104,6 +160,7 @@ export async function executeRule(
       .from("processed_emails")
       .select("id")
       .eq("user_id", params.userId)
+      .eq("rule_id", params.ruleId)
       .eq("gmail_message_id", messageId)
       .maybeSingle();
 
@@ -155,9 +212,7 @@ export async function executeRule(
       bodyText,
     });
 
-    const safeSubject = (message.subject ?? "email")
-      .replace(/[\\/:*?"<>|]/g, "_")
-      .slice(0, 80);
+    const safeSubject = sanitizeFilename(message.subject, "email").slice(0, 80);
 
     const filename = `${safeSubject}_${messageId}.pdf`;
 
@@ -168,33 +223,88 @@ export async function executeRule(
       pdfBytes,
     });
 
-    await supabaseAdmin.from("processed_emails").insert({
-      user_id: params.userId,
-      rule_id: rule.id,
-      gmail_message_id: messageId,
-      drive_file_id:
-        typeof driveResult === "object" &&
-        driveResult &&
-        "fileId" in driveResult
-          ? driveResult.fileId
-          : null,
-      drive_web_view_link:
-        typeof driveResult === "object" &&
-        driveResult &&
-        "webViewLink" in driveResult
-          ? driveResult.webViewLink
-          : null,
-      saved_at: new Date().toISOString(),
-    });
+    const attachments = Array.isArray(message.attachments)
+      ? message.attachments
+      : [];
+
+    let savedAttachmentCount = 0;
+    let skippedAttachmentCount = 0;
+
+    for (const [index, attachment] of attachments.entries()) {
+      if (!isAllowedAttachment(attachment)) {
+        skippedAttachmentCount += 1;
+        continue;
+      }
+
+      const attachmentBytes = await getGmailAttachment({
+        userId: params.userId,
+        messageId,
+        attachmentId: attachment.attachmentId,
+      });
+
+      const attachmentFilename = buildAttachmentFilename({
+        safeSubject,
+        messageId,
+        index,
+        attachmentFilename: attachment.filename,
+      });
+
+      await uploadFileToDrive({
+        userId: params.userId,
+        folderId: rule.drive_folder_id,
+        filename: attachmentFilename,
+        bytes: attachmentBytes,
+        mimeType: attachment.mimeType || "application/octet-stream",
+      });
+
+      savedAttachmentCount += 1;
+    }
+
+    const savedCount = 1 + savedAttachmentCount;
+
+    const { error: processedInsertError } = await supabaseAdmin
+      .from("processed_emails")
+      .insert({
+        user_id: params.userId,
+        rule_id: rule.id,
+        gmail_message_id: messageId,
+        drive_file_id:
+          typeof driveResult === "object" &&
+          driveResult &&
+          "fileId" in driveResult
+            ? driveResult.fileId
+            : null,
+        drive_web_view_link:
+          typeof driveResult === "object" &&
+          driveResult &&
+          "webViewLink" in driveResult
+            ? driveResult.webViewLink
+            : null,
+        saved_at: new Date().toISOString(),
+      });
+
+    if (processedInsertError) {
+      console.error("[executeRule] processed_emails insert failed:", {
+        code: processedInsertError.code,
+        message: processedInsertError.message,
+      });
+
+      throw new Error("DB_INSERT_FAILED");
+    }
+
+    const successMessage =
+      savedAttachmentCount > 0
+        ? `Saved ${savedCount} files to Drive`
+        : "Saved 1 PDF to Drive";
 
     await supabaseAdmin
       .from("runs")
       .update({
         status: "success",
         processed_count: 1,
-        saved_count: 1,
-        skipped_count: 0,
-        message: "Saved 1 PDF to Drive",
+        saved_count: savedCount,
+        skipped_count: skippedAttachmentCount,
+        message: successMessage,
         finished_at: new Date().toISOString(),
       })
       .eq("id", params.runId);
@@ -207,10 +317,10 @@ export async function executeRule(
     return {
       ok: true,
       processedCount: 1,
-      savedCount: 1,
-      skippedCount: 0,
+      savedCount,
+      skippedCount: skippedAttachmentCount,
       errorCode: null,
-      message: "Saved 1 PDF to Drive",
+      message: successMessage,
     };
   } catch (error) {
     console.error("[executeRule] raw error:", error);
