@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { canCreateMoreRules } from "@/lib/rules/freePlanLimit";
 
 function errorResponse(status: number, error_code: string, message: string) {
   return NextResponse.json({ ok: false, error_code, message }, { status });
@@ -33,6 +34,16 @@ export async function POST(
 
   if (fetchErr || !original) {
     return errorResponse(404, "RULE_NOT_FOUND", "ルールが見つかりません。");
+  }
+
+  const createCheck = await canCreateMoreRules(user.id);
+
+  if (!createCheck.ok) {
+    return errorResponse(
+      403,
+      "FREE_PLAN_RULE_LIMIT_EXCEEDED",
+      "Freeプランではルールを3件まで作成できます。コピーするにはProにアップグレードしてください。",
+    );
   }
 
   // タイトル生成
