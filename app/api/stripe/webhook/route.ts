@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { disableFreePlanOverflowRules } from "@/lib/rules/freePlanLimit";
 
 export const runtime = "nodejs";
 
@@ -129,6 +130,17 @@ export async function POST(req: NextRequest) {
           "ユーザー情報の更新に失敗しました。",
         );
       }
+      if (plan === "free") {
+        const disableResult = await disableFreePlanOverflowRules(userId);
+
+        if (!disableResult.ok) {
+          return errorResponse(
+            500,
+            "DB_UPDATE_FAILED",
+            "Freeプラン上限超過ルールの停止に失敗しました。",
+          );
+        }
+      }
     }
 
     if (
@@ -150,6 +162,26 @@ export async function POST(req: NextRequest) {
       const currentPeriodEnd = getCurrentPeriodEndIso(subscription);
       const plan = resolvePlan(billingStatus, currentPeriodEnd);
 
+      const { data: profile, error: profileError } = await supabaseAdmin
+        .from("user_profiles")
+        .select("user_id")
+        .eq("billing_customer_id", customerId)
+        .maybeSingle();
+
+      if (profileError) {
+        return errorResponse(
+          500,
+          "DB_UPDATE_FAILED",
+          "ユーザー情報の取得に失敗しました。",
+        );
+      }
+
+      if (!profile?.user_id) {
+        return NextResponse.json({ received: true }, { status: 200 });
+      }
+
+      const userId = profile.user_id;
+
       const { error } = await supabaseAdmin
         .from("user_profiles")
         .update({
@@ -162,7 +194,7 @@ export async function POST(req: NextRequest) {
           cancel_at_period_end: subscription.cancel_at_period_end,
           plan_updated_at: new Date().toISOString(),
         })
-        .eq("billing_customer_id", customerId);
+        .eq("user_id", userId);
 
       if (error) {
         return errorResponse(
@@ -170,6 +202,18 @@ export async function POST(req: NextRequest) {
           "DB_UPDATE_FAILED",
           "ユーザー情報の更新に失敗しました。",
         );
+      }
+
+      if (plan === "free") {
+        const disableResult = await disableFreePlanOverflowRules(userId);
+
+        if (!disableResult.ok) {
+          return errorResponse(
+            500,
+            "DB_UPDATE_FAILED",
+            "Freeプラン上限超過ルールの停止に失敗しました。",
+          );
+        }
       }
     }
 
