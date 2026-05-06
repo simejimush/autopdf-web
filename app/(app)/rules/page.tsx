@@ -60,6 +60,7 @@ const LABEL = {
   searchPlaceholder: "ルールを検索",
   search: "検索",
   clear: "クリア",
+  freeOverflow: "Free上限超過のため停止中",
 };
 
 type SortKey = "updated_desc" | "updated_asc" | "label_asc";
@@ -215,6 +216,24 @@ function sortRules(rules: Rule[], sort: SortKey) {
   return copied;
 }
 
+function getFreeOverflowRuleIds(rules: Rule[], limit: number) {
+  return new Set(
+    [...rules]
+      .sort((a, b) => {
+        const aTime = toTimeValue(a.created_at ?? null);
+        const bTime = toTimeValue(b.created_at ?? null);
+
+        if (aTime !== bTime) {
+          return aTime - bTime;
+        }
+
+        return a.id.localeCompare(b.id);
+      })
+      .slice(limit)
+      .map((rule) => rule.id),
+  );
+}
+
 function filterRules(rules: Rule[], query: string) {
   if (!query) return rules;
 
@@ -285,6 +304,9 @@ export default async function RulesPage({
   const RULE_LIMIT_FREE = 3;
   const isFree = plan === "free";
   const isLimitReached = isFree && rules.length >= RULE_LIMIT_FREE;
+  const freeOverflowRuleIds = isFree
+    ? getFreeOverflowRuleIds(rules, RULE_LIMIT_FREE)
+    : new Set<string>();
 
   const filteredRules = filterRules(rules, query);
   const sortedRules = sortRules(filteredRules, sort);
@@ -457,6 +479,7 @@ export default async function RulesPage({
               const st = getRuleStatus(r);
               const reasonsText = reasonsTextOf(st);
               const isMissing = st.status === "needs_setup";
+              const isFreeOverflow = freeOverflowRuleIds.has(r.id);
               const lastRun = latestByRule[r.id] ?? null;
 
               const lastRunStatus = formatRunStatus(lastRun?.status);
@@ -548,6 +571,11 @@ export default async function RulesPage({
                           title={reasonsText || undefined}
                         >
                           {statusJa(st.status)}
+                        </Badge>
+                      ) : null}
+                      {isFreeOverflow ? (
+                        <Badge tone="muted" title={LABEL.freeOverflow}>
+                          {LABEL.freeOverflow}
                         </Badge>
                       ) : null}
                     </div>
