@@ -1179,6 +1179,19 @@
   background: rgba(148, 163, 184, 0.12) !important;
 }
 
+.freeOverflowBadge.freeOverflowBadge {
+  background: #ffffff;
+  border-color: #dc2626;
+  color: #d35959;
+  font-weight: 800;
+}
+
+:global([data-theme="dark"]) .freeOverflowBadge.freeOverflowBadge {
+  background: rgba(127, 29, 29, 0.65);
+  border-color: rgba(248, 113, 113, 0.9);
+  color: #fee2e2;
+}
+
 @media (max-width: 640px) {
   .onboardingSteps {
     gap: 10px;
