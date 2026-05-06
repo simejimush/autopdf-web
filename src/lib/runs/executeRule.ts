@@ -88,9 +88,25 @@ function isAllowedAttachment(attachment: GmailAttachment) {
   );
 }
 
+function formatEmailDateForFilename(value?: string | null) {
+  if (!value) return "unknown-date";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "unknown-date";
+  }
+
+  return date.toISOString().slice(0, 10);
+}
+
+function getShortMessageId(messageId: string) {
+  return sanitizeFilename(messageId, "message").slice(0, 8);
+}
+
 function buildAttachmentFilename(params: {
+  emailDate: string;
   safeSubject: string;
-  messageId: string;
   index: number;
   attachmentFilename: string;
 }) {
@@ -99,7 +115,7 @@ function buildAttachmentFilename(params: {
     `attachment-${params.index + 1}`,
   );
 
-  return `${params.safeSubject}_${params.messageId}_attachment-${
+  return `${params.emailDate}_${params.safeSubject}_添付${
     params.index + 1
   }_${safeAttachmentName}`;
 }
@@ -212,9 +228,11 @@ export async function executeRule(
       bodyText,
     });
 
+    const emailDate = formatEmailDateForFilename(message.date);
     const safeSubject = sanitizeFilename(message.subject, "email").slice(0, 80);
+    const shortMessageId = getShortMessageId(messageId);
 
-    const filename = `${safeSubject}_${messageId}.pdf`;
+    const filename = `${emailDate}_${safeSubject}_${shortMessageId}.pdf`;
 
     const driveResult = await uploadPdfToDrive({
       userId: params.userId,
@@ -243,8 +261,8 @@ export async function executeRule(
       });
 
       const attachmentFilename = buildAttachmentFilename({
+        emailDate,
         safeSubject,
-        messageId,
         index,
         attachmentFilename: attachment.filename,
       });
