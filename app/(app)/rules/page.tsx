@@ -562,7 +562,11 @@ export default async function RulesPage({
                           : `${index + 1}.`}
                       </div>
 
-                      <RuleToggle id={r.id} isActive={r.is_active} />
+                      <RuleToggle
+                        id={r.id}
+                        isActive={r.is_active}
+                        isFreeOverflow={isFreeOverflow}
+                      />
 
                       {isMissing ? (
                         <Badge

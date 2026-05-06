@@ -2,14 +2,20 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { Button } from "@/lib/ui";
 
 type Props = {
   id: string;
   isActive: boolean;
+  isFreeOverflow?: boolean;
 };
 
-export default function RuleToggle({ id, isActive }: Props) {
+export default function RuleToggle({
+  id,
+  isActive,
+  isFreeOverflow = false,
+}: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [localActive, setLocalActive] = useState(isActive);
@@ -23,6 +29,14 @@ export default function RuleToggle({ id, isActive }: Props) {
     if (saving || isPending) return;
 
     const next = !localActive;
+
+    if (isFreeOverflow && next) {
+      toast.error(
+        "Freeプランでは有効化できるルールは3件までです。Proに戻すとこのルールをONにできます。",
+      );
+      return;
+    }
+
     setLocalActive(next);
     setSaving(true);
 
