@@ -5,12 +5,25 @@ import { Button } from "@/lib/ui/Button";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
-export default function CopyButton({ ruleId }: { ruleId: string }) {
+export default function CopyButton({
+  ruleId,
+  isFreeOverflow = false,
+}: {
+  ruleId: string;
+  isFreeOverflow?: boolean;
+}) {
   const router = useRouter();
   const [loading, setLoading] = React.useState(false);
 
   async function onCopy() {
     if (loading) return;
+
+    if (isFreeOverflow) {
+      toast.error(
+        "Freeプランではルールを3件まで作成できます。コピーするにはProにアップグレードしてください。",
+      );
+      return;
+    }
 
     setLoading(true);
 

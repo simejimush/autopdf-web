@@ -90,7 +90,7 @@ export default function RuleActions({
               </Button>
             </Link>
 
-            <CopyButton ruleId={ruleId} />
+            <CopyButton ruleId={ruleId} isFreeOverflow={isFreeOverflow} />
           </div>
         ) : null}
       </div>
