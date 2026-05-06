@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { Button } from "@/lib/ui/Button";
 function cx(...xs: Array<string | undefined | false>) {
   return xs.filter(Boolean).join(" ");
@@ -10,10 +11,12 @@ function cx(...xs: Array<string | undefined | false>) {
 export default function RunButton({
   ruleId,
   disabled,
+  isFreeOverflow = false,
   className,
 }: {
   ruleId: string;
   disabled: boolean;
+  isFreeOverflow?: boolean;
   className?: string;
 }) {
   const [loading, setLoading] = useState(false);
@@ -24,9 +27,16 @@ export default function RunButton({
       <Button
         variant="primary"
         size="sm"
-        disabled={loading || disabled}
+        disabled={loading || (disabled && !isFreeOverflow)}
         className={cx("btnRun", className)}
         onClick={async () => {
+          if (isFreeOverflow) {
+            toast.error(
+              "Freeプランでは4件目以降のルールは実行できません。Proに戻すと実行できます。",
+            );
+            return;
+          }
+
           setLoading(true);
 
           try {
@@ -37,11 +47,11 @@ export default function RunButton({
             const data = await res.json();
 
             if (!res.ok) {
-              alert(data.error ?? "Run failed");
+              toast.error(data.error ?? "Run failed");
               return;
             }
 
-            alert(data.message ?? "Run finished");
+            toast.success(data.message ?? "Run finished");
             router.refresh();
           } finally {
             setLoading(false);

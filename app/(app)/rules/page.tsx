@@ -583,6 +583,7 @@ export default async function RulesPage({
                     <RuleActions
                       ruleId={r.id}
                       disabled={st.status !== "ready"}
+                      isFreeOverflow={isFreeOverflow}
                       editLabel={LABEL.edit}
                     />
                   </CardHeader>

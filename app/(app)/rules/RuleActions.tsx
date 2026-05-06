@@ -10,10 +10,16 @@ import styles from "./RulesPage.module.css";
 type Props = {
   ruleId: string;
   disabled: boolean;
+  isFreeOverflow?: boolean;
   editLabel: string;
 };
 
-export default function RuleActions({ ruleId, disabled, editLabel }: Props) {
+export default function RuleActions({
+  ruleId,
+  disabled,
+  isFreeOverflow = false,
+  editLabel,
+}: Props) {
   const [open, setOpen] = React.useState(false);
   const menuRef = React.useRef<HTMLDivElement | null>(null);
 
@@ -46,7 +52,11 @@ export default function RuleActions({ ruleId, disabled, editLabel }: Props) {
 
   return (
     <div className={styles.actions}>
-      <RunButton ruleId={ruleId} disabled={disabled} />
+      <RunButton
+        ruleId={ruleId}
+        disabled={disabled}
+        isFreeOverflow={isFreeOverflow}
+      />
 
       <div
         ref={menuRef}
