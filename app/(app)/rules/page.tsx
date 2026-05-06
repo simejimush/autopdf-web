@@ -578,7 +578,11 @@ export default async function RulesPage({
                         </Badge>
                       ) : null}
                       {isFreeOverflow ? (
-                        <Badge tone="muted" title={LABEL.freeOverflow}>
+                        <Badge
+                          tone="err"
+                          className={styles.freeOverflowBadge}
+                          title={LABEL.freeOverflow}
+                        >
                           {LABEL.freeOverflow}
                         </Badge>
                       ) : null}
