@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { executeRule } from "@/lib/runs/executeRule";
+import { isFreePlanOverflowRule } from "@/lib/rules/freePlanLimit";
 
 export const runtime = "nodejs";
 
@@ -51,6 +52,22 @@ export async function POST(_req: NextRequest, context: RouteContext) {
 
     if (!rule) {
       return NextResponse.json({ error: "Rule not found" }, { status: 404 });
+    }
+
+    const overflowCheck = await isFreePlanOverflowRule({
+      userId: user.id,
+      ruleId: rule.id,
+    });
+
+    if (overflowCheck.isOverflow) {
+      return NextResponse.json(
+        {
+          error:
+            "Freeプランでは4件目以降のルールは実行できません。Proに戻すと実行できます。",
+          code: "FREE_PLAN_RULE_LIMIT_EXCEEDED",
+        },
+        { status: 403 },
+      );
     }
 
     const startedAt = new Date().toISOString();
