@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { executeRule } from "@/lib/runs/executeRule";
+import { getFreePlanOverflowRuleIds } from "@/lib/rules/freePlanLimit";
 
 type RuleRow = {
   id: string;
@@ -8,6 +9,7 @@ type RuleRow = {
   is_enabled?: boolean | null;
   enabled?: boolean | null;
   is_active?: boolean | null;
+  created_at?: string | null;
 };
 
 type CronResultRow = {
@@ -57,11 +59,36 @@ export async function GET(req: Request) {
   const rules = (data ?? []) as RuleRow[];
   const enabledRules = rules.filter(isEnabledRule);
 
+  const overflowRuleIds = new Set<string>();
+  const userIds = Array.from(
+    new Set(
+      enabledRules
+        .map((rule) => rule.user_id)
+        .filter((userId): userId is string => Boolean(userId)),
+    ),
+  );
+
+  for (const userId of userIds) {
+    const ids = await getFreePlanOverflowRuleIds(userId);
+
+    for (const id of ids) {
+      overflowRuleIds.add(id);
+    }
+  }
+
+  const runnableRules = enabledRules.filter(
+    (rule) => !overflowRuleIds.has(rule.id),
+  );
+
   console.log(
     "[cron] total rules:",
     rules.length,
     "enabled:",
     enabledRules.length,
+    "runnable:",
+    runnableRules.length,
+    "free_overflow_skipped:",
+    enabledRules.length - runnableRules.length,
   );
 
   let ok = 0;
@@ -69,7 +96,7 @@ export async function GET(req: Request) {
 
   const results: CronResultRow[] = [];
 
-  for (const rule of enabledRules) {
+  for (const rule of runnableRules) {
     try {
       if (!rule.id || !rule.user_id) {
         ng++;
@@ -149,6 +176,8 @@ export async function GET(req: Request) {
     message: "Cron finished",
     total_rules: rules.length,
     enabled_rules: enabledRules.length,
+    runnable_rules: runnableRules.length,
+    free_overflow_skipped: enabledRules.length - runnableRules.length,
     ok,
     ng,
     results,
