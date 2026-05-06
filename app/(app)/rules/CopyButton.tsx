@@ -7,10 +7,10 @@ import { toast } from "sonner";
 
 export default function CopyButton({
   ruleId,
-  isFreeOverflow = false,
+  isCopyBlocked = false,
 }: {
   ruleId: string;
-  isFreeOverflow?: boolean;
+  isCopyBlocked?: boolean;
 }) {
   const router = useRouter();
   const [loading, setLoading] = React.useState(false);
@@ -18,7 +18,7 @@ export default function CopyButton({
   async function onCopy() {
     if (loading) return;
 
-    if (isFreeOverflow) {
+    if (isCopyBlocked) {
       toast.error(
         "Freeプランではルールを3件まで作成できます。コピーするにはProにアップグレードしてください。",
       );

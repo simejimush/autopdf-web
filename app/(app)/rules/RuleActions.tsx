@@ -11,6 +11,7 @@ type Props = {
   ruleId: string;
   disabled: boolean;
   isFreeOverflow?: boolean;
+  isCopyBlocked?: boolean;
   editLabel: string;
 };
 
@@ -18,6 +19,7 @@ export default function RuleActions({
   ruleId,
   disabled,
   isFreeOverflow = false,
+  isCopyBlocked = false,
   editLabel,
 }: Props) {
   const [open, setOpen] = React.useState(false);
@@ -90,7 +92,7 @@ export default function RuleActions({
               </Button>
             </Link>
 
-            <CopyButton ruleId={ruleId} isFreeOverflow={isFreeOverflow} />
+            <CopyButton ruleId={ruleId} isCopyBlocked={isCopyBlocked} />
           </div>
         ) : null}
       </div>

@@ -588,6 +588,7 @@ export default async function RulesPage({
                       ruleId={r.id}
                       disabled={st.status !== "ready"}
                       isFreeOverflow={isFreeOverflow}
+                      isCopyBlocked={isLimitReached}
                       editLabel={LABEL.edit}
                     />
                   </CardHeader>
