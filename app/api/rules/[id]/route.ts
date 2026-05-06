@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { isFreePlanOverflowRule } from "@/lib/rules/freePlanLimit";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -146,6 +147,21 @@ export async function PATCH(
       update.is_active = false;
     } else {
       update.is_active = true;
+    }
+  }
+
+  if (update.is_active === true) {
+    const overflowCheck = await isFreePlanOverflowRule({
+      userId: user.id,
+      ruleId: current.id,
+    });
+
+    if (overflowCheck.isOverflow) {
+      return errorResponse(
+        403,
+        "FREE_PLAN_RULE_LIMIT_EXCEEDED",
+        "Freeプランでは有効化できるルールは3件までです。Proに戻すとこのルールをONにできます。",
+      );
     }
   }
 
