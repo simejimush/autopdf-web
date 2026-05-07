@@ -29,6 +29,8 @@ export default function NewRulePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [queryLabel, setQueryLabel] = useState("");
+  const [selectedFilenameFormat, setSelectedFilenameFormat] =
+    useState("日付 + 送信元 + 書類種別");
 
   const [aiOpen, setAiOpen] = useState(false);
 
@@ -226,6 +228,93 @@ export default function NewRulePage() {
                   フォルダURLの <code>/folders/</code> の後ろの文字列です。
                 </span>
               </label>
+            </section>
+
+            <section style={card}>
+              <div style={cardHeader}>
+                <div>
+                  <div style={cardTitle}>ファイル名設定</div>
+                  <div style={cardDesc}>
+                    保存後に探しやすいPDFファイル名の形式を選べます。
+                  </div>
+                </div>
+              </div>
+
+              <div style={filenameCurrentBox}>
+                <div style={filenameCurrentLabel}>現在の形式</div>
+                <div style={filenameCurrentValue}>{selectedFilenameFormat}</div>
+                <div style={filenameCurrentExample}>
+                  例: 2026-05-07_Amazon_領収書.pdf
+                </div>
+              </div>
+
+              <div style={aiFilenameBox}>
+                <div style={aiFilenameHeader}>
+                  <div>
+                    <div style={aiFilenameTitle}>AIファイル名提案</div>
+                    <div style={aiFilenameDesc}>
+                      用途に合わせて、わかりやすいファイル名形式を選べます。
+                    </div>
+                  </div>
+                </div>
+
+                <div style={filenameOptionGrid}>
+                  <div style={filenameOptionCard}>
+                    <div style={filenameOptionBadge}>おすすめ</div>
+                    <div style={filenameOptionTitle}>
+                      日付 + 送信元 + 書類種別
+                    </div>
+                    <div style={filenameOptionExample}>
+                      例: 2026-05-07_Amazon_領収書.pdf
+                    </div>
+                    <button
+                      type="button"
+                      style={filenameOptionButton}
+                      onClick={() =>
+                        setSelectedFilenameFormat("日付 + 送信元 + 書類種別")
+                      }
+                    >
+                      この形式を使う
+                    </button>
+                  </div>
+
+                  <div style={filenameOptionCard}>
+                    <div style={filenameOptionBadge}>件名重視</div>
+                    <div style={filenameOptionTitle}>日付 + メール件名</div>
+                    <div style={filenameOptionExample}>
+                      例: 2026-05-07_ご利用明細のお知らせ.pdf
+                    </div>
+                    <button
+                      type="button"
+                      style={filenameOptionButton}
+                      onClick={() =>
+                        setSelectedFilenameFormat("日付 + メール件名")
+                      }
+                    >
+                      この形式を使う
+                    </button>
+                  </div>
+
+                  <div style={filenameOptionCard}>
+                    <div style={filenameOptionBadge}>整理しやすい形式</div>
+                    <div style={filenameOptionTitle}>
+                      書類種別 + 日付 + 送信元
+                    </div>
+                    <div style={filenameOptionExample}>
+                      例: 領収書_2026-05-07_Amazon.pdf
+                    </div>
+                    <button
+                      type="button"
+                      style={filenameOptionButton}
+                      onClick={() =>
+                        setSelectedFilenameFormat("書類種別 + 日付 + 送信元")
+                      }
+                    >
+                      この形式を使う
+                    </button>
+                  </div>
+                </div>
+              </div>
             </section>
 
             <section style={card}>
@@ -492,6 +581,108 @@ const help: React.CSSProperties = {
   fontSize: 13,
   lineHeight: 1.6,
   color: "var(--muted)",
+};
+
+const filenameCurrentBox: React.CSSProperties = {
+  padding: "14px 16px",
+  borderRadius: 14,
+  border: "1px solid var(--border)",
+  background: "var(--surface-2)",
+  marginBottom: 16,
+};
+
+const filenameCurrentLabel: React.CSSProperties = {
+  fontSize: 13,
+  fontWeight: 700,
+  color: "var(--muted)",
+  marginBottom: 6,
+};
+
+const filenameCurrentValue: React.CSSProperties = {
+  fontSize: 15,
+  fontWeight: 800,
+  color: "var(--fg)",
+};
+
+const filenameCurrentExample: React.CSSProperties = {
+  marginTop: 6,
+  fontSize: 13,
+  lineHeight: 1.6,
+  color: "var(--muted)",
+};
+
+const aiFilenameBox: React.CSSProperties = {
+  display: "grid",
+  gap: 14,
+};
+
+const aiFilenameHeader: React.CSSProperties = {
+  display: "flex",
+  alignItems: "flex-start",
+  justifyContent: "space-between",
+  gap: 12,
+};
+
+const aiFilenameTitle: React.CSSProperties = {
+  fontSize: 16,
+  fontWeight: 800,
+  color: "var(--fg)",
+};
+
+const aiFilenameDesc: React.CSSProperties = {
+  marginTop: 4,
+  fontSize: 13,
+  lineHeight: 1.6,
+  color: "var(--muted)",
+};
+
+const filenameOptionGrid: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+  gap: 12,
+};
+
+const filenameOptionCard: React.CSSProperties = {
+  display: "grid",
+  gap: 8,
+  padding: 14,
+  borderRadius: 14,
+  border: "1px solid var(--border)",
+  background: "var(--surface)",
+};
+
+const filenameOptionBadge: React.CSSProperties = {
+  width: "fit-content",
+  padding: "3px 8px",
+  borderRadius: 999,
+  background: "rgba(79, 70, 229, 0.08)",
+  color: "#4f46e5",
+  fontSize: 12,
+  fontWeight: 800,
+};
+
+const filenameOptionTitle: React.CSSProperties = {
+  fontSize: 14,
+  fontWeight: 800,
+  color: "var(--fg)",
+};
+
+const filenameOptionExample: React.CSSProperties = {
+  fontSize: 13,
+  lineHeight: 1.6,
+  color: "var(--muted)",
+};
+
+const filenameOptionButton: React.CSSProperties = {
+  marginTop: 4,
+  padding: "9px 12px",
+  borderRadius: 10,
+  border: "1px solid var(--border)",
+  background: "var(--surface)",
+  color: "var(--fg)",
+  fontSize: 13,
+  fontWeight: 700,
+  cursor: "pointer",
 };
 
 const primaryButton: React.CSSProperties = {
