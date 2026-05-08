@@ -15,6 +15,7 @@ type Rule = {
   subject_keywords?: any;
   updated_at: string | null;
   query_label: string | null;
+  file_name_format?: string | null;
 };
 
 type SenderStrength = "weak" | "strong";
@@ -587,6 +588,12 @@ export default function RuleEditPage() {
         setDriveFolderId(normalized.drive_folder_id ?? "");
         setGmailQuery(normalizeQuery(normalized.gmail_query));
         setQueryLabel(normalized.query_label ?? "");
+        setSelectedFilenameFormat(
+          normalized.file_name_format === "ai_sender_doc" ||
+            normalized.file_name_format === "ai_doc_sender"
+            ? normalized.file_name_format
+            : "standard",
+        );
       } catch (e: any) {
         if (!cancelled) setError(e?.message ?? "Unexpected error");
       } finally {
@@ -622,6 +629,7 @@ export default function RuleEditPage() {
         subject_keywords: null,
         gmail_query: normalizedQuery,
         query_label: queryLabel.trim() || null,
+        file_name_format: selectedFilenameFormat,
         is_active: isActive,
       };
 
