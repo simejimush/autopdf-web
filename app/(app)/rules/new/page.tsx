@@ -51,10 +51,11 @@ export default function NewRulePage() {
       }
 
       const payload = {
-        drive_folder_id: driveFolderId.trim(),
+        drive_folder_id: driveFolderId,
         gmail_query: normalizedQuery,
         query_label: queryLabel.trim() || null,
         subject_keywords: null,
+        file_name_format: selectedFilenameFormat,
         is_active: isActive,
       };
 
