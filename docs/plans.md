@@ -221,6 +221,16 @@ AI判定に渡す情報:
 - 使用量・コスト監視
 - Pro / Pro+ でのAI精度・利用回数差別化
 
+#### AI判定ON/OFF設計メモ
+
+現時点では、AI書類種別判定は `file_name_format` が `ai_sender_doc` または `ai_doc_sender` の場合のみ実行する。
+`standard` 形式ではAI APIを呼ばないため、現状でも実質的なAI使用OFFとして扱える。
+
+将来的に、ユーザーごと・ルールごとにAI使用可否を切り替える場合は、まずルール単位の制御を優先する。
+候補カラムは `rules.ai_document_type_enabled boolean default true` とする。
+
+ただし、現時点ではDB変更は行わず、`file_name_format` による制御をMVP仕様とする。
+
 ## 今後の実装ステップ
 
 1. Free制限のUI・API制御（実装済み）
