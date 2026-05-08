@@ -746,6 +746,29 @@ export default function RuleEditPage() {
             <section className={styles.card}>
               <div className={styles.cardHeader}>
                 <div>
+                  <div className={styles.cardTitle}>検索条件の説明</div>
+                  <div className={styles.cardDesc}>
+                    一覧画面で表示される説明文です（任意）
+                  </div>
+                </div>
+              </div>
+
+              <label className={styles.field}>
+                <input
+                  className={styles.input}
+                  value={queryLabel}
+                  onChange={(e) => {
+                    setQueryLabel(e.target.value);
+                    setDirty(true);
+                  }}
+                  placeholder="AmazonのPDF請求書を1週間以内で未読"
+                  autoComplete="off"
+                />
+              </label>
+            </section>
+            <section className={styles.card}>
+              <div className={styles.cardHeader}>
+                <div>
                   <div className={styles.cardTitle}>保存先</div>
                   <div className={styles.cardDesc}>
                     PDFの保存先となるGoogle Driveフォルダを指定します。
