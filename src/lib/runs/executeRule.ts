@@ -29,6 +29,24 @@ type ExecuteResult = {
   message: string;
 };
 
+type FilenameFormat = "standard" | "ai_sender_doc" | "ai_doc_sender";
+
+const DEFAULT_FILENAME_FORMAT: FilenameFormat = "standard";
+
+const ALLOWED_FILENAME_FORMATS = new Set<string>([
+  "standard",
+  "ai_sender_doc",
+  "ai_doc_sender",
+]);
+
+function normalizeFilenameFormat(value?: string | null): FilenameFormat {
+  if (value && ALLOWED_FILENAME_FORMATS.has(value)) {
+    return value as FilenameFormat;
+  }
+
+  return DEFAULT_FILENAME_FORMAT;
+}
+
 async function getUserEmail(userId: string): Promise<string | null> {
   const { data, error } = await supabaseAdmin.auth.admin.getUserById(userId);
 
@@ -104,6 +122,55 @@ function getShortMessageId(messageId: string) {
   return sanitizeFilename(messageId, "message").slice(0, 8);
 }
 
+function getSenderNameForFilename(from?: string | null) {
+  const source = (from ?? "").trim();
+
+  if (!source) {
+    return "送信元不明";
+  }
+
+  const nameMatch = source.match(/^"?([^"<]+)"?\s*</);
+  const emailMatch = source.match(/<([^>]+)>/);
+  const fallback = emailMatch?.[1] ?? source;
+
+  const sender = (nameMatch?.[1] ?? fallback).replace(/^"+|"+$/g, "").trim();
+
+  return sanitizeFilename(sender || "送信元不明", "送信元不明").slice(0, 40);
+}
+
+function detectDocumentTypeForFilename(params: {
+  subject?: string | null;
+  bodyText?: string | null;
+}) {
+  const source = `${params.subject ?? ""} ${params.bodyText ?? ""}`;
+
+  if (/領収書|レシート|receipt/i.test(source)) return "領収書";
+  if (/請求書|invoice/i.test(source)) return "請求書";
+  if (/見積書|見積|quotation|quote/i.test(source)) return "見積書";
+  if (/納品書|delivery note/i.test(source)) return "納品書";
+
+  return "書類";
+}
+
+function buildPdfFilename(params: {
+  emailDate: string;
+  safeSubject: string;
+  safeSender: string;
+  documentType: string;
+  shortMessageId: string;
+  filenameFormat: FilenameFormat;
+}) {
+  if (params.filenameFormat === "ai_sender_doc") {
+    return `${params.emailDate}_${params.safeSender}_${params.documentType}_${params.shortMessageId}.pdf`;
+  }
+
+  if (params.filenameFormat === "ai_doc_sender") {
+    return `${params.documentType}_${params.emailDate}_${params.safeSender}_${params.shortMessageId}.pdf`;
+  }
+
+  return `${params.emailDate}_${params.safeSubject}_${params.shortMessageId}.pdf`;
+}
+
 function buildAttachmentFilename(params: {
   emailDate: string;
   safeSubject: string;
@@ -126,7 +193,7 @@ export async function executeRule(
   try {
     const { data: rule } = await supabaseAdmin
       .from("rules")
-      .select("id, gmail_query, drive_folder_id")
+      .select("id, gmail_query, drive_folder_id, file_name_format")
       .eq("id", params.ruleId)
       .single();
 
@@ -230,9 +297,22 @@ export async function executeRule(
 
     const emailDate = formatEmailDateForFilename(message.date);
     const safeSubject = sanitizeFilename(message.subject, "email").slice(0, 80);
+    const safeSender = getSenderNameForFilename(message.from);
+    const documentType = detectDocumentTypeForFilename({
+      subject: message.subject,
+      bodyText,
+    });
     const shortMessageId = getShortMessageId(messageId);
+    const filenameFormat = normalizeFilenameFormat(rule.file_name_format);
 
-    const filename = `${emailDate}_${safeSubject}_${shortMessageId}.pdf`;
+    const filename = buildPdfFilename({
+      emailDate,
+      safeSubject,
+      safeSender,
+      documentType,
+      shortMessageId,
+      filenameFormat,
+    });
 
     const driveResult = await uploadPdfToDrive({
       userId: params.userId,
