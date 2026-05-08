@@ -30,7 +30,7 @@ export default function NewRulePage() {
   const [error, setError] = useState<string | null>(null);
   const [queryLabel, setQueryLabel] = useState("");
   const [selectedFilenameFormat, setSelectedFilenameFormat] =
-    useState("日付 + 送信元 + 書類種別");
+    useState("standard");
 
   const [aiOpen, setAiOpen] = useState(false);
 
@@ -235,85 +235,95 @@ export default function NewRulePage() {
                 <div>
                   <div style={cardTitle}>ファイル名設定</div>
                   <div style={cardDesc}>
-                    保存後に探しやすいPDFファイル名の形式を選べます。
+                    AIを使って、保存後に探しやすいファイル名へ整形できます。
                   </div>
                 </div>
               </div>
 
-              <div style={filenameCurrentBox}>
-                <div style={filenameCurrentLabel}>現在の形式</div>
-                <div style={filenameCurrentValue}>{selectedFilenameFormat}</div>
-                <div style={filenameCurrentExample}>
-                  例: 2026-05-07_Amazon_領収書.pdf
+              <div style={filenameSettingBox}>
+                <div style={filenameSettingTitle}>保存ファイル名の形式</div>
+                <div style={filenameSettingDesc}>
+                  AI提案を使わない場合は「標準」のままでOKです。
                 </div>
-              </div>
 
-              <div style={aiFilenameBox}>
-                <div style={aiFilenameHeader}>
-                  <div>
-                    <div style={aiFilenameTitle}>AIファイル名提案</div>
-                    <div style={aiFilenameDesc}>
-                      用途に合わせて、わかりやすいファイル名形式を選べます。
+                <label
+                  style={getFilenameChoiceStyle(
+                    selectedFilenameFormat === "standard",
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="filenameFormat"
+                    value="standard"
+                    checked={selectedFilenameFormat === "standard"}
+                    onChange={() => setSelectedFilenameFormat("standard")}
+                    style={filenameRadio}
+                  />
+                  <div style={filenameChoiceBody}>
+                    <div style={filenameChoiceTop}>
+                      <span style={filenameChoiceTitle}>標準</span>
+                    </div>
+                    <div style={filenameChoiceText}>
+                      メール件名がそのまま保存されます。
                     </div>
                   </div>
-                </div>
+                </label>
 
-                <div style={filenameOptionGrid}>
-                  <div style={filenameOptionCard}>
-                    <div style={filenameOptionBadge}>おすすめ</div>
-                    <div style={filenameOptionTitle}>
-                      日付 + 送信元 + 書類種別
+                <label
+                  style={getFilenameChoiceStyle(
+                    selectedFilenameFormat === "ai_sender_doc",
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="filenameFormat"
+                    value="ai_sender_doc"
+                    checked={selectedFilenameFormat === "ai_sender_doc"}
+                    onChange={() => setSelectedFilenameFormat("ai_sender_doc")}
+                    style={filenameRadio}
+                  />
+                  <div style={filenameChoiceBody}>
+                    <div style={filenameChoiceTop}>
+                      <span style={filenameChoiceTitle}>
+                        AI提案：日付 + 送信元 + 書類種別
+                      </span>
                     </div>
-                    <div style={filenameOptionExample}>
+                    <div style={filenameChoiceText}>
+                      日付・送信元・書類種別で整理しやすい形式です。
+                    </div>
+                    <div style={filenameChoiceExample}>
                       例: 2026-05-07_Amazon_領収書.pdf
                     </div>
-                    <button
-                      type="button"
-                      style={filenameOptionButton}
-                      onClick={() =>
-                        setSelectedFilenameFormat("日付 + 送信元 + 書類種別")
-                      }
-                    >
-                      この形式を使う
-                    </button>
                   </div>
+                </label>
 
-                  <div style={filenameOptionCard}>
-                    <div style={filenameOptionBadge}>件名重視</div>
-                    <div style={filenameOptionTitle}>日付 + メール件名</div>
-                    <div style={filenameOptionExample}>
-                      例: 2026-05-07_ご利用明細のお知らせ.pdf
+                <label
+                  style={getFilenameChoiceStyle(
+                    selectedFilenameFormat === "ai_doc_sender",
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="filenameFormat"
+                    value="ai_doc_sender"
+                    checked={selectedFilenameFormat === "ai_doc_sender"}
+                    onChange={() => setSelectedFilenameFormat("ai_doc_sender")}
+                    style={filenameRadio}
+                  />
+                  <div style={filenameChoiceBody}>
+                    <div style={filenameChoiceTop}>
+                      <span style={filenameChoiceTitle}>
+                        AI提案：書類種別 + 日付 + 送信元
+                      </span>
                     </div>
-                    <button
-                      type="button"
-                      style={filenameOptionButton}
-                      onClick={() =>
-                        setSelectedFilenameFormat("日付 + メール件名")
-                      }
-                    >
-                      この形式を使う
-                    </button>
-                  </div>
-
-                  <div style={filenameOptionCard}>
-                    <div style={filenameOptionBadge}>整理しやすい形式</div>
-                    <div style={filenameOptionTitle}>
-                      書類種別 + 日付 + 送信元
+                    <div style={filenameChoiceText}>
+                      書類種別を先頭にして、より整理しやすい形式です。
                     </div>
-                    <div style={filenameOptionExample}>
+                    <div style={filenameChoiceExample}>
                       例: 領収書_2026-05-07_Amazon.pdf
                     </div>
-                    <button
-                      type="button"
-                      style={filenameOptionButton}
-                      onClick={() =>
-                        setSelectedFilenameFormat("書類種別 + 日付 + 送信元")
-                      }
-                    >
-                      この形式を使う
-                    </button>
                   </div>
-                </div>
+                </label>
               </div>
             </section>
 
@@ -583,106 +593,89 @@ const help: React.CSSProperties = {
   color: "var(--muted)",
 };
 
-const filenameCurrentBox: React.CSSProperties = {
-  padding: "14px 16px",
-  borderRadius: 14,
-  border: "1px solid var(--border)",
-  background: "var(--surface-2)",
-  marginBottom: 16,
+const filenameSettingBox: React.CSSProperties = {
+  display: "grid",
+  gap: 10,
 };
 
-const filenameCurrentLabel: React.CSSProperties = {
-  fontSize: 13,
-  fontWeight: 700,
-  color: "var(--muted)",
-  marginBottom: 6,
-};
-
-const filenameCurrentValue: React.CSSProperties = {
+const filenameSettingTitle: React.CSSProperties = {
   fontSize: 15,
   fontWeight: 800,
   color: "var(--fg)",
 };
 
-const filenameCurrentExample: React.CSSProperties = {
-  marginTop: 6,
+const filenameSettingDesc: React.CSSProperties = {
+  marginBottom: 2,
   fontSize: 13,
   lineHeight: 1.6,
   color: "var(--muted)",
 };
 
-const aiFilenameBox: React.CSSProperties = {
+const filenameChoice: React.CSSProperties = {
   display: "grid",
-  gap: 14,
-};
-
-const aiFilenameHeader: React.CSSProperties = {
-  display: "flex",
+  gridTemplateColumns: "auto 1fr",
+  gap: 12,
   alignItems: "flex-start",
-  justifyContent: "space-between",
-  gap: 12,
-};
-
-const aiFilenameTitle: React.CSSProperties = {
-  fontSize: 16,
-  fontWeight: 800,
-  color: "var(--fg)",
-};
-
-const aiFilenameDesc: React.CSSProperties = {
-  marginTop: 4,
-  fontSize: 13,
-  lineHeight: 1.6,
-  color: "var(--muted)",
-};
-
-const filenameOptionGrid: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-  gap: 12,
-};
-
-const filenameOptionCard: React.CSSProperties = {
-  display: "grid",
-  gap: 8,
-  padding: 14,
+  padding: "14px 16px",
   borderRadius: 14,
-  border: "1px solid var(--border)",
+  borderWidth: 1,
+  borderStyle: "solid",
+  borderColor: "var(--border)",
   background: "var(--surface)",
+  cursor: "pointer",
 };
 
-const filenameOptionBadge: React.CSSProperties = {
-  width: "fit-content",
-  padding: "3px 8px",
-  borderRadius: 999,
-  background: "rgba(79, 70, 229, 0.08)",
-  color: "#4f46e5",
-  fontSize: 12,
-  fontWeight: 800,
+function getFilenameChoiceStyle(isSelected: boolean): React.CSSProperties {
+  return {
+    ...filenameChoice,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: isSelected ? "#2563eb" : "var(--border)",
+    background: isSelected ? "rgba(37, 99, 235, 0.04)" : "var(--surface)",
+  };
+}
+
+const filenameRadio: React.CSSProperties = {
+  marginTop: 3,
+  accentColor: "#2563eb",
+  cursor: "pointer",
 };
 
-const filenameOptionTitle: React.CSSProperties = {
+const filenameChoiceBody: React.CSSProperties = {
+  display: "grid",
+  gap: 6,
+};
+
+const filenameChoiceTop: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  flexWrap: "wrap",
+};
+
+const filenameChoiceTitle: React.CSSProperties = {
   fontSize: 14,
   fontWeight: 800,
   color: "var(--fg)",
 };
 
-const filenameOptionExample: React.CSSProperties = {
+const filenameChoiceText: React.CSSProperties = {
   fontSize: 13,
   lineHeight: 1.6,
   color: "var(--muted)",
 };
 
-const filenameOptionButton: React.CSSProperties = {
-  marginTop: 4,
-  padding: "9px 12px",
-  borderRadius: 10,
-  border: "1px solid var(--border)",
-  background: "var(--surface)",
-  color: "var(--fg)",
+const filenameChoiceExample: React.CSSProperties = {
+  width: "fit-content",
+  maxWidth: "100%",
+  padding: "6px 9px",
+  borderRadius: 8,
+  background: "var(--surface-2)",
+  color: "#2563eb",
   fontSize: 13,
+  lineHeight: 1.5,
   fontWeight: 700,
-  cursor: "pointer",
+  overflowWrap: "anywhere",
 };
 
 const primaryButton: React.CSSProperties = {
