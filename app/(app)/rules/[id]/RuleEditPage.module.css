@@ -601,3 +601,83 @@
     display: flex;
   }
 }
+
+.filenameSettingBox {
+  display: grid;
+  gap: 10px;
+}
+
+.filenameSettingTitle {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--fg);
+}
+
+.filenameSettingDesc {
+  margin-bottom: 2px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.filenameChoice {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 14px 16px;
+  border-width: 1px;
+  border-style: solid;
+  border-color: var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.filenameChoiceSelected {
+  border-color: #2563eb;
+  background: rgba(37, 99, 235, 0.04);
+}
+
+.filenameRadio {
+  margin-top: 3px;
+  accent-color: #2563eb;
+  cursor: pointer;
+}
+
+.filenameChoiceBody {
+  display: grid;
+  gap: 6px;
+}
+
+.filenameChoiceTop {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.filenameChoiceTitle {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--fg);
+}
+
+.filenameChoiceText {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.filenameChoiceExample {
+  width: fit-content;
+  max-width: 100%;
+  padding: 6px 9px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: #2563eb;
+  font-size: 13px;
+  line-height: 1.5;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}

@@ -111,6 +111,8 @@ export default function RuleEditPage() {
   const [driveFolderId, setDriveFolderId] = useState("");
   const [gmailQuery, setGmailQuery] = useState("");
   const [queryLabel, setQueryLabel] = useState("");
+  const [selectedFilenameFormat, setSelectedFilenameFormat] =
+    useState("standard");
   const [dirty, setDirty] = useState(false);
   const [queryWarnings, setQueryWarnings] = useState<string[]>([]);
 
@@ -843,6 +845,123 @@ export default function RuleEditPage() {
                   の後ろの文字列です。
                 </span>
               </label>
+            </section>
+
+            <section className={styles.card}>
+              <div className={styles.cardHeader}>
+                <div>
+                  <div className={styles.cardTitle}>ファイル名設定</div>
+                  <div className={styles.cardDesc}>
+                    AIを使って、保存後に探しやすいファイル名へ整形できます。
+                  </div>
+                </div>
+              </div>
+
+              <div className={styles.filenameSettingBox}>
+                <div className={styles.filenameSettingTitle}>
+                  保存ファイル名の形式
+                </div>
+                <div className={styles.filenameSettingDesc}>
+                  AI提案を使わない場合は「標準」のままでOKです。
+                </div>
+
+                <label
+                  className={[
+                    styles.filenameChoice,
+                    selectedFilenameFormat === "standard"
+                      ? styles.filenameChoiceSelected
+                      : "",
+                  ].join(" ")}
+                >
+                  <input
+                    type="radio"
+                    name="filenameFormat"
+                    value="standard"
+                    checked={selectedFilenameFormat === "standard"}
+                    onChange={() => {
+                      setSelectedFilenameFormat("standard");
+                      setDirty(true);
+                    }}
+                    className={styles.filenameRadio}
+                  />
+                  <div className={styles.filenameChoiceBody}>
+                    <div className={styles.filenameChoiceTop}>
+                      <span className={styles.filenameChoiceTitle}>標準</span>
+                    </div>
+                    <div className={styles.filenameChoiceText}>
+                      メール件名がそのまま保存されます。
+                    </div>
+                  </div>
+                </label>
+
+                <label
+                  className={[
+                    styles.filenameChoice,
+                    selectedFilenameFormat === "ai_sender_doc"
+                      ? styles.filenameChoiceSelected
+                      : "",
+                  ].join(" ")}
+                >
+                  <input
+                    type="radio"
+                    name="filenameFormat"
+                    value="ai_sender_doc"
+                    checked={selectedFilenameFormat === "ai_sender_doc"}
+                    onChange={() => {
+                      setSelectedFilenameFormat("ai_sender_doc");
+                      setDirty(true);
+                    }}
+                    className={styles.filenameRadio}
+                  />
+                  <div className={styles.filenameChoiceBody}>
+                    <div className={styles.filenameChoiceTop}>
+                      <span className={styles.filenameChoiceTitle}>
+                        AI提案：日付 + 送信元 + 書類種別
+                      </span>
+                    </div>
+                    <div className={styles.filenameChoiceText}>
+                      日付・送信元・書類種別で整理しやすい形式です。
+                    </div>
+                    <div className={styles.filenameChoiceExample}>
+                      例: 2026-05-07_Amazon_領収書.pdf
+                    </div>
+                  </div>
+                </label>
+
+                <label
+                  className={[
+                    styles.filenameChoice,
+                    selectedFilenameFormat === "ai_doc_sender"
+                      ? styles.filenameChoiceSelected
+                      : "",
+                  ].join(" ")}
+                >
+                  <input
+                    type="radio"
+                    name="filenameFormat"
+                    value="ai_doc_sender"
+                    checked={selectedFilenameFormat === "ai_doc_sender"}
+                    onChange={() => {
+                      setSelectedFilenameFormat("ai_doc_sender");
+                      setDirty(true);
+                    }}
+                    className={styles.filenameRadio}
+                  />
+                  <div className={styles.filenameChoiceBody}>
+                    <div className={styles.filenameChoiceTop}>
+                      <span className={styles.filenameChoiceTitle}>
+                        AI提案：書類種別 + 日付 + 送信元
+                      </span>
+                    </div>
+                    <div className={styles.filenameChoiceText}>
+                      書類種別を先頭にして、より整理しやすい形式です。
+                    </div>
+                    <div className={styles.filenameChoiceExample}>
+                      例: 領収書_2026-05-07_Amazon.pdf
+                    </div>
+                  </div>
+                </label>
+              </div>
             </section>
 
             <section className={styles.card}>
