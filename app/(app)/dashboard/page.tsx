@@ -138,15 +138,16 @@ export default function DashboardPage() {
           <section className="grid">
             <div className="card">
               <div className="cardHead">
-                <h2 className="h2">最近作成したPDF</h2>
-                <span className="muted">{pdfs.length} 件</span>
+                <h2 className="h2">保存済みPDF一覧（準備中）</h2>
+                <span className="muted">準備中</span>
               </div>
 
               {pdfs.length === 0 ? (
                 <div className="empty">
-                  <div className="emptyTitle">まだPDFは作成されていません</div>
+                  <div className="emptyTitle">保存済みPDF一覧は準備中です</div>
                   <div className="emptyText">
-                    「ルールを作成」→「実行」で自動作成されます。
+                    保存済みPDFはGoogle
+                    Driveで確認してください。この欄には今後、最近保存したPDF一覧を表示予定です。
                   </div>
                 </div>
               ) : (
