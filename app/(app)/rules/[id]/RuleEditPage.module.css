@@ -681,3 +681,54 @@
   font-weight: 700;
   overflow-wrap: anywhere;
 }
+
+.titleLine {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ruleIdInline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.ruleIdLabel {
+  font-weight: 700;
+}
+
+.ruleIdValue {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+  font-size: 12px;
+}
+
+@media (max-width: 640px) {
+  .titleLine {
+    align-items: flex-start;
+  }
+
+  .ruleIdInline {
+    max-width: 100%;
+  }
+
+  .ruleIdValue {
+    max-width: 220px;
+  }
+}

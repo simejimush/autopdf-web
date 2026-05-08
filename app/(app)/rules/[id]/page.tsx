@@ -45,25 +45,9 @@ function extractFolderId(input: string) {
   return trimmed;
 }
 
-async function copyToClipboard(text: string) {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    try {
-      const ta = document.createElement("textarea");
-      ta.value = text;
-      ta.style.position = "fixed";
-      ta.style.left = "-9999px";
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      document.body.removeChild(ta);
-      return true;
-    } catch {
-      return false;
-    }
-  }
+function formatRuleId(id: string) {
+  if (id.length <= 18) return id;
+  return `${id.slice(0, 8)}...${id.slice(-6)}`;
 }
 
 const loadingText: React.CSSProperties = {
@@ -116,7 +100,6 @@ export default function RuleEditPage() {
   const [dirty, setDirty] = useState(false);
   const [queryWarnings, setQueryWarnings] = useState<string[]>([]);
 
-  const [copiedId, setCopiedId] = useState(false);
   const [copiedQuery, setCopiedQuery] = useState(false);
 
   const handleApplyAiQuery = (nextQuery: string) => {
@@ -675,7 +658,17 @@ export default function RuleEditPage() {
       <div className={styles.container}>
         <div className={styles.header}>
           <div>
-            <h1 className={styles.title}>ルール編集</h1>
+            <div className={styles.titleLine}>
+              <h1 className={styles.title}>ルール編集</h1>
+              {rule ? (
+                <div className={styles.ruleIdInline} title={rule.id}>
+                  <span className={styles.ruleIdLabel}>ルールID</span>
+                  <code className={styles.ruleIdValue}>
+                    {formatRuleId(rule.id)}
+                  </code>
+                </div>
+              ) : null}
+            </div>
             <p className={styles.subtitle}>
               保存先フォルダと、対象メールの条件を設定します。
             </p>
@@ -742,79 +735,6 @@ export default function RuleEditPage() {
 
         {!loading && rule && (
           <form id="ruleEditForm" onSubmit={onSave} className={styles.form}>
-            <section className={styles.card}>
-              <div className={styles.cardHeader}>
-                <div>
-                  <div className={styles.cardTitle}>検索条件の説明</div>
-                  <div className={styles.cardDesc}>
-                    一覧画面で表示される説明文です（任意）
-                  </div>
-                </div>
-              </div>
-
-              <label className={styles.field}>
-                <input
-                  className={styles.input}
-                  value={queryLabel}
-                  onChange={(e) => {
-                    setQueryLabel(e.target.value);
-                    setDirty(true);
-                  }}
-                  placeholder="AmazonのPDF請求書を1週間以内で未読"
-                />
-              </label>
-            </section>
-            <section className={styles.card}>
-              <div className={styles.cardHeader}>
-                <div>
-                  <div className={styles.cardTitle}>基本設定</div>
-                  <div className={styles.cardDesc}>
-                    ルールIDと有効/無効を管理します。
-                  </div>
-                </div>
-              </div>
-
-              <div className={styles.row}>
-                <div className={styles.label}>ルールID</div>
-                <div className={styles.valueLine}>
-                  <code className={styles.mono}>{rule.id}</code>
-                  <button
-                    type="button"
-                    className={styles.smallButton}
-                    onClick={async () => {
-                      const ok = await copyToClipboard(rule.id);
-                      if (ok) {
-                        setCopiedId(true);
-                        setTimeout(() => setCopiedId(false), 900);
-                      }
-                    }}
-                  >
-                    {copiedId ? "コピーしました" : "コピー"}
-                  </button>
-                </div>
-              </div>
-
-              <div className={styles.row}>
-                <div className={styles.label}>有効</div>
-                <div className={styles.valueLine}>
-                  <label className={styles.toggle}>
-                    <input
-                      type="checkbox"
-                      checked={isActive}
-                      onChange={(e) => {
-                        setIsActive(e.target.checked);
-                        setDirty(true);
-                      }}
-                    />
-                    <span className={styles.toggleUi} />
-                    <span className={styles.toggleText}>
-                      {isActive ? "ON" : "OFF"}
-                    </span>
-                  </label>
-                </div>
-              </div>
-            </section>
-
             <section className={styles.card}>
               <div className={styles.cardHeader}>
                 <div>
