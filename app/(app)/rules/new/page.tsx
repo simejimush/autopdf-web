@@ -24,7 +24,7 @@ export default function NewRulePage() {
 
   const [driveFolderId, setDriveFolderId] = useState("");
   const [gmailQuery, setGmailQuery] = useState("");
-  const [isActive, setIsActive] = useState(true);
+  const isActive = true;
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -175,29 +175,6 @@ export default function NewRulePage() {
                   style={input}
                 />
               </label>
-            </section>
-
-            <section style={card}>
-              <div style={cardHeader}>
-                <div>
-                  <div style={cardTitle}>基本設定</div>
-                  <div style={cardDesc}>ルールの有効/無効を設定します。</div>
-                </div>
-              </div>
-
-              <div style={row}>
-                <div style={label}>有効</div>
-                <div style={valueLine}>
-                  <label style={toggle}>
-                    <input
-                      type="checkbox"
-                      checked={isActive}
-                      onChange={(e) => setIsActive(e.target.checked)}
-                    />
-                    <span style={toggleText}>{isActive ? "ON" : "OFF"}</span>
-                  </label>
-                </div>
-              </div>
             </section>
 
             <section style={card}>
@@ -495,35 +472,6 @@ const cardDesc: React.CSSProperties = {
   fontSize: 14,
   lineHeight: 1.6,
   color: "var(--muted)",
-};
-
-const row: React.CSSProperties = {
-  display: "grid",
-  gap: 8,
-};
-
-const label: React.CSSProperties = {
-  fontSize: 14,
-  fontWeight: 700,
-  color: "var(--fg)",
-};
-
-const valueLine: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 10,
-};
-
-const toggle: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: 10,
-};
-
-const toggleText: React.CSSProperties = {
-  fontSize: 14,
-  fontWeight: 700,
-  color: "var(--fg)",
 };
 
 const field: React.CSSProperties = {
