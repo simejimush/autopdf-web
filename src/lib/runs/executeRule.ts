@@ -123,6 +123,81 @@ function getShortMessageId(messageId: string) {
   return sanitizeFilename(messageId, "message").slice(0, 8);
 }
 
+const GENERIC_SENDER_NAMES = new Set([
+  "no-reply",
+  "noreply",
+  "no_reply",
+  "donotreply",
+  "do-not-reply",
+  "notification",
+  "notifications",
+  "mail",
+  "info",
+  "support",
+]);
+
+const IGNORED_DOMAIN_PARTS = new Set([
+  "com",
+  "net",
+  "org",
+  "jp",
+  "co",
+  "ne",
+  "ac",
+  "go",
+  "or",
+  "io",
+  "mail",
+  "email",
+  "smtp",
+  "mx",
+  "www",
+]);
+
+function normalizeSenderToken(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[\s._]+/g, "-")
+    .trim();
+}
+
+function isGenericSenderName(value?: string | null) {
+  const normalized = normalizeSenderToken(value ?? "");
+
+  if (!normalized) {
+    return true;
+  }
+
+  return GENERIC_SENDER_NAMES.has(normalized);
+}
+
+function extractEmailAddressFromFromHeader(source: string) {
+  const angleEmail = source.match(/<([^>]+)>/)?.[1]?.trim();
+
+  if (angleEmail) {
+    return angleEmail;
+  }
+
+  return (
+    source.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0]?.trim() ?? null
+  );
+}
+
+function getDomainSenderName(email?: string | null) {
+  const domain = email?.split("@")[1]?.toLowerCase();
+
+  if (!domain) {
+    return null;
+  }
+
+  const candidates = domain
+    .split(".")
+    .map((part) => part.trim())
+    .filter((part) => part && !IGNORED_DOMAIN_PARTS.has(part));
+
+  return candidates.at(-1) ?? null;
+}
+
 function getSenderNameForFilename(from?: string | null) {
   const source = (from ?? "").trim();
 
@@ -131,10 +206,13 @@ function getSenderNameForFilename(from?: string | null) {
   }
 
   const nameMatch = source.match(/^"?([^"<]+)"?\s*</);
-  const emailMatch = source.match(/<([^>]+)>/);
-  const fallback = emailMatch?.[1] ?? source;
+  const displayName = nameMatch?.[1]?.replace(/^"+|"+$/g, "").trim() ?? null;
+  const email = extractEmailAddressFromFromHeader(source);
 
-  const sender = (nameMatch?.[1] ?? fallback).replace(/^"+|"+$/g, "").trim();
+  const sender =
+    displayName && !isGenericSenderName(displayName)
+      ? displayName
+      : (getDomainSenderName(email) ?? displayName ?? email ?? source);
 
   return sanitizeFilename(sender || "送信元不明", "送信元不明").slice(0, 40);
 }
