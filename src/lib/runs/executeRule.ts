@@ -12,6 +12,7 @@ import { normalizeRunErrorCode } from "@/lib/runs/normalizeRunErrorCode";
 import { updateGoogleConnectionHealth } from "@/lib/monitoring/updateGoogleConnectionHealth";
 import { notifySlack } from "@/lib/monitoring/notifySlack";
 import { notifyUser } from "@/lib/monitoring/notifyUser";
+import { detectDocumentTypeWithAi } from "@/lib/ai/detectDocumentType";
 
 type ExecuteRuleParams = {
   ruleId: string;
@@ -171,6 +172,12 @@ function buildPdfFilename(params: {
   return `${params.emailDate}_${params.safeSubject}_${params.shortMessageId}.pdf`;
 }
 
+function shouldUseAiDocumentType(filenameFormat: FilenameFormat) {
+  return (
+    filenameFormat === "ai_sender_doc" || filenameFormat === "ai_doc_sender"
+  );
+}
+
 function buildAttachmentFilename(params: {
   emailDate: string;
   safeSubject: string;
@@ -298,12 +305,30 @@ export async function executeRule(
     const emailDate = formatEmailDateForFilename(message.date);
     const safeSubject = sanitizeFilename(message.subject, "email").slice(0, 80);
     const safeSender = getSenderNameForFilename(message.from);
-    const documentType = detectDocumentTypeForFilename({
+    const shortMessageId = getShortMessageId(messageId);
+    const filenameFormat = normalizeFilenameFormat(rule.file_name_format);
+
+    const attachments = Array.isArray(message.attachments)
+      ? message.attachments
+      : [];
+
+    const fallbackDocumentType = detectDocumentTypeForFilename({
       subject: message.subject,
       bodyText,
     });
-    const shortMessageId = getShortMessageId(messageId);
-    const filenameFormat = normalizeFilenameFormat(rule.file_name_format);
+
+    const aiDocumentType = shouldUseAiDocumentType(filenameFormat)
+      ? await detectDocumentTypeWithAi({
+          subject: message.subject,
+          from: message.from,
+          bodyText,
+          attachmentFilenames: attachments.map(
+            (attachment) => attachment.filename,
+          ),
+        })
+      : null;
+
+    const documentType = aiDocumentType ?? fallbackDocumentType;
 
     const filename = buildPdfFilename({
       emailDate,
@@ -320,10 +345,6 @@ export async function executeRule(
       filename,
       pdfBytes,
     });
-
-    const attachments = Array.isArray(message.attachments)
-      ? message.attachments
-      : [];
 
     let savedAttachmentCount = 0;
     let skippedAttachmentCount = 0;
