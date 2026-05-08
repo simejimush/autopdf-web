@@ -231,6 +231,31 @@ AI判定に渡す情報:
 
 ただし、現時点ではDB変更は行わず、`file_name_format` による制御をMVP仕様とする。
 
+#### AI使用量・コスト監視メモ
+
+現時点では、OpenAI Platform側の Usage / Billing で使用量と残高を確認する。
+
+Auto recharge は OFF で運用し、クレジット残高が 0 になってもAI判定はフォールバックするため、PDF保存本体は止めない。
+
+将来的に AutoPDF 側でもAI利用状況を確認できるようにする場合は、AI呼び出し単位で以下を記録する。
+
+- user_id
+- rule_id
+- run_id
+- feature
+- model
+- status
+- created_at
+
+初期実装では、AI書類種別判定の呼び出し回数・成功数・失敗数を管理者向けに確認できればよい。
+
+想定する feature / status は以下。
+
+- feature: `document_type_detection`
+- status: `success` / `fallback` / `skipped` / `error`
+
+現時点ではDB追加や画面追加は行わず、OpenAI Platform側の確認と少額クレジット運用をMVP仕様とする。
+
 ## 今後の実装ステップ
 
 1. Free制限のUI・API制御（実装済み）
