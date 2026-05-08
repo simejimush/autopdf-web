@@ -815,6 +815,9 @@ export default function RuleEditPage() {
                 <div className={styles.filenameSettingDesc}>
                   AI提案を使わない場合は「標準」のままでOKです。
                 </div>
+                <div className={styles.filenameSettingNote}>
+                  ※重複防止のため、実際のファイル名には末尾に短いIDが付きます。
+                </div>
 
                 <label
                   className={[

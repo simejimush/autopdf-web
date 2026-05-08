@@ -223,6 +223,9 @@ export default function NewRulePage() {
                 <div style={filenameSettingDesc}>
                   AI提案を使わない場合は「標準」のままでOKです。
                 </div>
+                <div style={filenameSettingNote}>
+                  ※重複防止のため、実際のファイル名には末尾に短いIDが付きます。
+                </div>
 
                 <label
                   style={getFilenameChoiceStyle(
@@ -556,6 +559,12 @@ const filenameSettingTitle: React.CSSProperties = {
 const filenameSettingDesc: React.CSSProperties = {
   marginBottom: 2,
   fontSize: 13,
+  lineHeight: 1.6,
+  color: "var(--muted)",
+};
+
+const filenameSettingNote: React.CSSProperties = {
+  fontSize: 12,
   lineHeight: 1.6,
   color: "var(--muted)",
 };
