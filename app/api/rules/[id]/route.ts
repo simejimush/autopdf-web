@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isFreePlanOverflowRule } from "@/lib/rules/freePlanLimit";
+import { normalizeFileNameFormat } from "@/lib/rules/fileNameFormat";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -85,6 +86,9 @@ export async function PATCH(
   if ("gmail_label_id" in body) update.gmail_label_id = body.gmail_label_id;
   if ("is_active" in body) update.is_active = body.is_active;
   if ("run_timing" in body) update.run_timing = body.run_timing;
+  if ("file_name_format" in body) {
+    update.file_name_format = normalizeFileNameFormat(body.file_name_format);
+  }
 
   const { data: current, error: currentErr } = await supabaseAdmin
     .from("rules")

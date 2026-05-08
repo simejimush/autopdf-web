@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { resolveEffectivePlan } from "@/lib/billing/resolveEffectivePlan";
+import { normalizeFileNameFormat } from "@/lib/rules/fileNameFormat";
 
 const RULE_LIMIT_FREE = 3;
 
@@ -138,6 +139,10 @@ export async function POST(req: Request) {
     ? String((body as any).run_timing).trim()
     : "manual";
 
+  const file_name_format = normalizeFileNameFormat(
+    (body as any)?.file_name_format,
+  );
+
   if (!drive_folder_id) {
     return errorResponse(
       400,
@@ -152,6 +157,7 @@ export async function POST(req: Request) {
     gmail_query,
     query_label,
     subject_keywords: null,
+    file_name_format,
     is_active: gmail_query ? Boolean((body as any)?.is_active) : false,
     run_timing,
   };
@@ -160,7 +166,7 @@ export async function POST(req: Request) {
     .from("rules")
     .insert([insertRow])
     .select(
-      "id, is_active, run_timing, drive_folder_id, gmail_query, query_label, updated_at",
+      "id, is_active, run_timing, drive_folder_id, gmail_query, query_label, file_name_format, updated_at",
     )
     .single();
 
