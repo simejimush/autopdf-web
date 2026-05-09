@@ -48,14 +48,41 @@ export default async function SettingsPage() {
 
   const { data: googleConnection } = await supabase
     .from("google_connections")
-    .select("id, status, last_verified_at, updated_at")
+    .select(
+      "id, status, last_verified_at, updated_at, reauth_required, last_error_code, last_error_at",
+    )
     .eq("user_id", user.id)
     .maybeSingle();
 
-  const isGoogleConnected = googleConnection?.status === "connected";
-  const googleEmail = isGoogleConnected ? "接続済み" : "未接続";
+  const needsGoogleReconnect =
+    googleConnection?.reauth_required === true ||
+    googleConnection?.last_error_code === "GOOGLE_TOKEN_INVALID" ||
+    googleConnection?.last_error_code === "GOOGLE_PERMISSION_DENIED";
+
+  const isGoogleConnected =
+    googleConnection?.status === "connected" && !needsGoogleReconnect;
+
+  const googleConnectionLabel = needsGoogleReconnect
+    ? "再接続が必要"
+    : isGoogleConnected
+      ? "連携済み"
+      : "未接続";
+
+  const googleStatusText = needsGoogleReconnect
+    ? "Googleアカウントの再接続が必要です"
+    : isGoogleConnected
+      ? "Googleアカウント接続済み"
+      : "未接続";
+
+  const googleInfoText = needsGoogleReconnect
+    ? "認証切れ"
+    : isGoogleConnected
+      ? "接続済み"
+      : "未接続";
+
   const verifiedAt = formatDateTime(googleConnection?.last_verified_at);
   const updatedAt = formatDateTime(googleConnection?.updated_at);
+  const lastErrorAt = formatDateTime(googleConnection?.last_error_at);
 
   const profile = await getMyProfileAction();
   const displayName = profile?.display_name || "未設定";
@@ -98,57 +125,71 @@ export default async function SettingsPage() {
                   isGoogleConnected ? styles.badgeOk : styles.badgeMuted
                 }`}
               >
-                {isGoogleConnected ? "連携済み" : "未接続"}
+                {googleConnectionLabel}
               </span>
             </div>
 
             <dl className={styles.infoList}>
               <div className={styles.infoRow}>
                 <dt className={styles.label}>状態</dt>
-                <dd className={styles.value}>
-                  {isGoogleConnected ? "Googleアカウント接続済み" : "未接続"}
-                </dd>
+                <dd className={styles.value}>{googleStatusText}</dd>
               </div>
 
               <div className={styles.infoRow}>
                 <dt className={styles.label}>接続情報</dt>
-                <dd className={styles.value}>
-                  {isGoogleConnected ? googleEmail : "未接続"}
-                </dd>
+                <dd className={styles.value}>{googleInfoText}</dd>
               </div>
 
               <div className={styles.infoRow}>
                 <dt className={styles.label}>最終確認</dt>
                 <dd className={styles.value}>
-                  {isGoogleConnected ? verifiedAt : "未接続"}
+                  {isGoogleConnected || needsGoogleReconnect
+                    ? verifiedAt
+                    : "未接続"}
                 </dd>
               </div>
 
               <div className={styles.infoRow}>
                 <dt className={styles.label}>接続情報更新</dt>
+                {needsGoogleReconnect ? (
+                  <div className={styles.infoRow}>
+                    <dt className={styles.label}>最終エラー</dt>
+                    <dd className={styles.value}>{lastErrorAt}</dd>
+                  </div>
+                ) : null}
                 <dd className={styles.value}>
-                  {isGoogleConnected ? updatedAt : "未接続"}
+                  {isGoogleConnected || needsGoogleReconnect
+                    ? updatedAt
+                    : "未接続"}
                 </dd>
               </div>
             </dl>
 
             <div className={styles.actions}>
               <Link href="/api/google/connect" className={styles.primaryBtn}>
-                {isGoogleConnected ? "Googleを再接続" : "Googleを接続"}
+                {needsGoogleReconnect
+                  ? "Googleを再接続"
+                  : isGoogleConnected
+                    ? "Googleを再接続"
+                    : "Googleを接続"}
               </Link>
 
               <form action="/api/google/disconnect" method="post">
                 <button
                   type="submit"
                   className={styles.secondaryBtn}
-                  disabled={!isGoogleConnected}
+                  disabled={!googleConnection}
                 >
                   接続解除
                 </button>
               </form>
             </div>
 
-            {!isGoogleConnected ? (
+            {needsGoogleReconnect ? (
+              <p className={styles.note}>
+                Google認証が切れています。「Googleを再接続」を押して接続し直してください。
+              </p>
+            ) : !isGoogleConnected ? (
               <p className={styles.note}>
                 Google未接続の状態では、Gmail取得やDrive保存は実行できません。
               </p>

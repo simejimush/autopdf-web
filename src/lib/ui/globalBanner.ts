@@ -1,3 +1,4 @@
+//src\lib\ui\globalBanner.ts
 export type GlobalBannerVariant = "error" | "warning" | "success" | "info";
 
 export type GlobalBanner = {
@@ -19,14 +20,17 @@ type Input = {
 
 function errorCopy(errorCode?: string | null, message?: string | null) {
   switch (errorCode) {
+    case "GOOGLE_TOKEN_INVALID":
+    case "GOOGLE_PERMISSION_DENIED":
     case "google_oauth_invalid":
       return {
-        title: "Google接続が無効になっています",
-        body: "再接続が必要です。接続し直すと自動保存が再開します。",
+        title: "Google連携の再接続が必要です",
+        body: "Googleの認証が切れています。Googleアカウントを再接続してください。",
         ctaLabel: "Googleを再接続",
         ctaHref: "/api/google/connect",
       };
 
+    case "GMAIL_QUERY_INVALID":
     case "gmail_query_invalid":
       return {
         title: "Gmail検索条件に問題があります",
@@ -35,18 +39,21 @@ function errorCopy(errorCode?: string | null, message?: string | null) {
         ctaHref: "/rules",
       };
 
+    case "DRIVE_PERMISSION_DENIED":
+    case "DRIVE_FOLDER_INVALID":
     case "drive_permission_denied":
       return {
-        title: "Google Driveへの保存権限がありません",
-        body: "保存先フォルダの権限、または接続スコープを確認してください。",
-        ctaLabel: "設定を確認",
+        title: "Google Driveへの保存設定に問題があります",
+        body: "保存先フォルダの権限、または保存先設定を確認してください。",
+        ctaLabel: "ルールを確認",
         ctaHref: "/rules",
       };
 
+    case "RATE_LIMIT":
     case "rate_limited":
       return {
         title: "一時的に制限されています",
-        body: "しばらくしてから再実行してください（Google側の制限の可能性）。",
+        body: "しばらくしてから再実行してください（Google側の制限の可能性があります）。",
         ctaLabel: "ルールを確認",
         ctaHref: "/rules",
       };
@@ -54,8 +61,8 @@ function errorCopy(errorCode?: string | null, message?: string | null) {
     default:
       return {
         title: "自動保存でエラーが発生しました",
-        body: message ?? "詳細は /rules の最終実行ログを確認してください。",
-        ctaLabel: "エラーを確認",
+        body: message ?? "詳細はルールの最終実行ログを確認してください。",
+        ctaLabel: "ルールを確認",
         ctaHref: "/rules",
       };
   }
