@@ -1,10 +1,18 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
+export type DashboardRecentPdf = {
+  id: string;
+  savedAt: string | null;
+  createdAt: string | null;
+  driveWebViewLink: string;
+};
+
 export type DashboardSummary = {
   lastRunAt: string | null;
   processedTotal7d: number;
   savedTotal7d: number;
   errorCount7d: number;
+  recentPdfs: DashboardRecentPdf[];
 };
 
 export async function getDashboardSummary(): Promise<DashboardSummary> {
@@ -21,6 +29,7 @@ export async function getDashboardSummary(): Promise<DashboardSummary> {
       processedTotal7d: 0,
       savedTotal7d: 0,
       errorCount7d: 0,
+      recentPdfs: [],
     };
   }
 
@@ -35,6 +44,7 @@ export async function getDashboardSummary(): Promise<DashboardSummary> {
       processedTotal7d: 0,
       savedTotal7d: 0,
       errorCount7d: 0,
+      recentPdfs: [],
     };
   }
 
@@ -69,10 +79,25 @@ export async function getDashboardSummary(): Promise<DashboardSummary> {
     if (r.status === "error") errorCount7d += 1;
   }
 
+  const { data: recentPdfs } = await supabase
+    .from("processed_emails")
+    .select("id, saved_at, created_at, drive_web_view_link")
+    .eq("user_id", user.id)
+    .in("rule_id", ruleIds)
+    .not("drive_web_view_link", "is", null)
+    .order("saved_at", { ascending: false })
+    .limit(5);
+
   return {
     lastRunAt: lastRun?.finished_at ?? null,
     processedTotal7d,
     savedTotal7d,
     errorCount7d,
+    recentPdfs: (recentPdfs ?? []).map((pdf) => ({
+      id: pdf.id,
+      savedAt: pdf.saved_at ?? null,
+      createdAt: pdf.created_at ?? null,
+      driveWebViewLink: pdf.drive_web_view_link,
+    })),
   };
 }
