@@ -477,6 +477,7 @@ export async function executeRule(
           "webViewLink" in driveResult
             ? driveResult.webViewLink
             : null,
+        drive_file_name: filename,
         saved_at: new Date().toISOString(),
       });
 

@@ -93,7 +93,7 @@ export default function DashboardPage() {
               Array.isArray(s.recentPdfs)
                 ? s.recentPdfs.map((pdf: any) => ({
                     id: pdf.id,
-                    title: "保存済みPDF",
+                    title: pdf.driveFileName || "保存済みPDF",
                     createdAt: formatDashboardDate(
                       pdf.savedAt ?? pdf.createdAt,
                     ),
@@ -407,6 +407,8 @@ const styles = `
 .rowTitle{
   font-weight:900;
   font-size:13px;
+  line-height:1.45;
+  word-break:break-all;
 }
 
 .rowMeta{

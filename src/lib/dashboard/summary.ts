@@ -5,6 +5,7 @@ export type DashboardRecentPdf = {
   savedAt: string | null;
   createdAt: string | null;
   driveWebViewLink: string;
+  driveFileName: string | null;
 };
 
 export type DashboardSummary = {
@@ -81,7 +82,7 @@ export async function getDashboardSummary(): Promise<DashboardSummary> {
 
   const { data: recentPdfs } = await supabase
     .from("processed_emails")
-    .select("id, saved_at, created_at, drive_web_view_link")
+    .select("id, saved_at, created_at, drive_web_view_link, drive_file_name")
     .eq("user_id", user.id)
     .in("rule_id", ruleIds)
     .not("drive_web_view_link", "is", null)
@@ -93,11 +94,14 @@ export async function getDashboardSummary(): Promise<DashboardSummary> {
     processedTotal7d,
     savedTotal7d,
     errorCount7d,
-    recentPdfs: (recentPdfs ?? []).map((pdf) => ({
-      id: pdf.id,
-      savedAt: pdf.saved_at ?? null,
-      createdAt: pdf.created_at ?? null,
-      driveWebViewLink: pdf.drive_web_view_link,
-    })),
+    recentPdfs: (recentPdfs ?? [])
+      .filter((pdf) => Boolean(pdf.drive_web_view_link))
+      .map((pdf) => ({
+        id: pdf.id,
+        savedAt: pdf.saved_at ?? null,
+        createdAt: pdf.created_at ?? null,
+        driveWebViewLink: pdf.drive_web_view_link as string,
+        driveFileName: pdf.drive_file_name ?? null,
+      })),
   };
 }
