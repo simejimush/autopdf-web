@@ -18,7 +18,24 @@ type PdfItem = {
   title: string;
   createdAt: string;
   status: "完了" | "処理中" | string;
+  href: string;
 };
+
+function formatDashboardDate(value?: string | null) {
+  if (!value) return "日時不明";
+
+  try {
+    return new Intl.DateTimeFormat("ja-JP", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date(value));
+  } catch {
+    return "日時不明";
+  }
+}
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -26,7 +43,7 @@ export default function DashboardPage() {
   const [user, setUser] = useState<User | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [summary, setSummary] = useState<any>(null);
-  const [pdfs] = useState<PdfItem[]>([]);
+  const [pdfs, setPdfs] = useState<PdfItem[]>([]);
   const [plan, setPlan] = useState<string>("free");
 
   useEffect(() => {
@@ -69,7 +86,23 @@ export default function DashboardPage() {
           if (!cancelled) setSummary(null);
         } else {
           const s = await res.json();
-          if (!cancelled) setSummary(s);
+
+          if (!cancelled) {
+            setSummary(s);
+            setPdfs(
+              Array.isArray(s.recentPdfs)
+                ? s.recentPdfs.map((pdf: any) => ({
+                    id: pdf.id,
+                    title: "保存済みPDF",
+                    createdAt: formatDashboardDate(
+                      pdf.savedAt ?? pdf.createdAt,
+                    ),
+                    status: "完了",
+                    href: pdf.driveWebViewLink,
+                  }))
+                : [],
+            );
+          }
         }
       } catch (e: any) {
         if (!cancelled) setErrorMsg(e?.message ?? "failed to get user");
@@ -138,16 +171,17 @@ export default function DashboardPage() {
           <section className="grid">
             <div className="card">
               <div className="cardHead">
-                <h2 className="h2">保存済みPDF一覧（準備中）</h2>
-                <span className="muted">準備中</span>
+                <h2 className="h2">最近保存したPDF</h2>
+                <span className="muted">{pdfs.length}件</span>
               </div>
 
               {pdfs.length === 0 ? (
                 <div className="empty">
-                  <div className="emptyTitle">保存済みPDF一覧は準備中です</div>
+                  <div className="emptyTitle">
+                    最近保存したPDFはまだありません
+                  </div>
                   <div className="emptyText">
-                    保存済みPDFはGoogle
-                    Driveで確認してください。この欄には今後、最近保存したPDF一覧を表示予定です。
+                    ルールを実行すると、保存された本文PDFへのDriveリンクがここに表示されます。
                   </div>
                 </div>
               ) : (
@@ -169,7 +203,14 @@ export default function DashboardPage() {
                         </div>
                       </div>
 
-                      <button className="btnMini">詳細</button>
+                      <a
+                        className="btnMini"
+                        href={pdf.href}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Driveで開く
+                      </a>
                     </div>
                   ))}
                 </div>
@@ -403,14 +444,21 @@ const styles = `
 }
 
 .btnMini{
-  padding:8px 10px;
-  border-radius:12px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-height:24px;
+  padding:2px 10px;
+  border-radius:999px;
   border:1px solid var(--border);
   background:var(--surface);
   color:var(--primary);
+  font-size:12px;
+  line-height:1;
   font-weight:900;
   cursor:pointer;
   white-space:nowrap;
+  text-decoration:none;
 }
 
 .btnMini:hover{ background:#f3f4f6; }
