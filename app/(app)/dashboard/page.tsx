@@ -268,6 +268,7 @@ const styles = `
   margin:0;
   font-size:22px;
   letter-spacing:-0.02em;
+  color:var(--fg);
 }
 
 .sub{
@@ -409,6 +410,11 @@ const styles = `
   font-size:13px;
   line-height:1.45;
   word-break:break-all;
+  color:var(--fg);
+}
+
+.rowMain{
+  min-width:0;
 }
 
 .rowMeta{
