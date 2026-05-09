@@ -128,6 +128,7 @@ Gmailメールの二重処理防止テーブル
 | gmail_message_id    | text        | Gmail message id |
 | drive_file_id       | text        | 保存されたPDF    |
 | drive_web_view_link | text        | Drive URL        |
+| drive_file_name     | text        | 保存された本文PDFファイル名 |
 | created_at          | timestamptz | 作成日時         |
 | saved_at            | timestamptz | 保存日時         |
 
@@ -151,7 +152,9 @@ processed_emails_rule_idx
 用途
 
 - Gmail メールの **二重処理防止**
-- 保存済みPDFの追跡
+- 保存済み本文PDFの追跡
+- ダッシュボードの「最近保存したPDF」表示
+- `drive_file_name` は新規保存分から記録する。過去データでは null の場合がある
 
 ---
 
