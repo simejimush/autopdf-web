@@ -1,4 +1,9 @@
+import { logAiUsage } from "@/lib/ai/logAiUsage";
+
 type DetectDocumentTypeParams = {
+  userId?: string | null;
+  ruleId?: string | null;
+  runId?: string | null;
   subject?: string | null;
   from?: string | null;
   bodyText?: string | null;
@@ -42,10 +47,48 @@ function extractOutputText(data: unknown) {
   return null;
 }
 
+function extractUsage(data: unknown) {
+  if (!data || typeof data !== "object") {
+    return {
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+    };
+  }
+
+  const usage = (data as { usage?: unknown }).usage;
+
+  if (!usage || typeof usage !== "object") {
+    return {
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+    };
+  }
+
+  const inputTokens = Number(
+    (usage as { input_tokens?: unknown }).input_tokens ?? 0,
+  );
+  const outputTokens = Number(
+    (usage as { output_tokens?: unknown }).output_tokens ?? 0,
+  );
+  const totalTokens = Number(
+    (usage as { total_tokens?: unknown }).total_tokens ??
+      inputTokens + outputTokens,
+  );
+
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens,
+  };
+}
+
 export async function detectDocumentTypeWithAi(
   params: DetectDocumentTypeParams,
 ): Promise<string | null> {
   const apiKey = process.env.OPENAI_API_KEY;
+  const model = "gpt-4.1-nano";
 
   if (!apiKey) {
     return null;
@@ -66,7 +109,7 @@ export async function detectDocumentTypeWithAi(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gpt-4.1-nano",
+        model,
         temperature: 0,
         max_output_tokens: 20,
         input: [
@@ -93,11 +136,36 @@ export async function detectDocumentTypeWithAi(
         status: res.status,
       });
 
+      await logAiUsage({
+        userId: params.userId,
+        ruleId: params.ruleId,
+        runId: params.runId,
+        feature: "document_type_detection",
+        provider: "openai",
+        model,
+        status: "error",
+        errorCode: `OPENAI_HTTP_${res.status}`,
+      });
+
       return null;
     }
 
     const data = await res.json();
     const outputText = extractOutputText(data);
+    const usage = extractUsage(data);
+
+    await logAiUsage({
+      userId: params.userId,
+      ruleId: params.ruleId,
+      runId: params.runId,
+      feature: "document_type_detection",
+      provider: "openai",
+      model,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      totalTokens: usage.totalTokens,
+      status: "success",
+    });
 
     return normalizeDocumentType(outputText);
   } catch (error) {
@@ -107,6 +175,17 @@ export async function detectDocumentTypeWithAi(
         : "Unknown AI classification error";
 
     console.warn("[detectDocumentTypeWithAi] failed:", message);
+
+    await logAiUsage({
+      userId: params.userId,
+      ruleId: params.ruleId,
+      runId: params.runId,
+      feature: "document_type_detection",
+      provider: "openai",
+      model,
+      status: "error",
+      errorCode: "OPENAI_REQUEST_FAILED",
+    });
 
     return null;
   }

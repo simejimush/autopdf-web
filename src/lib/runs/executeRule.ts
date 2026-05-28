@@ -397,6 +397,9 @@ export async function executeRule(
 
     const aiDocumentType = shouldUseAiDocumentType(filenameFormat)
       ? await detectDocumentTypeWithAi({
+          userId: params.userId,
+          ruleId: params.ruleId,
+          runId: params.runId,
           subject: message.subject,
           from: message.from,
           bodyText,

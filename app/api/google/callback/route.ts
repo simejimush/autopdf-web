@@ -103,14 +103,22 @@ export async function GET(req: Request) {
     const refreshTokenToSave =
       token.refresh_token ?? existingConnection?.refresh_token_enc ?? null;
 
+    const now = new Date().toISOString();
+
     const payload: Record<string, unknown> = {
       user_id: user.id,
       status: "connected",
       access_token_enc: token.access_token ?? null,
       refresh_token_enc: refreshTokenToSave,
       token_expiry_at: tokenExpiryAt,
-      last_verified_at: new Date().toISOString(),
+      last_verified_at: now,
       scopes: token.scope ?? null,
+      reauth_required: false,
+      last_error_code: null,
+      last_error_at: null,
+      last_user_notified_at: null,
+      last_user_notified_error_code: null,
+      updated_at: now,
     };
 
     // ここ重要:
