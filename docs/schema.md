@@ -197,6 +197,64 @@ user_profiles_user_id_idx
 
 ---
 
+# 6. ai_usage_logs
+
+AI利用量・コスト監視ログ。`/admin/ai-usage` の表示元テーブル。
+
+| column             | type        | description                            |
+| ------------------ | ----------- | -------------------------------------- |
+| id                 | uuid        | PK                                     |
+| user_id            | uuid        | 利用ユーザー                           |
+| rule_id            | uuid        | 関連ルールID（任意）                   |
+| run_id             | uuid        | 関連run ID（任意）                     |
+| feature            | text        | AI機能名（例: document_type_detection） |
+| provider           | text        | プロバイダ（default: openai）          |
+| model              | text        | 利用モデル名                           |
+| input_tokens       | integer     | 入力トークン数                         |
+| output_tokens      | integer     | 出力トークン数                         |
+| total_tokens       | integer     | 合計トークン数                         |
+| estimated_cost_usd | numeric     | 推定コスト（USD）                      |
+| status             | text        | success / error                        |
+| error_code         | text        | エラーコード（失敗時）                 |
+| created_at         | timestamptz | 作成日時                               |
+
+### Index
+
+```
+
+ai_usage_logs_pkey
+(id)
+
+ai_usage_logs_feature_created_idx
+(feature, created_at DESC)
+
+ai_usage_logs_run_idx
+(run_id)
+
+ai_usage_logs_user_created_idx
+(user_id, created_at DESC)
+
+```
+
+### RLS / Policies
+
+- RLS: enabled
+- Policy: `Users can insert own ai usage logs`
+  - command: `INSERT`
+  - role: `authenticated`
+  - with check: `auth.uid() = user_id`
+- Policy: `Users can read own ai usage logs`
+  - command: `SELECT`
+  - role: `authenticated`
+  - using: `auth.uid() = user_id`
+
+備考:
+
+- 既存状態再現を優先し、anon grant は追加しない
+- authenticated への table grant 追加は、既存実装影響を見ながら別途検討
+
+---
+
 # Table Relationships
 
 ```
