@@ -157,7 +157,9 @@ export default async function BillingPage() {
               {billingStatus === "active" &&
               cancelAtPeriodEnd &&
               currentPeriodEnd ? (
-                <span className={styles.noticeSub}>
+                <span
+                  className={`${styles.noticeSub} ${styles.noticeSubSuccess}`}
+                >
                   {formatDate(currentPeriodEnd)} まで利用可能です
                 </span>
               ) : billingStatus === "active" ? (
@@ -171,7 +173,9 @@ export default async function BillingPage() {
                 </>
               ) : billingStatus === "canceled" ? (
                 currentPeriodEnd ? (
-                  <span className={styles.noticeSub}>
+                  <span
+                    className={`${styles.noticeSub} ${styles.noticeSubSuccess}`}
+                  >
                     {formatDate(currentPeriodEnd)} まで利用可能です
                   </span>
                 ) : (
