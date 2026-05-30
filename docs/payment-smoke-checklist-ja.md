@@ -140,6 +140,50 @@
 
 ---
 
+## Stripe本番化 / live決済 前提確認
+
+- [x] Stripe Checkout / Portal / Webhook の一連の動作確認は Stripe test 環境で完了
+- [x] Vercel Production の `STRIPE_SECRET_KEY` が `sk_test_` であることを確認
+- [x] 現時点の本番URL決済は Stripe test 環境で動作していることを確認
+- [x] Stripe本番環境の有効化手続き開始
+- [x] Stripe本番環境で以下を設定
+  - 個人情報
+  - 事業情報
+  - 商品 / サービス情報
+  - 顧客向け明細表記
+  - 入金口座
+  - パスキー
+  - セキュリティ対策措置状況申告書
+- [x] Stripe Tax は今はスキップ
+- [x] Stripe Climate は今はスキップ
+- [x] テスト環境から本番環境へのデータコピーは行わない方針
+- [x] Stripe本人確認書類を提出済み
+
+### 未完了 / 要対応
+
+- [ ] Stripe本人確認の審査完了を確認する
+- [ ] Stripeタスク一覧で「要対応なし」を確認する
+- [ ] Stripe Dashboard で「決済が一時停止」「入金が一時停止」の表示が消えたことを確認する
+- [ ] Stripe live環境で AutoPDF Pro の Product / Price を作成する
+- [ ] Stripe live環境で本番Webhook endpointを作成する
+- [ ] Vercel Production env を live 用に差し替える
+  - `STRIPE_SECRET_KEY=sk_live_...`
+  - `STRIPE_PRICE_ID_PRO=live の price_...`
+  - `STRIPE_WEBHOOK_SECRET=live の whsec_...`
+- [ ] Vercel Production を再デプロイする
+- [ ] 本番URLで live Checkout 開始確認
+- [ ] 本番カードで Free → Pro の実決済テスト
+- [ ] Supabase `user_profiles` が `plan=pro` / `billing_status=active` に更新されることを確認
+- [ ] `/billing` とヘッダーで Pro 表示を確認
+- [ ] Customer Portal で解約予約を確認
+- [ ] `customer.subscription.updated` webhook により `cancel_at_period_end=true` が反映されることを確認
+- [ ] 必要なら本番テスト決済を Stripe 側で返金する
+
+### 注意
+
+現時点では Stripe本番環境の本人確認が審査中のため、Vercel Production env を live 用に切り替えない。
+live env への切替は、Stripe の「決済が一時停止」「入金が一時停止」表示が消えてから行う。
+
 ## 実施ログ（任意）
 
 - 実施日:
