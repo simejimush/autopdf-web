@@ -21,30 +21,30 @@
 
 ## 1. Checkout開始
 
-- [ ] Free ユーザーで `/billing` を開く
-- [ ] Checkout ボタンが表示される
-- [ ] Checkout 開始 API が 200 を返す
-- [ ] Stripe Checkout 画面へ遷移する
+- [x] Free ユーザーで `/billing` を開く
+- [x] Checkout ボタンが表示される
+- [x] Checkout 開始 API が 200 を返す
+- [x] Stripe Checkout 画面へ遷移する
 
 ## 2. Checkout成功
 
-- [ ] Stripe で決済成功する
-- [ ] `billing/success` へ戻る
-- [ ] `/billing` で Pro 表示になる
-- [ ] header / `/settings` / `/rules` のプラン表示も Pro になる
+- [x] Stripe で決済成功する
+- [x] `billing/success` へ戻る
+- [x]  `/billing` で Pro 表示になる
+- [x]  header / `/settings` / `/rules` のプラン表示も Pro になる
 
 ## 3. Checkoutキャンセル
 
-- [ ] Checkout 画面でキャンセルする
-- [ ] `billing/cancel` に戻る
-- [ ] プランが Free のままである
-- [ ] `user_profiles` に不正な契約情報が入らない
+- [x] Checkout 画面でキャンセルする
+- [x] `billing/cancel` に戻る
+- [x] プランが Free のままである
+- [x] `user_profiles` に不正な契約情報が入らない
 
 ## 4. Proユーザーの重複決済防止
 
-- [ ] Pro ユーザーで再度 Checkout を試す
-- [ ] 既存契約ありとしてブロックされる
-- [ ] 新規サブスクリプションが二重作成されない
+- [x]  Pro ユーザーで再度 Checkout を試す
+- [x]  既存契約ありとしてブロックされる
+- [x]  新規サブスクリプションが二重作成されない
 
 ## 5. WebhookによるDB反映
 
@@ -67,22 +67,22 @@
 
 ## 8. Customer Portal遷移
 
-- [ ] Pro ユーザーで `/billing` を開く
-- [ ] Portal ボタンが表示される
-- [ ] Portal セッション作成 API が成功する
-- [ ] Stripe Customer Portal に遷移できる
+- [x] Pro ユーザーで /billing を開く
+- [x] Portal ボタンが表示される
+- [x] Portal セッション作成 API が成功する
+- [x] Stripe Customer Portal に遷移できる
 
 ## 9. Portalで解約予約
 
-- [ ] Portal で「期間終了時解約」を設定する
-- [ ] Webhook 後に `cancel_at_period_end=true` になる
-- [ ] `/billing` に「解約予約中」の状態が反映される
+- [x] Portal で「期間終了時解約」を設定する
+- [x] Webhook 後に cancel_at_period_end=true になる
+- [x] /billing に「解約予約中」の状態が反映される
 
 ## 10. cancel_at_period_end中の期間内Pro扱い
 
-- [ ] `cancel_at_period_end=true` かつ `current_period_end` 未到達の状態を確認する
-- [ ] UI 上は Pro 扱いを維持する
-- [ ] ルール無制限・Pro 機能の制限が発生しない
+- [x] cancel_at_period_end=true かつ current_period_end 未到達の状態を確認する
+- [x] UI 上は Pro 扱いを維持する
+- [x] ルール無制限・Pro 機能の制限が発生しない
 
 ## 11. 期間終了後のFree戻り
 
@@ -147,3 +147,25 @@
 - 環境: local / preview / production
 - 確認結果サマリ:
 - 未解決事項:
+
+
+- 実施日: 2026-05-30
+- 実施者: 管理者
+- 環境: production / Stripe sandbox
+- 確認結果サマリ:
+  - Free状態の `/billing` 表示確認OK
+  - Stripe Checkout画面への遷移OK
+  - Checkoutキャンセル後もFree維持OK
+  - Free → Pro 購入成功OK
+  - `/billing` / header / `/settings` / `/rules` のPro表示確認OK
+  - Pro状態で重複決済導線が表示されないことを確認OK
+  - Stripe Customer Portal遷移OK
+  - Portalで期間終了時解約を設定OK
+  - 当初、Stripe payloadでは `cancel_at_period_end=false` かつ `cancel_at=current_period_end` となり、AutoPDF DBに解約予約が反映されない問題を確認
+  - `app/api/stripe/webhook/route.ts` を修正し、`cancel_at` と `current_period_end` が一致する場合も解約予約中として扱うよう対応
+  - 修正後に `customer.subscription.updated` を再送し、`user_profiles.cancel_at_period_end=true` 反映OK
+  - `/billing` で期間終了日まで利用可能な表示を確認OK
+  - 解約予約中もPro扱いを維持し、4件目ルール作成・実行ボタン利用がブロックされないことを確認OK
+- 未解決事項:
+  - `/billing` の契約状態表示は「有効」のままだが、案内文では期間終了日まで利用可能と表示されている。将来的には「解約予約中」表示に改善するとより分かりやすい。
+  - `/billing` と `/settings` で時刻表示が異なる可能性があるため、必要ならタイムゾーン表示を後で整理する。
