@@ -1,0 +1,285 @@
+.page {
+  min-height: 100vh;
+  background: linear-gradient(180deg, #ffffff 0%, #f6f8ff 100%);
+  color: #0f172a;
+  padding: 24px;
+}
+
+.header {
+  max-width: 1080px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.brand {
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.loginLink {
+  color: #334155;
+  text-decoration: none;
+  font-weight: 600;
+  padding: 10px 12px;
+  border-radius: 10px;
+}
+
+.loginLink:hover {
+  background: #eef2ff;
+}
+
+.primaryButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  border: 0;
+  background: linear-gradient(90deg, #2563eb 0%, #5b5bd6 100%);
+  color: #ffffff;
+  font-weight: 700;
+  border-radius: 12px;
+  padding: 12px 18px;
+  box-shadow: 0 8px 22px rgba(37, 99, 235, 0.26);
+}
+
+.primaryButton:hover {
+  filter: brightness(1.03);
+}
+
+.secondaryButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  color: #1e293b;
+  background: #eef2ff;
+  border: 1px solid #dbe1ff;
+  border-radius: 12px;
+  padding: 12px 18px;
+  font-weight: 700;
+}
+
+.hero {
+  max-width: 1080px;
+  margin: 56px auto 0;
+  text-align: center;
+}
+
+.heroTitle {
+  margin: 0;
+  font-size: clamp(34px, 5.5vw, 58px);
+  line-height: 1.12;
+  letter-spacing: -0.03em;
+}
+
+.heroDescription {
+  margin: 20px auto 0;
+  max-width: 760px;
+  color: #334155;
+  font-size: clamp(17px, 2.2vw, 20px);
+  line-height: 1.7;
+}
+
+.heroActions {
+  margin-top: 28px;
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.section {
+  max-width: 1080px;
+  margin: 64px auto 0;
+}
+
+.sectionTitle {
+  margin: 0 0 18px;
+  font-size: clamp(24px, 3.8vw, 34px);
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+.cardGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.card {
+  background: #ffffff;
+  border: 1px solid #e6ebff;
+  border-radius: 16px;
+  padding: 20px;
+}
+
+.cardTitle {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.cardText {
+  margin: 10px 0 0;
+  color: #475569;
+  line-height: 1.7;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.listItem {
+  background: #ffffff;
+  border: 1px solid #e6ebff;
+  border-radius: 12px;
+  padding: 14px 16px;
+  color: #334155;
+}
+
+.stepList {
+  margin: 0;
+  padding-left: 22px;
+  display: grid;
+  gap: 10px;
+}
+
+.stepItem {
+  color: #1e293b;
+  line-height: 1.7;
+}
+
+.featureGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.pill {
+  background: #ffffff;
+  border: 1px solid #dbe1ff;
+  border-radius: 999px;
+  padding: 12px 16px;
+  font-weight: 600;
+  color: #1e293b;
+  text-align: center;
+}
+
+.pricingGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.pricingCard {
+  background: #ffffff;
+  border: 1px solid #dbe1ff;
+  border-radius: 16px;
+  padding: 22px;
+}
+
+.price {
+  margin: 10px 0 0;
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #1d4ed8;
+}
+
+.footerCta {
+  max-width: 1080px;
+  margin: 72px auto 18px;
+  padding: 28px;
+  border-radius: 18px;
+  border: 1px solid #dbe1ff;
+  background: #ffffff;
+  text-align: center;
+}
+
+.footerTitle {
+  margin: 0 0 16px;
+  font-size: clamp(24px, 3.4vw, 32px);
+  letter-spacing: -0.02em;
+}
+
+@media (max-width: 860px) {
+  .cardGrid,
+  .featureGrid,
+  .pricingGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .page {
+    padding: 16px;
+  }
+
+  .header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .hero {
+    margin-top: 34px;
+    text-align: left;
+  }
+
+  .heroActions {
+    justify-content: flex-start;
+  }
+}
+
+:global(html[data-theme="dark"]) .page {
+  background: linear-gradient(180deg, #0b1220 0%, #0f172a 100%);
+  color: #e5e7eb;
+}
+
+:global(html[data-theme="dark"]) .loginLink {
+  color: #cbd5e1;
+}
+
+:global(html[data-theme="dark"]) .loginLink:hover {
+  background: #1e293b;
+}
+
+:global(html[data-theme="dark"]) .secondaryButton {
+  color: #dbeafe;
+  background: #1e293b;
+  border-color: #334155;
+}
+
+:global(html[data-theme="dark"]) .heroDescription,
+:global(html[data-theme="dark"]) .cardText,
+:global(html[data-theme="dark"]) .listItem,
+:global(html[data-theme="dark"]) .stepItem,
+:global(html[data-theme="dark"]) .pill {
+  color: #cbd5e1;
+}
+
+:global(html[data-theme="dark"]) .card,
+:global(html[data-theme="dark"]) .listItem,
+:global(html[data-theme="dark"]) .pill,
+:global(html[data-theme="dark"]) .pricingCard,
+:global(html[data-theme="dark"]) .footerCta {
+  background: #111827;
+  border-color: #1f2937;
+}
+
+:global(html[data-theme="dark"]) .price {
+  color: #93c5fd;
+}
