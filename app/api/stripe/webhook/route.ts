@@ -29,6 +29,20 @@ function getCurrentPeriodEndIso(subscription: Stripe.Subscription) {
   return null;
 }
 
+function isCancelScheduled(subscription: Stripe.Subscription) {
+  if (subscription.cancel_at_period_end) {
+    return true;
+  }
+
+  const currentPeriodEnd = subscription.items.data[0]?.current_period_end;
+
+  return (
+    typeof subscription.cancel_at === "number" &&
+    typeof currentPeriodEnd === "number" &&
+    subscription.cancel_at === currentPeriodEnd
+  );
+}
+
 function resolvePlan(
   billingStatus?: string | null,
   currentPeriodEnd?: string | null,
@@ -191,7 +205,7 @@ export async function POST(req: NextRequest) {
           billing_subscription_id: subscription.id,
           billing_status: billingStatus,
           current_period_end: currentPeriodEnd,
-          cancel_at_period_end: subscription.cancel_at_period_end,
+          cancel_at_period_end: isCancelScheduled(subscription),
           plan_updated_at: new Date().toISOString(),
         })
         .eq("user_id", userId);
