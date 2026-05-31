@@ -98,6 +98,26 @@ export default function HomePage() {
             使い方を見る
           </a>
         </div>
+        <div className={styles.flowLane} aria-label="GmailからDriveへの保存フロー">
+          <div className={styles.laneCard}>
+            <div className={styles.laneTitle}>Gmail</div>
+            <p className={styles.laneText}>条件に合うメールを抽出</p>
+          </div>
+          <div className={styles.laneArrow} aria-hidden="true">
+            →
+          </div>
+          <div className={styles.laneCard}>
+            <div className={styles.laneTitle}>PDF化</div>
+            <p className={styles.laneText}>本文を保存しやすい形へ</p>
+          </div>
+          <div className={styles.laneArrow} aria-hidden="true">
+            →
+          </div>
+          <div className={styles.laneCard}>
+            <div className={styles.laneTitle}>Google Drive</div>
+            <p className={styles.laneText}>指定フォルダへ保存</p>
+          </div>
+        </div>
       </section>
 
       <section className={styles.section}>
@@ -114,24 +134,40 @@ export default function HomePage() {
 
       <section className={styles.section}>
         <h2 className={styles.sectionTitle}>よくある手作業を減らす</h2>
-        <ul className={styles.list}>
-          {painPoints.map((item) => (
-            <li key={item} className={styles.listItem}>
-              {item}
-            </li>
-          ))}
-        </ul>
+        <div className={styles.beforeAfterGrid}>
+          <article className={styles.beforeCard}>
+            <h3 className={styles.beforeAfterTitle}>Before</h3>
+            <ul className={styles.list}>
+              {painPoints.map((item) => (
+                <li key={item} className={styles.listItem}>
+                  {item}
+                </li>
+              ))}
+            </ul>
+          </article>
+          <article className={styles.afterCard}>
+            <h3 className={styles.beforeAfterTitle}>After</h3>
+            <p className={styles.afterText}>
+              条件に合うメールをPDF化し、Google Driveへ保存。
+              日々の確認と整理の手間を減らして、必要な書類を追いやすくします。
+            </p>
+          </article>
+        </div>
       </section>
 
       <section id="how-it-works" className={styles.section}>
         <h2 className={styles.sectionTitle}>使い方</h2>
-        <ol className={styles.stepList}>
-          {steps.map((item) => (
-            <li key={item} className={styles.stepItem}>
-              {item}
-            </li>
+        <div className={styles.stepCards}>
+          {steps.map((item, index) => (
+            <article key={item} className={styles.stepCard}>
+              <div className={styles.stepNumber}>{index + 1}</div>
+              <p className={styles.stepCardText}>{item}</p>
+            </article>
           ))}
-        </ol>
+        </div>
+        <Link href="/help" className={styles.helpLink}>
+          詳しい使い方を見る
+        </Link>
       </section>
 
       <section className={styles.section}>
@@ -204,6 +240,9 @@ export default function HomePage() {
         <h2 className={styles.footerTitle}>まずはFreeで始められます</h2>
         <Link href="/login" className={styles.primaryButton}>
           無料で始める
+        </Link>
+        <Link href="/help" className={styles.footerHelpLink}>
+          詳しい使い方を見る
         </Link>
       </section>
     </main>

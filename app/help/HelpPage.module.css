@@ -1,0 +1,163 @@
+.page {
+  min-height: 100vh;
+  background: linear-gradient(180deg, #ffffff 0%, #f7f9ff 100%);
+  color: #0f172a;
+  padding: 24px 16px 48px;
+}
+
+.container {
+  max-width: 920px;
+  margin: 0 auto;
+}
+
+.header {
+  background: #ffffff;
+  border: 1px solid #dbe6ff;
+  border-radius: 18px;
+  padding: 24px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
+}
+
+.title {
+  margin: 0;
+  font-size: clamp(28px, 5vw, 42px);
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.description {
+  margin: 12px 0 0;
+  color: #334155;
+  line-height: 1.8;
+  font-size: 16px;
+}
+
+.section {
+  margin-top: 20px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 20px;
+}
+
+.sectionTitle {
+  margin: 0 0 12px;
+  font-size: clamp(20px, 3.5vw, 28px);
+  letter-spacing: -0.01em;
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+
+.listItem {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: #1e293b;
+  line-height: 1.7;
+}
+
+.numberedList {
+  margin: 0;
+  padding-left: 22px;
+  display: grid;
+  gap: 8px;
+}
+
+.numberedItem {
+  color: #1e293b;
+  line-height: 1.7;
+}
+
+.paragraph {
+  margin: 0 0 10px;
+  color: #334155;
+  line-height: 1.8;
+}
+
+.planGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.planCard {
+  border: 1px solid #dbe6ff;
+  border-radius: 12px;
+  padding: 14px;
+  background: #f8faff;
+}
+
+.planName {
+  margin: 0;
+  font-size: 18px;
+}
+
+.planText {
+  margin: 8px 0 0;
+  color: #334155;
+  line-height: 1.7;
+}
+
+.ctaSection {
+  margin-top: 24px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.primaryButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  background: linear-gradient(90deg, #2563eb 0%, #3b82f6 100%);
+  color: #ffffff;
+  font-weight: 700;
+  border-radius: 12px;
+  padding: 12px 16px;
+}
+
+.secondaryButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  background: #eef2ff;
+  color: #1e3a8a;
+  border: 1px solid #c7d2fe;
+  font-weight: 700;
+  border-radius: 12px;
+  padding: 12px 16px;
+}
+
+@media (max-width: 780px) {
+  .planGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .page {
+    padding: 14px 10px 30px;
+  }
+
+  .header,
+  .section {
+    padding: 16px;
+  }
+
+  .ctaSection {
+    flex-direction: column;
+  }
+
+  .primaryButton,
+  .secondaryButton {
+    width: 100%;
+  }
+}
