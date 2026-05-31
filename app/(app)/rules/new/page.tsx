@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import AiQueryModal from "../_components/AiQueryModal";
 
@@ -19,6 +19,12 @@ function extractFolderId(input: string) {
   return trimmed;
 }
 
+type BillingPlan = "free" | "pro" | "pro_plus" | string;
+
+function canUseAiFilenameFormat(plan: BillingPlan) {
+  return plan === "pro" || plan === "pro_plus";
+}
+
 export default function NewRulePage() {
   const router = useRouter();
 
@@ -31,8 +37,47 @@ export default function NewRulePage() {
   const [queryLabel, setQueryLabel] = useState("");
   const [selectedFilenameFormat, setSelectedFilenameFormat] =
     useState("standard");
+  const [billingPlan, setBillingPlan] = useState<BillingPlan>("free");
+
+  const aiFilenameAllowed = canUseAiFilenameFormat(billingPlan);
+  const effectiveFilenameFormat = aiFilenameAllowed
+    ? selectedFilenameFormat
+    : "standard";
 
   const [aiOpen, setAiOpen] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadBillingPlan() {
+      try {
+        const res = await fetch("/api/billing", { cache: "no-store" });
+        const json = (await res.json().catch(() => ({}))) as {
+          plan?: BillingPlan;
+        };
+
+        if (!cancelled) {
+          setBillingPlan(json.plan ?? "free");
+        }
+      } catch {
+        if (!cancelled) {
+          setBillingPlan("free");
+        }
+      }
+    }
+
+    loadBillingPlan();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!aiFilenameAllowed && selectedFilenameFormat !== "standard") {
+      setSelectedFilenameFormat("standard");
+    }
+  }, [aiFilenameAllowed, selectedFilenameFormat]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -55,7 +100,7 @@ export default function NewRulePage() {
         gmail_query: normalizedQuery,
         query_label: queryLabel.trim() || null,
         subject_keywords: null,
-        file_name_format: selectedFilenameFormat,
+        file_name_format: effectiveFilenameFormat,
         is_active: isActive,
       };
 
@@ -253,6 +298,7 @@ export default function NewRulePage() {
                 <label
                   style={getFilenameChoiceStyle(
                     selectedFilenameFormat === "ai_sender_doc",
+                    !aiFilenameAllowed,
                   )}
                 >
                   <input
@@ -260,7 +306,11 @@ export default function NewRulePage() {
                     name="filenameFormat"
                     value="ai_sender_doc"
                     checked={selectedFilenameFormat === "ai_sender_doc"}
-                    onChange={() => setSelectedFilenameFormat("ai_sender_doc")}
+                    disabled={!aiFilenameAllowed}
+                    onChange={() => {
+                      if (!aiFilenameAllowed) return;
+                      setSelectedFilenameFormat("ai_sender_doc");
+                    }}
                     style={filenameRadio}
                   />
                   <div style={filenameChoiceBody}>
@@ -268,6 +318,9 @@ export default function NewRulePage() {
                       <span style={filenameChoiceTitle}>
                         AI提案：日付 + 送信元 + 書類種別
                       </span>
+                      {!aiFilenameAllowed ? (
+                        <span style={proOnlyBadge}>Pro限定</span>
+                      ) : null}
                     </div>
                     <div style={filenameChoiceText}>
                       日付・送信元・書類種別で整理しやすい形式です。
@@ -281,6 +334,7 @@ export default function NewRulePage() {
                 <label
                   style={getFilenameChoiceStyle(
                     selectedFilenameFormat === "ai_doc_sender",
+                    !aiFilenameAllowed,
                   )}
                 >
                   <input
@@ -288,7 +342,11 @@ export default function NewRulePage() {
                     name="filenameFormat"
                     value="ai_doc_sender"
                     checked={selectedFilenameFormat === "ai_doc_sender"}
-                    onChange={() => setSelectedFilenameFormat("ai_doc_sender")}
+                    disabled={!aiFilenameAllowed}
+                    onChange={() => {
+                      if (!aiFilenameAllowed) return;
+                      setSelectedFilenameFormat("ai_doc_sender");
+                    }}
                     style={filenameRadio}
                   />
                   <div style={filenameChoiceBody}>
@@ -296,6 +354,9 @@ export default function NewRulePage() {
                       <span style={filenameChoiceTitle}>
                         AI提案：書類種別 + 日付 + 送信元
                       </span>
+                      {!aiFilenameAllowed ? (
+                        <span style={proOnlyBadge}>Pro限定</span>
+                      ) : null}
                     </div>
                     <div style={filenameChoiceText}>
                       書類種別を先頭にして、より整理しやすい形式です。
@@ -583,13 +644,18 @@ const filenameChoice: React.CSSProperties = {
   cursor: "pointer",
 };
 
-function getFilenameChoiceStyle(isSelected: boolean): React.CSSProperties {
+function getFilenameChoiceStyle(
+  isSelected: boolean,
+  isDisabled = false,
+): React.CSSProperties {
   return {
     ...filenameChoice,
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: isSelected ? "#2563eb" : "var(--border)",
     background: isSelected ? "rgba(37, 99, 235, 0.04)" : "var(--surface)",
+    cursor: isDisabled ? "not-allowed" : "pointer",
+    opacity: isDisabled ? 0.58 : 1,
   };
 }
 
@@ -609,6 +675,20 @@ const filenameChoiceTop: React.CSSProperties = {
   alignItems: "center",
   gap: 8,
   flexWrap: "wrap",
+};
+
+const proOnlyBadge: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  width: "fit-content",
+  padding: "3px 8px",
+  borderRadius: 999,
+  border: "1px solid rgba(37, 99, 235, 0.28)",
+  background: "rgba(37, 99, 235, 0.08)",
+  color: "#2563eb",
+  fontSize: 12,
+  fontWeight: 800,
+  lineHeight: 1.2,
 };
 
 const filenameChoiceTitle: React.CSSProperties = {

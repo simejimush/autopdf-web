@@ -51,6 +51,12 @@ function formatRuleId(id: string) {
   return `${id.slice(0, 8)}...${id.slice(-6)}`;
 }
 
+type BillingPlan = "free" | "pro" | "pro_plus" | string;
+
+function canUseAiFilenameFormat(plan: BillingPlan) {
+  return plan === "pro" || plan === "pro_plus";
+}
+
 const loadingText: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
@@ -98,8 +104,14 @@ export default function RuleEditPage() {
   const [queryLabel, setQueryLabel] = useState("");
   const [selectedFilenameFormat, setSelectedFilenameFormat] =
     useState("standard");
+  const [billingPlan, setBillingPlan] = useState<BillingPlan>("free");
   const [dirty, setDirty] = useState(false);
   const [queryWarnings, setQueryWarnings] = useState<string[]>([]);
+
+  const aiFilenameAllowed = canUseAiFilenameFormat(billingPlan);
+  const effectiveFilenameFormat = aiFilenameAllowed
+    ? selectedFilenameFormat
+    : "standard";
 
   const [copiedQuery, setCopiedQuery] = useState(false);
 
@@ -549,6 +561,39 @@ export default function RuleEditPage() {
   }
 
   useEffect(() => {
+    let cancelled = false;
+
+    async function loadBillingPlan() {
+      try {
+        const res = await fetch("/api/billing", { cache: "no-store" });
+        const json = (await res.json().catch(() => ({}))) as {
+          plan?: BillingPlan;
+        };
+
+        if (!cancelled) {
+          setBillingPlan(json.plan ?? "free");
+        }
+      } catch {
+        if (!cancelled) {
+          setBillingPlan("free");
+        }
+      }
+    }
+
+    loadBillingPlan();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!aiFilenameAllowed && selectedFilenameFormat !== "standard") {
+      setSelectedFilenameFormat("standard");
+    }
+  }, [aiFilenameAllowed, selectedFilenameFormat]);
+
+  useEffect(() => {
     if (!ruleId) {
       setError("id is required");
       setLoading(false);
@@ -629,7 +674,7 @@ export default function RuleEditPage() {
         subject_keywords: null,
         gmail_query: normalizedQuery,
         query_label: queryLabel.trim() || null,
-        file_name_format: selectedFilenameFormat,
+        file_name_format: effectiveFilenameFormat,
         is_active: isActive,
       };
 
@@ -854,6 +899,7 @@ export default function RuleEditPage() {
                     selectedFilenameFormat === "ai_sender_doc"
                       ? styles.filenameChoiceSelected
                       : "",
+                    !aiFilenameAllowed ? styles.filenameChoiceDisabled : "",
                   ].join(" ")}
                 >
                   <input
@@ -861,7 +907,9 @@ export default function RuleEditPage() {
                     name="filenameFormat"
                     value="ai_sender_doc"
                     checked={selectedFilenameFormat === "ai_sender_doc"}
+                    disabled={!aiFilenameAllowed}
                     onChange={() => {
+                      if (!aiFilenameAllowed) return;
                       setSelectedFilenameFormat("ai_sender_doc");
                       setDirty(true);
                     }}
@@ -872,6 +920,9 @@ export default function RuleEditPage() {
                       <span className={styles.filenameChoiceTitle}>
                         AI提案：日付 + 送信元 + 書類種別
                       </span>
+                      {!aiFilenameAllowed ? (
+                        <span className={styles.proOnlyBadge}>Pro限定</span>
+                      ) : null}
                     </div>
                     <div className={styles.filenameChoiceText}>
                       日付・送信元・書類種別で整理しやすい形式です。
@@ -888,6 +939,7 @@ export default function RuleEditPage() {
                     selectedFilenameFormat === "ai_doc_sender"
                       ? styles.filenameChoiceSelected
                       : "",
+                    !aiFilenameAllowed ? styles.filenameChoiceDisabled : "",
                   ].join(" ")}
                 >
                   <input
@@ -895,7 +947,9 @@ export default function RuleEditPage() {
                     name="filenameFormat"
                     value="ai_doc_sender"
                     checked={selectedFilenameFormat === "ai_doc_sender"}
+                    disabled={!aiFilenameAllowed}
                     onChange={() => {
+                      if (!aiFilenameAllowed) return;
                       setSelectedFilenameFormat("ai_doc_sender");
                       setDirty(true);
                     }}
@@ -906,6 +960,9 @@ export default function RuleEditPage() {
                       <span className={styles.filenameChoiceTitle}>
                         AI提案：書類種別 + 日付 + 送信元
                       </span>
+                      {!aiFilenameAllowed ? (
+                        <span className={styles.proOnlyBadge}>Pro限定</span>
+                      ) : null}
                     </div>
                     <div className={styles.filenameChoiceText}>
                       書類種別を先頭にして、より整理しやすい形式です。

@@ -639,6 +639,15 @@
   background: rgba(37, 99, 235, 0.04);
 }
 
+.filenameChoiceDisabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.filenameChoiceDisabled .filenameRadio {
+  cursor: not-allowed;
+}
+
 .filenameRadio {
   margin-top: 3px;
   accent-color: #2563eb;
@@ -655,6 +664,20 @@
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.proOnlyBadge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(37, 99, 235, 0.28);
+  background: rgba(37, 99, 235, 0.08);
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.2;
 }
 
 .filenameChoiceTitle {
