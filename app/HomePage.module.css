@@ -77,17 +77,28 @@
 
 .heroTitle {
   margin: 0;
-  font-size: clamp(34px, 5.5vw, 58px);
-  line-height: 1.12;
-  letter-spacing: -0.03em;
+  max-width: 940px;
+  margin-left: auto;
+  margin-right: auto;
+  font-size: clamp(34px, 5.2vw, 56px);
+  font-weight: 820;
+  line-height: 1.16;
+  letter-spacing: -0.028em;
+}
+
+.heroAccent {
+  background: linear-gradient(90deg, #1d4ed8 0%, #2563eb 50%, #0ea5e9 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
 .heroDescription {
-  margin: 20px auto 0;
-  max-width: 760px;
-  color: #334155;
-  font-size: clamp(17px, 2.2vw, 20px);
-  line-height: 1.7;
+  margin: 18px auto 0;
+  max-width: 700px;
+  color: #475569;
+  font-size: clamp(16px, 2vw, 18px);
+  line-height: 1.75;
 }
 
 .heroActions {
@@ -138,7 +149,7 @@
 
 .section {
   max-width: 1080px;
-  margin: 72px auto 0;
+  margin: 64px auto 0;
 }
 
 .sectionTitle {
@@ -146,19 +157,6 @@
   font-size: clamp(24px, 3.8vw, 34px);
   line-height: 1.2;
   letter-spacing: -0.02em;
-}
-
-.cardGrid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-}
-
-.card {
-  background: #ffffff;
-  border: 1px solid #e6ebff;
-  border-radius: 16px;
-  padding: 20px;
 }
 
 .cardTitle {
@@ -421,7 +419,6 @@
 }
 
 @media (max-width: 860px) {
-  .cardGrid,
   .featureGrid,
   .pricingGrid,
   .beforeAfterGrid,
@@ -451,8 +448,20 @@
   }
 
   .hero {
-    margin-top: 34px;
+    margin-top: 36px;
     text-align: left;
+  }
+
+  .heroTitle {
+    margin-left: 0;
+    margin-right: 0;
+    max-width: none;
+    font-size: clamp(30px, 9vw, 40px);
+    line-height: 1.2;
+  }
+
+  .heroDescription {
+    max-width: none;
   }
 
   .heroActions {

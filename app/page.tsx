@@ -1,21 +1,6 @@
 import Link from "next/link";
 import styles from "./HomePage.module.css";
 
-const flowItems = [
-  {
-    title: "Gmail",
-    description: "受信した請求書・領収書メールを検索条件で抽出します。",
-  },
-  {
-    title: "AutoPDF",
-    description: "本文をPDF化し、保存しやすい形に整えます。",
-  },
-  {
-    title: "Google Drive",
-    description: "指定フォルダへ保存し、後から実行履歴で確認できます。",
-  },
-];
-
 const painPoints = [
   "請求書メールを毎回探す手間がかかる",
   "PDF保存を手作業で行っている",
@@ -85,7 +70,11 @@ export default function HomePage() {
 
       <section className={styles.hero}>
         <h1 className={styles.heroTitle}>
-          Gmailの請求書・領収書を、PDF化してGoogle Driveへ自動保存
+          Gmailの請求書・領収書を、
+          <br />
+          <span className={styles.heroAccent}>
+            PDF化してGoogle Driveへ自動保存
+          </span>
         </h1>
         <p className={styles.heroDescription}>
           メールを探して、PDFにして、Driveへ保存する作業をAutoPDFが自動化します。
@@ -117,18 +106,6 @@ export default function HomePage() {
             <div className={styles.laneTitle}>Google Drive</div>
             <p className={styles.laneText}>指定フォルダへ保存</p>
           </div>
-        </div>
-      </section>
-
-      <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>Gmail → AutoPDF → Google Drive</h2>
-        <div className={styles.cardGrid}>
-          {flowItems.map((item) => (
-            <article key={item.title} className={styles.card}>
-              <h3 className={styles.cardTitle}>{item.title}</h3>
-              <p className={styles.cardText}>{item.description}</p>
-            </article>
-          ))}
         </div>
       </section>
 
