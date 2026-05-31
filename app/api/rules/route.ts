@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { resolveEffectivePlan } from "@/lib/billing/resolveEffectivePlan";
-import { normalizeFileNameFormat } from "@/lib/rules/fileNameFormat";
+import { normalizeFileNameFormatForPlan } from "@/lib/rules/fileNameFormat";
 
 const RULE_LIMIT_FREE = 3;
 
@@ -139,8 +139,9 @@ export async function POST(req: Request) {
     ? String((body as any).run_timing).trim()
     : "manual";
 
-  const file_name_format = normalizeFileNameFormat(
+  const file_name_format = normalizeFileNameFormatForPlan(
     (body as any)?.file_name_format,
+    plan,
   );
 
   if (!drive_folder_id) {

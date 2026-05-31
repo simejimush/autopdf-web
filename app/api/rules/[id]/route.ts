@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isFreePlanOverflowRule } from "@/lib/rules/freePlanLimit";
-import { normalizeFileNameFormat } from "@/lib/rules/fileNameFormat";
+import { resolveEffectivePlan } from "@/lib/billing/resolveEffectivePlan";
+import { normalizeFileNameFormatForPlan } from "@/lib/rules/fileNameFormat";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -75,6 +76,22 @@ export async function PATCH(
   const { user, error: authError } = await requireUser();
   if (authError || !user) return authError!;
 
+  const { data: profile, error: profileError } = await supabaseAdmin
+    .from("user_profiles")
+    .select("plan, billing_status, current_period_end")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (profileError) {
+    return errorResponse(
+      500,
+      "DB_READ_FAILED",
+      "ユーザー情報の取得に失敗しました。",
+    );
+  }
+
+  const plan = resolveEffectivePlan(profile);
+
   const body = await req.json().catch(() => ({}));
 
   const update: Record<string, unknown> = {};
@@ -87,7 +104,10 @@ export async function PATCH(
   if ("is_active" in body) update.is_active = body.is_active;
   if ("run_timing" in body) update.run_timing = body.run_timing;
   if ("file_name_format" in body) {
-    update.file_name_format = normalizeFileNameFormat(body.file_name_format);
+    update.file_name_format = normalizeFileNameFormatForPlan(
+      body.file_name_format,
+      plan,
+    );
   }
 
   const { data: current, error: currentErr } = await supabaseAdmin

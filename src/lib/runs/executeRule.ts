@@ -13,6 +13,12 @@ import { updateGoogleConnectionHealth } from "@/lib/monitoring/updateGoogleConne
 import { notifySlack } from "@/lib/monitoring/notifySlack";
 import { notifyUser } from "@/lib/monitoring/notifyUser";
 import { detectDocumentTypeWithAi } from "@/lib/ai/detectDocumentType";
+import { resolveEffectivePlan } from "@/lib/billing/resolveEffectivePlan";
+import {
+  normalizeFileNameFormat,
+  normalizeFileNameFormatForPlan,
+  type FileNameFormat,
+} from "@/lib/rules/fileNameFormat";
 
 type ExecuteRuleParams = {
   ruleId: string;
@@ -29,24 +35,6 @@ type ExecuteResult = {
   errorCode: string | null;
   message: string;
 };
-
-type FilenameFormat = "standard" | "ai_sender_doc" | "ai_doc_sender";
-
-const DEFAULT_FILENAME_FORMAT: FilenameFormat = "standard";
-
-const ALLOWED_FILENAME_FORMATS = new Set<string>([
-  "standard",
-  "ai_sender_doc",
-  "ai_doc_sender",
-]);
-
-function normalizeFilenameFormat(value?: string | null): FilenameFormat {
-  if (value && ALLOWED_FILENAME_FORMATS.has(value)) {
-    return value as FilenameFormat;
-  }
-
-  return DEFAULT_FILENAME_FORMAT;
-}
 
 async function getUserEmail(userId: string): Promise<string | null> {
   const { data, error } = await supabaseAdmin.auth.admin.getUserById(userId);
@@ -237,7 +225,7 @@ function buildPdfFilename(params: {
   safeSender: string;
   documentType: string;
   shortMessageId: string;
-  filenameFormat: FilenameFormat;
+  filenameFormat: FileNameFormat;
 }) {
   if (params.filenameFormat === "ai_sender_doc") {
     return `${params.emailDate}_${params.safeSender}_${params.documentType}_${params.shortMessageId}.pdf`;
@@ -250,7 +238,7 @@ function buildPdfFilename(params: {
   return `${params.emailDate}_${params.safeSubject}_${params.shortMessageId}.pdf`;
 }
 
-function shouldUseAiDocumentType(filenameFormat: FilenameFormat) {
+function shouldUseAiDocumentType(filenameFormat: FileNameFormat) {
   return (
     filenameFormat === "ai_sender_doc" || filenameFormat === "ai_doc_sender"
   );
@@ -284,6 +272,23 @@ export async function executeRule(
 
     if (!rule) {
       throw new Error("rule not found");
+    }
+
+    let effectivePlan: "free" | "pro" | "pro_plus" = "free";
+
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from("user_profiles")
+      .select("plan, billing_status, current_period_end")
+      .eq("user_id", params.userId)
+      .maybeSingle();
+
+    if (profileError) {
+      console.error("[executeRule] failed to fetch user profile:", {
+        userId: params.userId,
+        message: profileError.message,
+      });
+    } else {
+      effectivePlan = resolveEffectivePlan(profile);
     }
 
     const messageIds = await searchGmail({
@@ -384,7 +389,11 @@ export async function executeRule(
     const safeSubject = sanitizeFilename(message.subject, "email").slice(0, 80);
     const safeSender = getSenderNameForFilename(message.from);
     const shortMessageId = getShortMessageId(messageId);
-    const filenameFormat = normalizeFilenameFormat(rule.file_name_format);
+    const normalizedStoredFormat = normalizeFileNameFormat(rule.file_name_format);
+    const filenameFormat = normalizeFileNameFormatForPlan(
+      normalizedStoredFormat,
+      effectivePlan,
+    );
 
     const attachments = Array.isArray(message.attachments)
       ? message.attachments
