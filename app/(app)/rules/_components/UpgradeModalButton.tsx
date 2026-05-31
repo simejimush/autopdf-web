@@ -82,6 +82,7 @@ export default function UpgradeModalButton({ open = false }: Props) {
                 <ul className={styles.planList}>
                   <li>ルール数 無制限</li>
                   <li>自動実行あり</li>
+                  <li>AIファイル名設定</li>
                   <li>PDF生成あり</li>
                   <li>Google Drive保存あり</li>
                 </ul>
