@@ -42,6 +42,32 @@ const trustItems = [
   "エラーは記録される",
 ];
 
+const freeFeatures = [
+  "ルール3件まで",
+  "自動PDF生成",
+  "Google Drive保存",
+  "自動実行",
+  "手動実行",
+  "実行履歴の確認",
+  "Gmail検索条件の作成",
+  "保存先フォルダ指定",
+  "AIファイル名提案",
+  "AI書類種別判定",
+];
+
+const proFeatures = [
+  "Freeのすべての機能",
+  "ルール数を拡張",
+  "広告なし",
+  "より多くの保存ルールを管理",
+  "複数パターンの請求書・領収書メールに対応しやすい",
+  "Gmail検索条件を柔軟に設定",
+  "Google Driveの保存先をルールごとに指定",
+  "実行履歴で保存状況を確認",
+  "AIファイル名提案",
+  "AI書類種別判定",
+];
+
 export default function HomePage() {
   return (
     <main className={styles.page}>
@@ -124,13 +150,41 @@ export default function HomePage() {
         <div className={styles.pricingGrid}>
           <article className={styles.pricingCard}>
             <h3 className={styles.cardTitle}>Free</h3>
-            <p className={styles.price}>まず試す</p>
-            <p className={styles.cardText}>ルール3件まで</p>
+            <p className={styles.price}>¥0</p>
+            <p className={styles.cardText}>まず試す</p>
+            <ul className={styles.pricingList}>
+              {freeFeatures.map((item) => (
+                <li key={item} className={styles.pricingItem}>
+                  {item}
+                </li>
+              ))}
+            </ul>
+            <div className={styles.limitBox}>
+              <div>広告表示あり</div>
+              <div>ルール数に上限あり</div>
+            </div>
+            <Link href="/login" className={styles.pricingCta}>
+              無料で始める
+            </Link>
           </article>
-          <article className={styles.pricingCard}>
+          <article className={`${styles.pricingCard} ${styles.proCard}`}>
+            <div className={styles.proBadge}>本格運用向け</div>
             <h3 className={styles.cardTitle}>Pro</h3>
-            <p className={styles.price}>月額980円</p>
-            <p className={styles.cardText}>より多くのルールで自動化</p>
+            <p className={styles.price}>¥980 / 月</p>
+            <p className={styles.cardText}>日々の保存作業をまとめて自動化</p>
+            <ul className={styles.pricingList}>
+              {proFeatures.map((item) => (
+                <li key={item} className={styles.pricingItem}>
+                  {item}
+                </li>
+              ))}
+            </ul>
+            <Link href="/login" className={styles.pricingCta}>
+              Proで始める
+            </Link>
+            <p className={styles.pricingNote}>
+              ログイン後、決済画面へ進めます
+            </p>
           </article>
         </div>
       </section>

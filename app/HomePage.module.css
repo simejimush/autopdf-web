@@ -192,12 +192,91 @@
   padding: 22px;
 }
 
+.proCard {
+  border-color: #bfccff;
+  box-shadow: 0 8px 24px rgba(59, 130, 246, 0.12);
+}
+
+.proBadge {
+  display: inline-block;
+  margin-bottom: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #1d4ed8;
+  background: #eaf1ff;
+  border: 1px solid #cfe0ff;
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+
 .price {
   margin: 10px 0 0;
   font-size: 28px;
   font-weight: 800;
   letter-spacing: -0.02em;
   color: #1d4ed8;
+}
+
+.pricingList {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.pricingItem {
+  position: relative;
+  padding-left: 22px;
+  color: #334155;
+  line-height: 1.6;
+}
+
+.pricingItem::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.45em;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #3b82f6 0%, #6366f1 100%);
+}
+
+.limitBox {
+  margin-top: 14px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.pricingCta {
+  margin-top: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  text-decoration: none;
+  border: 1px solid #c7d2fe;
+  border-radius: 12px;
+  background: #eef2ff;
+  color: #1e3a8a;
+  font-weight: 700;
+  padding: 12px 14px;
+}
+
+.pricingCta:hover {
+  background: #e0e7ff;
+}
+
+.pricingNote {
+  margin: 8px 0 0;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .footerCta {
@@ -282,4 +361,29 @@
 
 :global(html[data-theme="dark"]) .price {
   color: #93c5fd;
+}
+
+:global(html[data-theme="dark"]) .pricingItem {
+  color: #cbd5e1;
+}
+
+:global(html[data-theme="dark"]) .pricingCta {
+  background: #1e293b;
+  color: #dbeafe;
+  border-color: #334155;
+}
+
+:global(html[data-theme="dark"]) .pricingCta:hover {
+  background: #334155;
+}
+
+:global(html[data-theme="dark"]) .limitBox {
+  border-color: #334155;
+  color: #94a3b8;
+}
+
+:global(html[data-theme="dark"]) .proBadge {
+  background: #1e293b;
+  color: #93c5fd;
+  border-color: #334155;
 }
