@@ -192,6 +192,9 @@ live決済の最終確認ではなく、Checkout / Success / Webhook / Pro反映
 - [ ] Stripeタスク一覧で「要対応なし」を確認する
 - [ ] Stripe Dashboard で「決済が一時停止」「入金が一時停止」の表示が消えたことを確認する
 - [ ] リリース前に Stripe 領収書 / 請求書メールを日本語化する
+  - 実装済み: Checkout Session 作成時に `locale: "ja"` を追加済み。
+  - 実装済み: 新規 Stripe Customer 作成時に `preferred_locales: ["ja"]` を追加済み。
+  - 未確認: 領収書 / 返金 / 請求書メールの実受信確認は未実施のため、リリース前確認として残す。
 - [ ] 独自ドメイン設定後、`APP_URL` / `NEXT_PUBLIC_APP_URL` / Stripe webhook URL の切替要否を確認する
 
 ### 注意
@@ -286,3 +289,12 @@ Vercel Production env の live 用差し替えは実施済み。
   - Stripe領収書 / 請求書メールが英語で届いたため、リリース前に日本語化対応を行う。
   - 独自ドメイン設定は後で行う。
 
+- 実施日: 2026-06-05
+- 実施者: 管理者（Codex補助）
+- 環境: local
+- 確認結果サマリ:
+  - `app/api/stripe/checkout/route.ts` で Checkout Session に `locale: "ja"` を追加済み。
+  - `app/api/stripe/checkout/route.ts` で新規 Stripe Customer 作成時に `preferred_locales: ["ja"]` を追加済み。
+  - `npx.cmd tsc --noEmit` 成功。
+- 未解決事項:
+  - 領収書 / 返金 / 請求書メールの実受信確認は未実施のため、リリース前確認として残す。
