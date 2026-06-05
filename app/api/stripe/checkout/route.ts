@@ -109,6 +109,7 @@ export async function POST() {
     if (!customerId) {
       const customer = await stripe.customers.create({
         email: user.email ?? undefined,
+        preferred_locales: ["ja"],
         metadata: {
           user_id: user.id,
         },
@@ -176,6 +177,7 @@ export async function POST() {
 
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
+      locale: "ja",
       customer: customerId,
       line_items: [
         {
