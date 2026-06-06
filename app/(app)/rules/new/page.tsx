@@ -122,7 +122,7 @@ export default function NewRulePage() {
         throw new Error(json?.error ?? `Failed to create rule (${res.status})`);
       }
 
-      router.push("/rules");
+      router.push("/rules?created=1");
       router.refresh();
       return;
     } catch (err: any) {

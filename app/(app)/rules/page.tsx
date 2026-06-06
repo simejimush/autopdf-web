@@ -16,6 +16,7 @@ import NewRuleButton from "./_components/NewRuleButton";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import RuleActions from "./RuleActions";
 import FreePlanAd from "@/components/ads/FreePlanAd";
+import RuleAutoRunIntro from "./RuleAutoRunIntro";
 
 type RunLite = {
   id: string;
@@ -320,6 +321,7 @@ export default async function RulesPage({
 
   return (
     <div className={styles.page}>
+      <RuleAutoRunIntro />
       <div className={styles.container}>
         <div className={styles.hero}>
           <div>
@@ -339,6 +341,14 @@ export default async function RulesPage({
             />
           )}
         </div>
+
+        {!json.error && rules.length > 0 && (
+          <div className={styles.autoRunNotice}>
+            <p className={styles.autoRunNoticeText}>
+              有効なルールは自動実行の対象になります。すぐ確認したい場合は「実行」ボタンから手動実行できます。
+            </p>
+          </div>
+        )}
 
         {!json.error && rules.length > 0 && (
           <div className={styles.listToolbar}>
