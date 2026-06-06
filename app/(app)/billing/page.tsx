@@ -14,7 +14,17 @@ type BillingResponse = {
   billing_status?: string | null;
   current_period_end?: string | null;
   cancel_at_period_end?: boolean;
+  monthlyPdfUsage?: MonthlyPdfUsage | null;
   error?: string;
+};
+
+type MonthlyPdfUsage = {
+  plan: "free" | "pro" | "pro_plus";
+  savedCount: number;
+  limit: number | null;
+  remaining: number | null;
+  monthStart: string;
+  nextMonthStart: string;
 };
 
 function formatPlanLabel(plan?: string | null) {
@@ -90,6 +100,7 @@ export default async function BillingPage() {
   const billingStatus = json.billing_status ?? null;
   const currentPeriodEnd = json.current_period_end ?? null;
   const cancelAtPeriodEnd = json.cancel_at_period_end ?? false;
+  const monthlyPdfUsage = json.monthlyPdfUsage ?? null;
 
   const isPaid =
     plan === "pro" ||
@@ -152,6 +163,19 @@ export default async function BillingPage() {
                 </div>
               </div>
             </div>
+
+            {!isPaid && monthlyPdfUsage && monthlyPdfUsage.limit !== null ? (
+              <div className={styles.usageBox}>
+                <div className={styles.usageLabel}>今月のPDF保存数</div>
+                <div className={styles.usageValue}>
+                  {monthlyPdfUsage.savedCount.toLocaleString()} /{" "}
+                  {monthlyPdfUsage.limit.toLocaleString()}件
+                </div>
+                <div className={styles.usageHint}>
+                  Freeプランでは月10件までPDFを保存できます。
+                </div>
+              </div>
+            ) : null}
 
             <div className={styles.notice}>
               {billingStatus === "active" &&

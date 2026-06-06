@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { resolveEffectivePlan } from "@/lib/billing/resolveEffectivePlan";
+import { checkFreeMonthlyPdfSaveLimit } from "@/lib/rules/freePlanLimit";
 
 function jsonError(message: string, status = 500, details?: unknown) {
   return NextResponse.json({ error: message, details }, { status });
@@ -38,6 +39,7 @@ export async function GET() {
   }
 
   const plan = resolveEffectivePlan(data);
+  const monthlyPdfUsage = await checkFreeMonthlyPdfSaveLimit(user.id);
 
   return NextResponse.json(
     {
@@ -46,6 +48,7 @@ export async function GET() {
       billing_status: data?.billing_status ?? null,
       current_period_end: data?.current_period_end ?? null,
       cancel_at_period_end: data?.cancel_at_period_end ?? false,
+      monthlyPdfUsage,
     },
     { status: 200 },
   );

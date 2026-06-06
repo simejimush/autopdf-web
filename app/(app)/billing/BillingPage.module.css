@@ -103,6 +103,34 @@
   color: #16a34a;
 }
 
+.usageBox {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.usageLabel {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.usageValue {
+  margin-top: 4px;
+  font-size: 24px;
+  font-weight: 900;
+  color: var(--fg);
+}
+
+.usageHint {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
 .planEyebrow {
   display: inline-flex;
   align-items: center;

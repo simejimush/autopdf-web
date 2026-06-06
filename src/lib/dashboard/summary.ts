@@ -1,4 +1,5 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { checkFreeMonthlyPdfSaveLimit } from "@/lib/rules/freePlanLimit";
 
 export type DashboardRecentPdf = {
   id: string;
@@ -14,6 +15,16 @@ export type DashboardSummary = {
   savedTotal7d: number;
   errorCount7d: number;
   recentPdfs: DashboardRecentPdf[];
+  monthlyPdfUsage: DashboardMonthlyPdfUsage | null;
+};
+
+export type DashboardMonthlyPdfUsage = {
+  plan: "free" | "pro" | "pro_plus";
+  savedCount: number;
+  limit: number | null;
+  remaining: number | null;
+  monthStart: string;
+  nextMonthStart: string;
 };
 
 export async function getDashboardSummary(): Promise<DashboardSummary> {
@@ -31,7 +42,16 @@ export async function getDashboardSummary(): Promise<DashboardSummary> {
       savedTotal7d: 0,
       errorCount7d: 0,
       recentPdfs: [],
+      monthlyPdfUsage: null,
     };
+  }
+
+  let monthlyPdfUsage: DashboardMonthlyPdfUsage | null = null;
+
+  try {
+    monthlyPdfUsage = await checkFreeMonthlyPdfSaveLimit(user.id);
+  } catch (error) {
+    console.error("[dashboard] failed to load monthly PDF usage:", error);
   }
 
   const { data: rules, error: rulesErr } = await supabase
@@ -46,6 +66,7 @@ export async function getDashboardSummary(): Promise<DashboardSummary> {
       savedTotal7d: 0,
       errorCount7d: 0,
       recentPdfs: [],
+      monthlyPdfUsage,
     };
   }
 
@@ -94,6 +115,7 @@ export async function getDashboardSummary(): Promise<DashboardSummary> {
     processedTotal7d,
     savedTotal7d,
     errorCount7d,
+    monthlyPdfUsage,
     recentPdfs: (recentPdfs ?? [])
       .filter((pdf) => Boolean(pdf.drive_web_view_link))
       .map((pdf) => ({

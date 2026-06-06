@@ -61,6 +61,15 @@ export function StatusSummaryCard(props: { summary: DashboardSummary }) {
   const { summary } = props;
 
   const last = summary.lastRunAt ? formatJst(summary.lastRunAt) : "-";
+  const monthlyUsage = summary.monthlyPdfUsage;
+  const showMonthlyUsage =
+    monthlyUsage !== null &&
+    monthlyUsage.plan === "free" &&
+    monthlyUsage.limit !== null;
+  const monthlyUsageValue =
+    showMonthlyUsage && monthlyUsage?.limit !== null
+      ? `${monthlyUsage.savedCount.toLocaleString()} / ${monthlyUsage.limit.toLocaleString()}件`
+      : null;
 
   return (
     <section
@@ -132,6 +141,13 @@ export function StatusSummaryCard(props: { summary: DashboardSummary }) {
           label="保存成功数"
           value={summary.savedTotal7d.toLocaleString()}
         />
+        {monthlyUsageValue ? (
+          <Stat
+            label="今月のPDF保存"
+            value={monthlyUsageValue}
+            hint="Freeプランの月間上限"
+          />
+        ) : null}
         <Stat label="エラー数" value={summary.errorCount7d.toLocaleString()} />
         <Stat label="期間" value="7日" hint="※変更可能" />
       </div>
