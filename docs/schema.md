@@ -97,6 +97,10 @@ rules_pkey (id)
 | error_code      | text        | エラーコード    |
 | updated_at      | timestamptz | 更新日時        |
 
+備考:
+
+- `saved_count` は実行結果表示用の保存数。添付ファイル保存も含む場合があるため、Freeプランの月間PDF保存上限の集計元には使わない。
+
 ### Index
 
 ```
@@ -154,6 +158,7 @@ processed_emails_rule_idx
 - Gmail メールの **二重処理防止**
 - 保存済み本文PDFの追跡
 - ダッシュボードの「最近保存したPDF」表示
+- Freeプランの月間PDF保存上限は、`user_id` と `saved_at` の当月範囲で本文PDF保存成功件数を集計する
 - `drive_file_name` は新規保存分から記録する。過去データでは null の場合がある
 
 ---

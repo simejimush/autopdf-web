@@ -1,6 +1,8 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { resolveEffectivePlan } from "@/lib/billing/resolveEffectivePlan";
 
 export const FREE_PLAN_RULE_LIMIT = 3;
+export const FREE_MONTHLY_PDF_SAVE_LIMIT = 10;
 
 type Plan = "free" | "pro" | "pro_plus";
 
@@ -8,6 +10,12 @@ type RuleForLimit = {
   id: string;
   user_id: string | null;
   created_at: string | null;
+};
+
+type BillingProfile = {
+  plan?: string | null;
+  billing_status?: string | null;
+  current_period_end?: string | null;
 };
 
 function normalizePlan(plan: unknown): Plan {
@@ -30,6 +38,98 @@ export async function getUserPlan(userId: string): Promise<Plan> {
   }
 
   return normalizePlan(data?.plan);
+}
+
+function getServerMonthRange(now = new Date()): {
+  monthStart: string;
+  nextMonthStart: string;
+} {
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+
+  return {
+    monthStart: monthStart.toISOString(),
+    nextMonthStart: nextMonthStart.toISOString(),
+  };
+}
+
+async function getEffectivePlan(userId: string): Promise<Plan> {
+  const { data, error } = await supabaseAdmin
+    .from("user_profiles")
+    .select("plan, billing_status, current_period_end")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error("Failed to fetch user plan");
+  }
+
+  return resolveEffectivePlan(data as BillingProfile | null);
+}
+
+export async function getMonthlyPdfSaveUsage(userId: string): Promise<{
+  savedCount: number;
+  monthStart: string;
+  nextMonthStart: string;
+}> {
+  const { monthStart, nextMonthStart } = getServerMonthRange();
+
+  const { count, error } = await supabaseAdmin
+    .from("processed_emails")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .gte("saved_at", monthStart)
+    .lt("saved_at", nextMonthStart);
+
+  if (error) {
+    throw new Error("Failed to count monthly PDF saves");
+  }
+
+  return {
+    savedCount: count ?? 0,
+    monthStart,
+    nextMonthStart,
+  };
+}
+
+export async function checkFreeMonthlyPdfSaveLimit(userId: string): Promise<{
+  ok: boolean;
+  plan: Plan;
+  savedCount: number;
+  limit: number | null;
+  remaining: number | null;
+  monthStart: string;
+  nextMonthStart: string;
+}> {
+  const plan = await getEffectivePlan(userId);
+
+  if (plan !== "free") {
+    const { monthStart, nextMonthStart } = getServerMonthRange();
+
+    return {
+      ok: true,
+      plan,
+      savedCount: 0,
+      limit: null,
+      remaining: null,
+      monthStart,
+      nextMonthStart,
+    };
+  }
+
+  const { savedCount, monthStart, nextMonthStart } =
+    await getMonthlyPdfSaveUsage(userId);
+  const remaining = Math.max(FREE_MONTHLY_PDF_SAVE_LIMIT - savedCount, 0);
+
+  return {
+    ok: savedCount < FREE_MONTHLY_PDF_SAVE_LIMIT,
+    plan,
+    savedCount,
+    limit: FREE_MONTHLY_PDF_SAVE_LIMIT,
+    remaining,
+    monthStart,
+    nextMonthStart,
+  };
 }
 
 export async function canCreateMoreRules(userId: string): Promise<{

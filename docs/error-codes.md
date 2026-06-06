@@ -97,6 +97,9 @@
 - RUN_ALREADY_RUNNING  
   二重実行防止
 
+- FREE_MONTHLY_LIMIT_EXCEEDED  
+  Freeプランの月間PDF保存上限に到達
+
 ---
 
 ## 7. システム / インフラ
@@ -187,6 +190,7 @@ error_code は「原因の識別」だけでなく、監視・通知の起点と
 | RULE_NOT_FOUND           | medium   |          yes |          no |              no | 参照不整合の可能性                           |
 | RULE_DISABLED            | low      |           no |          no |              no | 想定内。通常は通知しない                     |
 | RUN_ALREADY_RUNNING      | low      |           no |          no |              no | 想定内の競合回避                             |
+| FREE_MONTHLY_LIMIT_EXCEEDED | low   |           no |          no |              no | Freeプランの月間PDF保存上限                  |
 | RATE_LIMIT               | medium   |          yes |          no |              no | リトライ設計前提                             |
 | TEMPORARY_UNAVAILABLE    | medium   |          yes |          no |              no | 一時障害                                     |
 | TIMEOUT                  | high     |          yes |          no |              no | 処理時間超過                                 |

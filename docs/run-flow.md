@@ -73,6 +73,15 @@ messages.get
 
 ## 5 PDF生成
 
+PDF生成前に、Freeプランの月間PDF保存上限を確認する。
+
+- 集計元: `processed_emails`
+- 条件: `user_id` と `saved_at` の当月範囲
+- 上限: Freeプランは月10件まで
+- Pro / Pro+ は対象外
+- 該当メールなし / 重複スキップ / エラー / PDF保存失敗は枠を消費しない
+- 上限到達時は Drive 保存へ進まず、`runs.status=error` / `error_code=FREE_MONTHLY_LIMIT_EXCEEDED` を記録する
+
 `emailToPdfBytes()` を使用
 
 入力

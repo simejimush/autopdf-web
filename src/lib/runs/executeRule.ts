@@ -14,6 +14,7 @@ import { notifySlack } from "@/lib/monitoring/notifySlack";
 import { notifyUser } from "@/lib/monitoring/notifyUser";
 import { detectDocumentTypeWithAi } from "@/lib/ai/detectDocumentType";
 import { resolveEffectivePlan } from "@/lib/billing/resolveEffectivePlan";
+import { checkFreeMonthlyPdfSaveLimit } from "@/lib/rules/freePlanLimit";
 import {
   normalizeFileNameFormat,
   normalizeFileNameFormatForPlan,
@@ -310,7 +311,8 @@ export async function executeRule(
           message,
           finished_at: new Date().toISOString(),
         })
-        .eq("id", params.runId);
+        .eq("id", params.runId)
+        .eq("user_id", params.userId);
 
       await updateGoogleConnectionHealth({
         userId: params.userId,
@@ -350,7 +352,8 @@ export async function executeRule(
           message,
           finished_at: new Date().toISOString(),
         })
-        .eq("id", params.runId);
+        .eq("id", params.runId)
+        .eq("user_id", params.userId);
 
       await updateGoogleConnectionHealth({
         userId: params.userId,
@@ -363,6 +366,36 @@ export async function executeRule(
         savedCount: 0,
         skippedCount: 1,
         errorCode: null,
+        message,
+      };
+    }
+
+    const monthlyLimit = await checkFreeMonthlyPdfSaveLimit(params.userId);
+
+    if (!monthlyLimit.ok) {
+      const message =
+        "Freeプランの今月のPDF保存上限（10件）に達しています。翌月まで待つか、Proプランへの変更をご検討ください。";
+
+      await supabaseAdmin
+        .from("runs")
+        .update({
+          status: "error",
+          error_code: "FREE_MONTHLY_LIMIT_EXCEEDED",
+          processed_count: 0,
+          saved_count: 0,
+          skipped_count: 0,
+          message,
+          finished_at: new Date().toISOString(),
+        })
+        .eq("id", params.runId)
+        .eq("user_id", params.userId);
+
+      return {
+        ok: false,
+        processedCount: 0,
+        savedCount: 0,
+        skippedCount: 0,
+        errorCode: "FREE_MONTHLY_LIMIT_EXCEEDED",
         message,
       };
     }
