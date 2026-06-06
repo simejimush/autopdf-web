@@ -29,28 +29,27 @@ const trustItems = [
 
 const freeFeatures = [
   "ルール3件まで",
-  "自動PDF生成",
-  "Google Drive保存",
-  "自動実行",
+  "月10件までPDF保存",
+  "Gmailの条件に合うメールをPDF化",
+  "Google Driveへ保存",
   "手動実行",
+  "自動実行",
   "実行履歴の確認",
   "Gmail検索条件の作成",
   "保存先フォルダ指定",
-  "AIファイル名提案",
-  "AI書類種別判定",
 ];
 
 const proFeatures = [
-  "Freeのすべての機能",
+  "Freeのすべての基本機能",
   "ルール数を拡張",
+  "PDF保存件数を大幅に拡張",
   "広告なし",
   "より多くの保存ルールを管理",
   "複数パターンの請求書・領収書メールに対応しやすい",
   "Gmail検索条件を柔軟に設定",
   "Google Driveの保存先をルールごとに指定",
   "実行履歴で保存状況を確認",
-  "AIファイル名提案",
-  "AI書類種別判定",
+  "AIファイル名設定（書類種別を含めた命名）",
 ];
 
 export default function HomePage() {
@@ -173,8 +172,8 @@ export default function HomePage() {
               ))}
             </ul>
             <div className={styles.limitBox}>
-              <div>広告表示あり</div>
-              <div>ルール数に上限あり</div>
+              <div>PDF保存は月10件まで</div>
+              <div>ルールは3件まで作成できます</div>
             </div>
             <Link href="/login" className={styles.pricingCta}>
               無料で始める
