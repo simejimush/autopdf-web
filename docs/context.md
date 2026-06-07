@@ -219,3 +219,25 @@ AIや新しい開発者は以下の順で読むと構造を理解しやすいで
 - runs: 実行成否 / error_code / message / started_at / finished_at
 - google_connections: 接続状態 / last_success_at / last_error_code / reauth_required などの監視用状態
 - rules: 有効ルール有無の判定に使用
+
+---
+
+## 最近の実装状況（Free制限 / LP / ルールUX）
+
+- Freeプランは月10件までPDF保存可能。表現は「月10回実行」ではなく「月10件までPDF保存」とする。
+- Free月10件制限は手動実行 / 自動実行の両方に適用する。Pro / Pro+ は対象外。
+- 上限到達時は `runs` に `FREE_MONTHLY_LIMIT_EXCEEDED` を記録する。
+- dashboard / billing では、Freeユーザーのみ月間PDF保存数を表示する。
+- LP料金表にも Free の「月10件までPDF保存」を反映済み。
+- LP料金表では Free から AIファイル名設定 / AI書類種別判定の単独表示を削除済み。
+- LP料金表では Pro を「PDF保存件数を大幅に拡張」とし、完全無制限とは表記しない方針。
+- Pro の AI 表記は「AIファイル名設定（書類種別を含めた命名）」に寄せ、AI書類種別判定を単独機能として強く出さない。
+- ルール作成成功後は `/rules?created=1` に遷移し、`RuleAutoRunIntro` で初回案内モーダルを表示する。
+- 初回案内では「有効なルールは自動実行時に条件に合うメールを確認してPDF保存」する旨を説明する。
+- 初回案内では「作成直後に即自動実行される」「毎日何時に必ず実行」といった保証表現は使わない。
+- 「次回からこの案内を表示しない」は localStorage キー `autopdf_hide_rule_auto_run_intro` で制御する。
+- 初回案内表示後は `history.replaceState` で `created=1` をURLから削除し、リロード時の再表示を抑える。
+- ルール一覧上部にも小さな自動実行補足を表示する。
+- ルールUIでは、自動実行補足ボックスの border を `1px solid rgb(14 165 233)` に変更済み。
+- ルール0件時のオンボーディング②「ルールを1つ作成」は紫系の文字色で視認性を改善済み。
+- 保存先フォルダID placeholder は実在IDを使わず、架空サンプル `1AbCdEfGhIjKlMnOpQrStUvWxYz123456` を表示する。
