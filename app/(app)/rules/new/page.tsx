@@ -242,7 +242,7 @@ export default function NewRulePage() {
                   onChange={(e) =>
                     setDriveFolderId(extractFolderId(e.target.value))
                   }
-                  placeholder="例: 1CGAvmhGiiOjGEulmP6MtXhE0yubKhlgF"
+                  placeholder="例: Google DriveフォルダURLの /folders/ 以降を入力"
                   autoComplete="off"
                   required
                   style={input}

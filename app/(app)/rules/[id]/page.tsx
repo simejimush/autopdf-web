@@ -832,7 +832,7 @@ export default function RuleEditPage() {
                     setDriveFolderId(extractFolderId(e.target.value));
                     setDirty(true);
                   }}
-                  placeholder="例: 1CGAvmhGiiOjGEulmP6MtXhE0yubKhlgF"
+                  placeholder="例: Google DriveフォルダURLの /folders/ 以降を入力"
                   autoComplete="off"
                 />
                 <span className={styles.help}>
