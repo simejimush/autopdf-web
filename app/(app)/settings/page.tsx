@@ -12,6 +12,7 @@ function formatDateTime(value?: string | null) {
   if (Number.isNaN(d.getTime())) return "未確認";
 
   return new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
