@@ -2,6 +2,7 @@
 
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { google } from "googleapis";
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
@@ -104,6 +105,64 @@ export async function GET(req: Request) {
       token.refresh_token ?? existingConnection?.refresh_token_enc ?? null;
 
     const now = new Date().toISOString();
+
+    try {
+      if (!refreshTokenToSave) {
+        throw new Error("missing_refresh_token");
+      }
+
+      const oauth2Client = new google.auth.OAuth2(
+        clientId,
+        clientSecret,
+        redirectUri,
+      );
+
+      oauth2Client.setCredentials({
+        refresh_token: refreshTokenToSave,
+      });
+
+      const accessTokenResult = await oauth2Client.getAccessToken();
+      const verifiedAccessToken = accessTokenResult?.token?.trim() ?? "";
+
+      if (!verifiedAccessToken) {
+        throw new Error("missing_access_token");
+      }
+
+      if (!token.access_token) {
+        token.access_token = verifiedAccessToken;
+      }
+    } catch (verifyErr) {
+      console.error("[google.callback] token validation failed", {
+        userId: user.id,
+        reason: "oauth_access_token_check_failed",
+        errorName: verifyErr instanceof Error ? verifyErr.name : "unknown",
+      });
+
+      const { error: markErr } = await supabase
+        .from("google_connections")
+        .upsert(
+          {
+            user_id: user.id,
+            status: "error",
+            reauth_required: true,
+            last_error_code: "GOOGLE_TOKEN_INVALID",
+            last_error_at: now,
+            updated_at: now,
+          },
+          { onConflict: "user_id" },
+        );
+
+      if (markErr) {
+        console.error("[google.callback] failed to mark token invalid", {
+          userId: user.id,
+          message: markErr.message,
+        });
+      }
+
+      return NextResponse.redirect(
+        new URL("/settings?google=token_invalid", url.origin),
+      );
+    }
 
     const payload: Record<string, unknown> = {
       user_id: user.id,
