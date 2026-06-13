@@ -1,6 +1,7 @@
 "use client";
 
 import type { DashboardSummary } from "@/lib/dashboard/summary";
+import styles from "./StatusSummaryCard.module.css";
 
 function formatJst(iso: string) {
   const d = new Date(iso);
@@ -125,14 +126,7 @@ export function StatusSummaryCard(props: { summary: DashboardSummary }) {
         </div>
       </div>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-          gap: 10,
-          marginTop: 14,
-        }}
-      >
+      <div className={styles.statsGrid}>
         <Stat
           label="処理件数"
           value={summary.processedTotal7d.toLocaleString()}
