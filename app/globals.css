@@ -78,6 +78,7 @@ html[data-theme="dark"] {
 
 html {
   background: var(--background);
+  scrollbar-gutter: stable;
 }
 
 body {
