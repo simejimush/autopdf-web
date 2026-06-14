@@ -970,6 +970,10 @@
 }
 
 .autoRunNotice {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 14px;
   padding: 12px 14px;
   border: 1px solid rgb(14 165 233);
@@ -978,10 +982,52 @@
 }
 
 .autoRunNoticeText {
+  min-width: 0;
   margin: 0;
   color: #475569;
   font-size: 13px;
   line-height: 1.7;
+}
+
+.autoRunNoticeClose {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.autoRunNoticeClose:hover {
+  background: rgba(15, 23, 42, 0.06);
+  color: #0f172a;
+}
+
+.autoRunNoticeClose:focus-visible {
+  outline: 2px solid #0ea5e9;
+  outline-offset: 2px;
+}
+
+:global([data-theme="dark"]) .autoRunNotice {
+  border-color: rgba(56, 189, 248, 0.75);
+  background: rgba(8, 47, 73, 0.36);
+}
+
+:global([data-theme="dark"]) .autoRunNoticeText {
+  color: #bae6fd;
+}
+
+:global([data-theme="dark"]) .autoRunNoticeClose {
+  color: #bae6fd;
+}
+
+:global([data-theme="dark"]) .autoRunNoticeClose:hover {
+  background: rgba(186, 230, 253, 0.12);
+  color: #f0f9ff;
 }
 
 .emptyLead {
