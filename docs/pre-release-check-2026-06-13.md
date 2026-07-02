@@ -270,6 +270,12 @@ Checkout入口:
 
 ## 未対応 / リリース前に別途確認すること
 
+### Stripe本番アカウント最終状態
+
+- 2026-07-02 に人間側で Stripe本番アカウントの現在の要対応項目がないことを確認済み
+- Stripe本人確認 / タスク一覧 / 決済停止表示 / 入金停止表示について、リリース前のStripe本番アカウント最終確認はOK扱い
+- secret / token / 個人情報 / Stripeの具体的な識別子は記録していない
+
 ### Google OAuth
 
 - OAuth consent screen / verification 対応
@@ -277,9 +283,6 @@ Checkout入口:
 
 ### Stripe
 
-- Stripe本人確認の審査完了を確認
-- Stripeタスク一覧で「要対応なし」を確認
-- Stripe Dashboardで「決済が一時停止」「入金が一時停止」の表示が消えたことを確認
 - Stripe領収書 / 請求書メールの日本語化
 - 独自ドメイン設定後、APP_URL / NEXT_PUBLIC_APP_URL / Stripe webhook URL の切替要否確認
 
@@ -291,4 +294,4 @@ Checkout入口:
 ## 判定
 
 アプリ側の主要公開前チェックは一通りOK。
-ただし、一般公開前には Google OAuth verification と Stripe本番アカウント最終状態の確認が必要。
+ただし、一般公開前には Google OAuth verification と Stripe領収書 / 請求書メールの日本語化、独自ドメイン設定後のURL切替要否確認が必要。
