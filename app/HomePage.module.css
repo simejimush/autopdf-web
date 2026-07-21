@@ -419,6 +419,31 @@
   text-decoration: underline;
 }
 
+.legalLinks {
+  margin-top: 14px;
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+.legalLink {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.legalLink:hover {
+  text-decoration-thickness: 2px;
+}
+
+.legalLink:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
 @media (max-width: 860px) {
   .featureGrid,
   .pricingGrid,

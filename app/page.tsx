@@ -220,6 +220,14 @@ export default function HomePage() {
         <Link href="/help" className={styles.footerHelpLink}>
           詳しい使い方を見る
         </Link>
+        <div className={styles.legalLinks}>
+          <Link href="/privacy" className={styles.legalLink}>
+            プライバシーポリシー
+          </Link>
+          <Link href="/terms" className={styles.legalLink}>
+            利用規約
+          </Link>
+        </div>
       </section>
     </main>
   );

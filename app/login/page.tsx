@@ -2,6 +2,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createSupabaseClient } from "@/lib/supabase/client";
 
@@ -116,7 +117,15 @@ export default function LoginPage() {
 
               <div className="foot">
                 <span className="muted">
-                  続行すると、利用規約・プライバシーポリシーに同意したものとみなします。
+                  続行すると、
+                  <Link href="/terms" className="legalLink">
+                    利用規約
+                  </Link>
+                  ・
+                  <Link href="/privacy" className="legalLink">
+                    プライバシーポリシー
+                  </Link>
+                  に同意したものとみなします。
                 </span>
               </div>
             </>
@@ -325,6 +334,22 @@ html[data-theme="dark"] .logoMarkDark{
   font-size:12px;
   line-height:1.6;
   display:block;
+}
+
+.legalLink{
+  color:inherit;
+  text-decoration:underline;
+  text-underline-offset:2px;
+}
+
+.legalLink:hover{
+  text-decoration-thickness:2px;
+}
+
+.legalLink:focus-visible{
+  outline:2px solid currentColor;
+  outline-offset:2px;
+  border-radius:2px;
 }
 
 @keyframes spin{
