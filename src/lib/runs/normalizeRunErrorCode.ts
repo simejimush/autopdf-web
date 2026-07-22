@@ -20,6 +20,7 @@ export function normalizeRunErrorCode(error: unknown): string {
     [
       "GOOGLE_TOKEN_KEY_MISSING",
       "GOOGLE_TOKEN_KEY_INVALID",
+      "GOOGLE_TOKEN_KEY_ID_UNKNOWN",
       "GOOGLE_TOKEN_FORMAT_UNSUPPORTED",
       "GOOGLE_TOKEN_DECRYPT_FAILED",
       "GOOGLE_TOKEN_INVALID",

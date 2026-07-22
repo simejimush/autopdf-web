@@ -17,12 +17,14 @@ export type GoogleTokenType = "access" | "refresh";
 export type GoogleTokenCryptoErrorCode =
   | "GOOGLE_TOKEN_KEY_MISSING"
   | "GOOGLE_TOKEN_KEY_INVALID"
+  | "GOOGLE_TOKEN_KEY_ID_UNKNOWN"
   | "GOOGLE_TOKEN_FORMAT_UNSUPPORTED"
   | "GOOGLE_TOKEN_DECRYPT_FAILED";
 
 const SAFE_ERROR_MESSAGES: Record<GoogleTokenCryptoErrorCode, string> = {
   GOOGLE_TOKEN_KEY_MISSING: "Google token encryption key is unavailable",
   GOOGLE_TOKEN_KEY_INVALID: "Google token encryption key is invalid",
+  GOOGLE_TOKEN_KEY_ID_UNKNOWN: "Google token encryption key ID is unknown",
   GOOGLE_TOKEN_FORMAT_UNSUPPORTED: "Google token format is unsupported",
   GOOGLE_TOKEN_DECRYPT_FAILED: "Google token decryption failed",
 };
@@ -43,6 +45,7 @@ type GoogleTokenCryptoParams = {
   tokenType: GoogleTokenType;
   keyId?: string;
   key?: string;
+  resolveKey?: (keyId: string) => { keyId: string; key: string };
 };
 
 type ParsedEncryptedToken = {
@@ -98,18 +101,13 @@ function parseEncryptedGoogleToken(token: string): ParsedEncryptedToken {
   };
 }
 
-function getConfiguredKey(keyId?: string, key?: string): {
-  keyId: string;
-  key: Buffer;
-} {
-  if (!keyId || !key) {
-    fail("GOOGLE_TOKEN_KEY_MISSING");
-  }
-
+export function validateGoogleTokenKeyId(keyId: string): void {
   if (!KEY_ID_PATTERN.test(keyId)) {
     fail("GOOGLE_TOKEN_KEY_INVALID");
   }
+}
 
+export function validateGoogleTokenKey(key: string): void {
   if (!BASE64URL_PATTERN.test(key)) {
     fail("GOOGLE_TOKEN_KEY_INVALID");
   }
@@ -122,8 +120,20 @@ function getConfiguredKey(keyId?: string, key?: string): {
   ) {
     fail("GOOGLE_TOKEN_KEY_INVALID");
   }
+}
 
-  return { keyId, key: decodedKey };
+function getConfiguredKey(keyId?: string, key?: string): {
+  keyId: string;
+  key: Buffer;
+} {
+  if (!keyId || !key) {
+    fail("GOOGLE_TOKEN_KEY_MISSING");
+  }
+
+  validateGoogleTokenKeyId(keyId);
+  validateGoogleTokenKey(key);
+
+  return { keyId, key: Buffer.from(key, "base64url") };
 }
 
 function buildAdditionalAuthenticatedData(
@@ -179,10 +189,18 @@ export function decryptGoogleToken(params: GoogleTokenCryptoParams): string {
   }
 
   const parsed = parseEncryptedGoogleToken(params.token);
-  const configured = getConfiguredKey(params.keyId, params.key);
+  const resolvedKey = params.resolveKey?.(parsed.keyId);
+  const configured = getConfiguredKey(
+    resolvedKey?.keyId ?? params.keyId,
+    resolvedKey?.key ?? params.key,
+  );
 
   if (parsed.keyId !== configured.keyId) {
-    fail("GOOGLE_TOKEN_KEY_MISSING");
+    fail(
+      params.resolveKey
+        ? "GOOGLE_TOKEN_KEY_ID_UNKNOWN"
+        : "GOOGLE_TOKEN_KEY_MISSING",
+    );
   }
 
   try {

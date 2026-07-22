@@ -2,6 +2,7 @@
 import { google } from "googleapis";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { decryptGoogleToken } from "@/lib/security/googleTokenCrypto";
+import { getGoogleTokenDecryptKey } from "@/lib/security/googleTokenKeyring";
 
 type GoogleOAuthErrorCode =
   | "GOOGLE_CONNECTION_NOT_FOUND"
@@ -57,21 +58,17 @@ export async function getOAuthClientForUser(userId: string) {
   const conn = data?.[0];
   if (!conn) throw new GoogleOAuthError("GOOGLE_CONNECTION_NOT_FOUND");
 
-  const keyId = process.env.GOOGLE_TOKEN_ENCRYPTION_KEY_ID;
-  const key = process.env.GOOGLE_TOKEN_ENCRYPTION_KEY;
   const refreshToken = decryptGoogleToken({
     token: String(conn.refresh_token_enc ?? "").trim(),
     userId,
     tokenType: "refresh",
-    keyId,
-    key,
+    resolveKey: getGoogleTokenDecryptKey,
   });
   const accessToken = decryptGoogleToken({
     token: String(conn.access_token_enc ?? "").trim(),
     userId,
     tokenType: "access",
-    keyId,
-    key,
+    resolveKey: getGoogleTokenDecryptKey,
   });
 
   if (!refreshToken) {

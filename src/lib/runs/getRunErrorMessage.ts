@@ -31,6 +31,7 @@ export function getRunErrorMessage(
 
     case "GOOGLE_TOKEN_KEY_MISSING":
     case "GOOGLE_TOKEN_KEY_INVALID":
+    case "GOOGLE_TOKEN_KEY_ID_UNKNOWN":
     case "GOOGLE_TOKEN_FORMAT_UNSUPPORTED":
     case "GOOGLE_TOKEN_DECRYPT_FAILED":
       return {

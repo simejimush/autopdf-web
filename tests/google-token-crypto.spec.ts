@@ -509,6 +509,7 @@ test("専用エラーをtoken invalidや再接続文言へ誤分類しない", (
   const codes: GoogleTokenCryptoErrorCode[] = [
     "GOOGLE_TOKEN_KEY_MISSING",
     "GOOGLE_TOKEN_KEY_INVALID",
+    "GOOGLE_TOKEN_KEY_ID_UNKNOWN",
     "GOOGLE_TOKEN_FORMAT_UNSUPPORTED",
     "GOOGLE_TOKEN_DECRYPT_FAILED",
   ];
