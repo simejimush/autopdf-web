@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { google } from "googleapis";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getOAuthClientForUser } from "@/lib/google/auth";
+import { normalizeRunErrorCode } from "@/lib/runs/normalizeRunErrorCode";
 
 export async function POST(req: Request) {
   try {
@@ -51,32 +52,46 @@ export async function POST(req: Request) {
       overThreshold,
       query,
     });
-  } catch (e: any) {
-    const msg = e?.message ?? "UNKNOWN_ERROR";
+  } catch (error) {
+    const errorCode = normalizeRunErrorCode(error);
+    const authErrorCode =
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      typeof error.code === "string"
+        ? error.code
+        : null;
 
     // よくあるエラーを分類
-    if (msg.includes("Google connection not found")) {
+    if (authErrorCode === "GOOGLE_CONNECTION_NOT_FOUND") {
       return NextResponse.json(
         { error: "GOOGLE_NOT_CONNECTED" },
         { status: 400 },
       );
     }
 
-    if (msg.includes("refresh token missing")) {
+    if (authErrorCode === "GOOGLE_REFRESH_TOKEN_MISSING") {
       return NextResponse.json(
         { error: "GOOGLE_REFRESH_TOKEN_MISSING" },
         { status: 400 },
       );
     }
 
-    if (msg.includes("token refresh failed")) {
+    if (
+      authErrorCode === "GOOGLE_TOKEN_REFRESH_FAILED" ||
+      errorCode === "GOOGLE_TOKEN_INVALID"
+    ) {
       return NextResponse.json(
         { error: "GOOGLE_TOKEN_REFRESH_FAILED" },
         { status: 401 },
       );
     }
 
-    console.error("[preview-count]", msg);
+    console.error("[gmail.preview-count] failed", {
+      code: errorCode,
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      location: "gmail_preview_count",
+    });
 
     return NextResponse.json(
       { error: "GMAIL_PREVIEW_FAILED" },

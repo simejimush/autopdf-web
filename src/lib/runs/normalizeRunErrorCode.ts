@@ -1,3 +1,5 @@
+import { GoogleTokenCryptoError } from "@/lib/security/googleTokenCrypto";
+
 function toErrorText(error: unknown): string {
   if (error instanceof Error) {
     return `${error.name} ${error.message}`.toLowerCase();
@@ -6,6 +8,27 @@ function toErrorText(error: unknown): string {
 }
 
 export function normalizeRunErrorCode(error: unknown): string {
+  if (error instanceof GoogleTokenCryptoError) {
+    return error.code;
+  }
+
+  if (
+    error &&
+    typeof error === "object" &&
+    "code" in error &&
+    typeof error.code === "string" &&
+    [
+      "GOOGLE_TOKEN_KEY_MISSING",
+      "GOOGLE_TOKEN_KEY_INVALID",
+      "GOOGLE_TOKEN_FORMAT_UNSUPPORTED",
+      "GOOGLE_TOKEN_DECRYPT_FAILED",
+      "GOOGLE_TOKEN_INVALID",
+      "GOOGLE_PERMISSION_DENIED",
+    ].includes(error.code)
+  ) {
+    return error.code;
+  }
+
   const text = toErrorText(error);
 
   if (

@@ -64,9 +64,9 @@ export async function GET(req: Request) {
 
     if (!tokenRes.ok) {
       console.error("[google.callback] token exchange failed", {
+        code: "GOOGLE_TOKEN_EXCHANGE_FAILED",
         status: tokenRes.status,
-        error: token?.error,
-        error_description: token?.error_description,
+        location: "oauth_token_exchange",
       });
 
       const reason =
@@ -93,8 +93,10 @@ export async function GET(req: Request) {
 
     if (existingErr) {
       console.error("[google.callback] failed to load existing connection", {
-        userId: user.id,
-        message: existingErr.message,
+        code: "GOOGLE_CONNECTION_LOAD_FAILED",
+        dbCode:
+          typeof existingErr.code === "string" ? existingErr.code : undefined,
+        location: "load_existing_google_connection",
       });
       return NextResponse.redirect(
         new URL("/settings?google=load_failed", url.origin),
@@ -154,8 +156,10 @@ export async function GET(req: Request) {
 
       if (markErr) {
         console.error("[google.callback] failed to mark token invalid", {
-          userId: user.id,
-          message: markErr.message,
+          code: "GOOGLE_CONNECTION_HEALTH_UPDATE_FAILED",
+          dbCode:
+            typeof markErr.code === "string" ? markErr.code : undefined,
+          location: "mark_google_token_invalid",
         });
       }
 
@@ -194,8 +198,10 @@ export async function GET(req: Request) {
 
     if (saveErr) {
       console.error("[google.callback] failed to save connection", {
-        userId: user.id,
-        message: saveErr.message,
+        code: "GOOGLE_CONNECTION_SAVE_FAILED",
+        dbCode:
+          typeof saveErr.code === "string" ? saveErr.code : undefined,
+        location: "save_google_connection",
       });
       return NextResponse.redirect(
         new URL("/settings?google=save_failed", url.origin),
@@ -206,7 +212,11 @@ export async function GET(req: Request) {
       new URL("/settings?google=connected", url.origin),
     );
   } catch (error) {
-    console.error("[google.callback] unexpected error", error);
+    console.error("[google.callback] unexpected error", {
+      code: "GOOGLE_CALLBACK_FAILED",
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      location: "oauth_callback",
+    });
     return NextResponse.redirect(
       new URL("/settings?google=callback_exception", url.origin),
     );

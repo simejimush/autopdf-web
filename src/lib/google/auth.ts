@@ -1,6 +1,47 @@
 // autopdf-web/src/lib/google/auth.ts
 import { google } from "googleapis";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { decryptGoogleToken } from "@/lib/security/googleTokenCrypto";
+
+type GoogleOAuthErrorCode =
+  | "GOOGLE_CONNECTION_NOT_FOUND"
+  | "GOOGLE_REFRESH_TOKEN_MISSING"
+  | "GOOGLE_TOKEN_INVALID"
+  | "GOOGLE_PERMISSION_DENIED"
+  | "GOOGLE_TOKEN_REFRESH_FAILED";
+
+export class GoogleOAuthError extends Error {
+  readonly code: GoogleOAuthErrorCode;
+
+  constructor(code: GoogleOAuthErrorCode) {
+    super(code);
+    this.name = "GoogleOAuthError";
+    this.code = code;
+  }
+}
+
+function getGoogleRefreshErrorCode(error: unknown): GoogleOAuthErrorCode {
+  if (!error || typeof error !== "object") {
+    return "GOOGLE_TOKEN_REFRESH_FAILED";
+  }
+
+  const candidate = error as {
+    code?: unknown;
+    response?: { status?: unknown; data?: { error?: unknown } };
+  };
+  const status = candidate.response?.status ?? candidate.code;
+  const providerCode = candidate.response?.data?.error;
+
+  if (status === 401 || providerCode === "invalid_grant") {
+    return "GOOGLE_TOKEN_INVALID";
+  }
+
+  if (status === 403) {
+    return "GOOGLE_PERMISSION_DENIED";
+  }
+
+  return "GOOGLE_TOKEN_REFRESH_FAILED";
+}
 
 export async function getOAuthClientForUser(userId: string) {
   const { data, error } = await supabaseAdmin
@@ -14,13 +55,27 @@ export async function getOAuthClientForUser(userId: string) {
   if (error) throw error;
 
   const conn = data?.[0];
-  if (!conn) throw new Error("Google connection not found");
+  if (!conn) throw new GoogleOAuthError("GOOGLE_CONNECTION_NOT_FOUND");
 
-  const refreshToken = String(conn.refresh_token_enc ?? "").trim();
-  const accessToken = String(conn.access_token_enc ?? "").trim();
+  const keyId = process.env.GOOGLE_TOKEN_ENCRYPTION_KEY_ID;
+  const key = process.env.GOOGLE_TOKEN_ENCRYPTION_KEY;
+  const refreshToken = decryptGoogleToken({
+    token: String(conn.refresh_token_enc ?? "").trim(),
+    userId,
+    tokenType: "refresh",
+    keyId,
+    key,
+  });
+  const accessToken = decryptGoogleToken({
+    token: String(conn.access_token_enc ?? "").trim(),
+    userId,
+    tokenType: "access",
+    keyId,
+    key,
+  });
 
   if (!refreshToken) {
-    throw new Error("Google refresh token missing. Please reconnect Google.");
+    throw new GoogleOAuthError("GOOGLE_REFRESH_TOKEN_MISSING");
   }
 
   const clientId = process.env.GOOGLE_CLIENT_ID ?? "";
@@ -45,7 +100,7 @@ export async function getOAuthClientForUser(userId: string) {
     const newAccessToken = at?.token?.trim() ?? "";
 
     if (!newAccessToken) {
-      throw new Error("Failed to refresh access token (no token returned)");
+      throw new GoogleOAuthError("GOOGLE_TOKEN_REFRESH_FAILED");
     }
 
     oauth2Client.setCredentials({
@@ -64,10 +119,21 @@ export async function getOAuthClientForUser(userId: string) {
         .eq("user_id", userId);
     }
 
-    console.log("[google] refreshed access token len=", newAccessToken.length);
-  } catch (e: any) {
-    console.error("[google] refresh failed:", e?.message ?? e);
-    throw new Error(`Google token refresh failed: ${e?.message ?? "unknown"}`);
+    console.log("[google.auth] refresh succeeded", {
+      location: "oauth_access_token_refresh",
+    });
+  } catch (error) {
+    const safeError =
+      error instanceof GoogleOAuthError
+        ? error
+        : new GoogleOAuthError(getGoogleRefreshErrorCode(error));
+
+    console.error("[google.auth] refresh failed", {
+      code: safeError.code,
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      location: "oauth_access_token_refresh",
+    });
+    throw safeError;
   }
 
   return oauth2Client;

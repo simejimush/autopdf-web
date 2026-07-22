@@ -29,6 +29,16 @@ export function getRunErrorMessage(
         action: "Googleアカウントを再接続してください。",
       };
 
+    case "GOOGLE_TOKEN_KEY_MISSING":
+    case "GOOGLE_TOKEN_KEY_INVALID":
+    case "GOOGLE_TOKEN_FORMAT_UNSUPPORTED":
+    case "GOOGLE_TOKEN_DECRYPT_FAILED":
+      return {
+        title: "Google認証情報を読み取れませんでした",
+        message: "保存済みの認証情報を安全に処理できませんでした。",
+        action: "再実行せず、管理者に確認してください。",
+      };
+
     case "GOOGLE_PERMISSION_DENIED":
       return {
         title: "Googleの権限が不足しています",

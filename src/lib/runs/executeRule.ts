@@ -285,8 +285,10 @@ export async function executeRule(
 
     if (profileError) {
       console.error("[executeRule] failed to fetch user profile:", {
-        userId: params.userId,
-        message: profileError.message,
+        code: "USER_PROFILE_FETCH_FAILED",
+        dbCode:
+          typeof profileError.code === "string" ? profileError.code : undefined,
+        location: "fetch_user_profile",
       });
     } else {
       effectivePlan = resolveEffectivePlan(profile);
@@ -528,8 +530,12 @@ export async function executeRule(
 
     if (processedInsertError) {
       console.error("[executeRule] processed_emails insert failed:", {
-        code: processedInsertError.code,
-        message: processedInsertError.message,
+        code: "PROCESSED_EMAIL_INSERT_FAILED",
+        dbCode:
+          typeof processedInsertError.code === "string"
+            ? processedInsertError.code
+            : undefined,
+        location: "insert_processed_email",
       });
 
       throw new Error("DB_INSERT_FAILED");
@@ -566,8 +572,12 @@ export async function executeRule(
       message: successMessage,
     };
   } catch (error) {
-    console.error("[executeRule] raw error:", error);
     const errorCode = normalizeRunErrorCode(error);
+    console.error("[executeRule] failed", {
+      code: errorCode,
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      location: "execute_rule",
+    });
     const userFacing = getRunErrorMessage(errorCode);
 
     const detail = (userFacing.action ?? userFacing.message ?? "").trim();
@@ -597,12 +607,12 @@ export async function executeRule(
           occurredAt: new Date().toISOString(),
         });
       } catch (notifyError) {
-        const notifyMessage =
-          notifyError instanceof Error
-            ? notifyError.message
-            : "Unknown Slack notify error";
-
-        console.error("[monitoring] Slack notify failed:", notifyMessage);
+        console.error("[monitoring] Slack notify failed", {
+          code: "SLACK_NOTIFY_FAILED",
+          errorName:
+            notifyError instanceof Error ? notifyError.name : "UnknownError",
+          location: "execute_rule_error_notification",
+        });
       }
     }
 
@@ -631,12 +641,12 @@ export async function executeRule(
           });
         }
       } catch (notifyError) {
-        const notifyMessage =
-          notifyError instanceof Error
-            ? notifyError.message
-            : "Unknown user notify error";
-
-        console.error("[monitoring] User notify failed:", notifyMessage);
+        console.error("[monitoring] User notify failed", {
+          code: "USER_NOTIFY_FAILED",
+          errorName:
+            notifyError instanceof Error ? notifyError.name : "UnknownError",
+          location: "execute_rule_error_notification",
+        });
       }
     }
 
