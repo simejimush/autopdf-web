@@ -1,10 +1,13 @@
 import { randomBytes } from "node:crypto";
+import { inspect } from "node:util";
 import { expect, test } from "@playwright/test";
 import {
+  createGoogleTokenCredentialHandle,
   createGoogleTokenStore,
   createPlaintextGoogleToken,
   GOOGLE_CALLBACK_REFRESH_COLUMNS,
   GOOGLE_TOKEN_CREDENTIAL_COLUMNS,
+  GoogleTokenCredentialSerializationError,
   GoogleTokenStoreError,
   type GoogleConnectionWritePayload,
   type GoogleTokenConnectionRow,
@@ -415,10 +418,9 @@ test("load dual-reads legacy access and refresh with explicit columns", async ()
 
   const credentials = await store.loadGoogleTokenCredentials(USER_ID);
 
-  expect(credentials).toEqual({
-    accessToken: "legacy-access-token",
-    refreshToken: "legacy-refresh-token",
-  });
+  expect(credentials.getAccessToken()).toBe("legacy-access-token");
+  expect(credentials.getRefreshToken()).toBe("legacy-refresh-token");
+  expect(credentials.getTokenExpiryAt()).toBeNull();
   expect(decryptTypes).toEqual(["access", "refresh"]);
   expect(calls.selects).toEqual([
     { userId: USER_ID, columns: [...GOOGLE_TOKEN_CREDENTIAL_COLUMNS] },
@@ -454,12 +456,141 @@ test("load decrypts encrypted access and refresh with separate AAD", async () =>
     },
   });
 
-  await expect(
-    store.loadGoogleTokenCredentials(USER_ID),
-  ).resolves.toEqual({
-    accessToken: "encrypted-access-token",
-    refreshToken: "encrypted-refresh-token",
+  const credentials = await store.loadGoogleTokenCredentials(USER_ID);
+
+  expect(credentials.getAccessToken()).toBe("encrypted-access-token");
+  expect(credentials.getRefreshToken()).toBe("encrypted-refresh-token");
+  expect(credentials.getTokenExpiryAt()).toBeNull();
+});
+
+test("credential handle preserves token and expiry variants exactly", () => {
+  const accessToken = createPlaintextGoogleToken("  opaque-access-token  ");
+  const refreshToken = createPlaintextGoogleToken("opaque-refresh-token");
+  const cases = [
+    { accessToken, refreshToken, tokenExpiryAt: EXPIRY },
+    { accessToken, refreshToken: null, tokenExpiryAt: null },
+    { accessToken: null, refreshToken, tokenExpiryAt: EXPIRY },
+    { accessToken: null, refreshToken: null, tokenExpiryAt: null },
+  ];
+
+  for (const testCase of cases) {
+    const handle = createGoogleTokenCredentialHandle(testCase);
+
+    expect(handle.getAccessToken()).toBe(testCase.accessToken);
+    expect(handle.getRefreshToken()).toBe(testCase.refreshToken);
+    expect(handle.getTokenExpiryAt()).toBe(testCase.tokenExpiryAt);
+  }
+});
+
+test("credential handle does not expose tokens through enumeration or copy", () => {
+  const secrets = ["enumeration-access-token", "enumeration-refresh-token"];
+  const handle = createGoogleTokenCredentialHandle({
+    accessToken: createPlaintextGoogleToken(secrets[0]),
+    refreshToken: createPlaintextGoogleToken(secrets[1]),
+    tokenExpiryAt: EXPIRY,
   });
+  const results = [
+    Object.keys(handle),
+    Object.values(handle),
+    Object.entries(handle),
+    { ...handle },
+    Object.assign({}, handle),
+  ];
+
+  for (const result of results) {
+    expect(Object.keys(result)).toHaveLength(0);
+    const serialized = JSON.stringify(result);
+    for (const secret of secrets) {
+      expect(serialized).not.toContain(secret);
+    }
+  }
+});
+
+test("credential handle JSON serialization fails closed safely", () => {
+  const accessToken = "json-access-token-secret";
+  const refreshToken = "json-refresh-token-secret";
+  const handle = createGoogleTokenCredentialHandle({
+    accessToken: createPlaintextGoogleToken(accessToken),
+    refreshToken: createPlaintextGoogleToken(refreshToken),
+    tokenExpiryAt: EXPIRY,
+  });
+  const forbiddenValues = [
+    accessToken,
+    refreshToken,
+    "autopdf-token:v1:ciphertext-marker",
+    "key-id-marker",
+    "aad-marker",
+    USER_ID,
+  ];
+
+  for (const serialize of [
+    () => JSON.stringify(handle),
+    () => JSON.stringify({ credentials: handle }),
+  ]) {
+    try {
+      serialize();
+      throw new Error("Expected credential serialization to fail");
+    } catch (error) {
+      expect(error).toBeInstanceOf(GoogleTokenCredentialSerializationError);
+      expect(error).toMatchObject({
+        name: "GoogleTokenCredentialSerializationError",
+        code: "GOOGLE_TOKEN_CREDENTIAL_SERIALIZATION_FORBIDDEN",
+        message: "Google token credentials cannot be serialized",
+      });
+      expect(error).not.toHaveProperty("cause");
+      for (const value of forbiddenValues) {
+        expect((error as Error).message).not.toContain(value);
+      }
+    }
+  }
+});
+
+test("credential handle has safe string and inspection output", () => {
+  const secrets = ["string-access-token", "string-refresh-token"];
+  const handle = createGoogleTokenCredentialHandle({
+    accessToken: createPlaintextGoogleToken(secrets[0]),
+    refreshToken: createPlaintextGoogleToken(secrets[1]),
+    tokenExpiryAt: EXPIRY,
+  });
+  const outputs = [String(handle), `${handle}`, inspect(handle)];
+
+  expect(outputs[0]).toBe("[GoogleTokenCredentialHandle]");
+  expect(outputs[1]).toBe("[GoogleTokenCredentialHandle]");
+  for (const output of outputs) {
+    for (const secret of secrets) {
+      expect(output).not.toContain(secret);
+    }
+  }
+});
+
+test("credential handle is frozen against method and property mutation", () => {
+  const accessToken = "immutable-access-token";
+  const refreshToken = "immutable-refresh-token";
+  const handle = createGoogleTokenCredentialHandle({
+    accessToken: createPlaintextGoogleToken(accessToken),
+    refreshToken: createPlaintextGoogleToken(refreshToken),
+    tokenExpiryAt: EXPIRY,
+  });
+
+  expect(Object.isFrozen(handle)).toBe(true);
+  expect(Reflect.set(handle, "getAccessToken", () => "replacement")).toBe(
+    false,
+  );
+  expect(Reflect.set(handle, "accessToken", accessToken)).toBe(false);
+  expect(Reflect.deleteProperty(handle, "getRefreshToken")).toBe(false);
+
+  try {
+    Object.defineProperty(handle, "refreshToken", { value: refreshToken });
+    throw new Error("Expected credential mutation to fail");
+  } catch (error) {
+    expect(error).toBeInstanceOf(TypeError);
+    expect((error as Error).message).not.toContain(accessToken);
+    expect((error as Error).message).not.toContain(refreshToken);
+  }
+
+  expect(handle.getAccessToken()).toBe(accessToken);
+  expect(handle.getRefreshToken()).toBe(refreshToken);
+  expect(handle.getTokenExpiryAt()).toBe(EXPIRY);
 });
 
 test("swapped token types fail decryption without DB writes", async () => {
@@ -723,10 +854,10 @@ test("production repository loads its client lazily and uses the select chain", 
   });
 
   expect(calls.clientLoads).toBe(0);
-  await expect(store.loadGoogleTokenCredentials(USER_ID)).resolves.toEqual({
-    accessToken: "legacy-access",
-    refreshToken: null,
-  });
+  const credentials = await store.loadGoogleTokenCredentials(USER_ID);
+  expect(credentials.getAccessToken()).toBe("legacy-access");
+  expect(credentials.getRefreshToken()).toBeNull();
+  expect(credentials.getTokenExpiryAt()).toBeNull();
   expect(calls).toMatchObject({
     clientLoads: 1,
     from: ["google_connections"],

@@ -139,10 +139,67 @@ export type UpdateRefreshedGoogleAccessTokenInput = Readonly<{
   updatedAt: string;
 }>;
 
-export type GoogleTokenCredentials = Readonly<{
+export type GoogleTokenCredentialHandle = Readonly<{
+  getAccessToken(): PlaintextGoogleToken | null;
+  getRefreshToken(): PlaintextGoogleToken | null;
+  getTokenExpiryAt(): string | null;
+  toJSON(): never;
+}>;
+
+export type GoogleTokenCredentials = GoogleTokenCredentialHandle;
+
+const GOOGLE_TOKEN_CREDENTIAL_HANDLE_DISPLAY =
+  "[GoogleTokenCredentialHandle]";
+const GOOGLE_TOKEN_CREDENTIAL_SERIALIZATION_ERROR =
+  "Google token credentials cannot be serialized";
+
+export class GoogleTokenCredentialSerializationError extends Error {
+  readonly code = "GOOGLE_TOKEN_CREDENTIAL_SERIALIZATION_FORBIDDEN";
+
+  constructor() {
+    super(GOOGLE_TOKEN_CREDENTIAL_SERIALIZATION_ERROR);
+    this.name = "GoogleTokenCredentialSerializationError";
+  }
+}
+
+export function createGoogleTokenCredentialHandle(input: Readonly<{
   accessToken: PlaintextGoogleToken | null;
   refreshToken: PlaintextGoogleToken | null;
-}>;
+  tokenExpiryAt: string | null;
+}>): GoogleTokenCredentialHandle {
+  const { accessToken, refreshToken, tokenExpiryAt } = input;
+  const handle = Object.create(Object.prototype) as Record<
+    PropertyKey,
+    unknown
+  >;
+
+  Object.defineProperties(handle, {
+    getAccessToken: {
+      value: () => accessToken,
+      enumerable: false,
+    },
+    getRefreshToken: {
+      value: () => refreshToken,
+      enumerable: false,
+    },
+    getTokenExpiryAt: {
+      value: () => tokenExpiryAt,
+      enumerable: false,
+    },
+    toJSON: {
+      value: (): never => {
+        throw new GoogleTokenCredentialSerializationError();
+      },
+      enumerable: false,
+    },
+    toString: {
+      value: () => GOOGLE_TOKEN_CREDENTIAL_HANDLE_DISPLAY,
+      enumerable: false,
+    },
+  });
+
+  return Object.freeze(handle) as GoogleTokenCredentialHandle;
+}
 
 export class GoogleTokenStoreError extends Error {
   readonly code: GoogleTokenStoreErrorCode;
@@ -270,7 +327,7 @@ export function createGoogleTokenStore(dependencies: Readonly<{
     });
     const row = getSingleRow(result);
 
-    return Object.freeze({
+    return createGoogleTokenCredentialHandle({
       accessToken: decryptStoredToken(
         row.accessTokenStored,
         userId,
@@ -281,6 +338,7 @@ export function createGoogleTokenStore(dependencies: Readonly<{
         userId,
         "refresh",
       ),
+      tokenExpiryAt: null,
     });
   }
 
