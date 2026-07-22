@@ -101,6 +101,10 @@ function parseEncryptedGoogleToken(token: string): ParsedEncryptedToken {
   };
 }
 
+export function validateEncryptedGoogleToken(token: string): void {
+  parseEncryptedGoogleToken(token);
+}
+
 export function validateGoogleTokenKeyId(keyId: string): void {
   if (!KEY_ID_PATTERN.test(keyId)) {
     fail("GOOGLE_TOKEN_KEY_INVALID");

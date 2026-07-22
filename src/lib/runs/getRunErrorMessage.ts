@@ -40,6 +40,18 @@ export function getRunErrorMessage(
         action: "再実行せず、管理者に確認してください。",
       };
 
+    case "GOOGLE_TOKEN_INPUT_INVALID":
+    case "GOOGLE_TOKEN_ENCRYPT_FAILED":
+    case "GOOGLE_TOKEN_STORE_FAILED":
+    case "GOOGLE_TOKEN_UPDATE_CONFLICT":
+    case "GOOGLE_TOKEN_ROW_NOT_FOUND":
+    case "GOOGLE_TOKEN_ROW_DUPLICATE":
+      return {
+        title: "Google認証情報を保存できませんでした",
+        message: "認証情報の安全な保存処理を完了できませんでした。",
+        action: "再実行せず、管理者に確認してください。",
+      };
+
     case "GOOGLE_PERMISSION_DENIED":
       return {
         title: "Googleの権限が不足しています",
