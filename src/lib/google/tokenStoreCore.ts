@@ -23,6 +23,7 @@ export type GoogleUserId = string & {
 export type GoogleTokenStoreErrorCode =
   | "GOOGLE_TOKEN_INPUT_INVALID"
   | "GOOGLE_TOKEN_ENCRYPT_FAILED"
+  | "GOOGLE_TOKEN_WRITE_DISABLED"
   | "GOOGLE_TOKEN_STORE_FAILED"
   | "GOOGLE_TOKEN_UPDATE_CONFLICT"
   | "GOOGLE_TOKEN_ROW_NOT_FOUND"
@@ -31,6 +32,7 @@ export type GoogleTokenStoreErrorCode =
 const SAFE_ERROR_MESSAGES: Record<GoogleTokenStoreErrorCode, string> = {
   GOOGLE_TOKEN_INPUT_INVALID: "Google token store input is invalid",
   GOOGLE_TOKEN_ENCRYPT_FAILED: "Google token encryption failed",
+  GOOGLE_TOKEN_WRITE_DISABLED: "Google token encryption writes are disabled",
   GOOGLE_TOKEN_STORE_FAILED: "Google token storage failed",
   GOOGLE_TOKEN_UPDATE_CONFLICT: "Google token storage update conflicted",
   GOOGLE_TOKEN_ROW_NOT_FOUND: "Google token row was not found",
@@ -43,19 +45,33 @@ const UUID_PATTERN =
 export const GOOGLE_TOKEN_CREDENTIAL_COLUMNS = Object.freeze([
   "access_token_enc",
   "refresh_token_enc",
+  "status",
+  "token_expiry_at",
+  "scopes",
 ] as const);
 
 export const GOOGLE_CALLBACK_REFRESH_COLUMNS = Object.freeze([
   "refresh_token_enc",
 ] as const);
 
+export const GOOGLE_CALLBACK_SNAPSHOT_COLUMNS = Object.freeze([
+  "refresh_token_enc",
+  "status",
+  "token_expiry_at",
+  "scopes",
+] as const);
+
 export type GoogleTokenReadColumn =
   | (typeof GOOGLE_TOKEN_CREDENTIAL_COLUMNS)[number]
-  | (typeof GOOGLE_CALLBACK_REFRESH_COLUMNS)[number];
+  | (typeof GOOGLE_CALLBACK_REFRESH_COLUMNS)[number]
+  | (typeof GOOGLE_CALLBACK_SNAPSHOT_COLUMNS)[number];
 
 export type GoogleTokenConnectionRow = Readonly<{
   accessTokenStored?: string | null;
   refreshTokenStored?: string | null;
+  statusStored?: string | null;
+  tokenExpiryAtStored?: string | null;
+  scopesStored?: string | null;
 }>;
 
 export type GoogleConnectionWritePayload = Readonly<{
@@ -82,37 +98,51 @@ type RepositoryWriteResult =
   | Readonly<{ ok: false }>;
 
 export type GoogleTokenRepository = Readonly<{
-  selectConnectionsByUserId(input: Readonly<{
-    userId: GoogleUserId;
-    columns: readonly GoogleTokenReadColumn[];
-  }>): Promise<RepositorySelectResult>;
-  insertConnection(input: Readonly<{
-    userId: GoogleUserId;
-    payload: GoogleConnectionWritePayload;
-  }>): Promise<RepositoryWriteResult>;
-  updateConnectionByUserId(input: Readonly<{
-    userId: GoogleUserId;
-    payload: GoogleConnectionWritePayload;
-  }>): Promise<RepositoryWriteResult>;
+  selectConnectionsByUserId(
+    input: Readonly<{
+      userId: GoogleUserId;
+      columns: readonly GoogleTokenReadColumn[];
+    }>,
+  ): Promise<RepositorySelectResult>;
+  insertConnection(
+    input: Readonly<{
+      userId: GoogleUserId;
+      payload: GoogleConnectionWritePayload;
+    }>,
+  ): Promise<RepositoryWriteResult>;
+  updateConnectionByUserId(
+    input: Readonly<{
+      userId: GoogleUserId;
+      payload: GoogleConnectionWritePayload;
+    }>,
+  ): Promise<RepositoryWriteResult>;
 }>;
 
-type GoogleTokenCryptoAdapter = Readonly<{
-  encrypt(input: Readonly<{
-    token: PlaintextGoogleToken;
-    userId: GoogleUserId;
-    tokenType: "access" | "refresh";
-  }>): string;
-  decrypt(input: Readonly<{
-    token: string;
-    userId: GoogleUserId;
-    tokenType: "access" | "refresh";
-  }>): string;
+export type GoogleTokenCryptoAdapter = Readonly<{
+  encrypt(
+    input: Readonly<{
+      token: PlaintextGoogleToken;
+      userId: GoogleUserId;
+      tokenType: "access" | "refresh";
+    }>,
+  ): string;
+  decrypt(
+    input: Readonly<{
+      token: string;
+      userId: GoogleUserId;
+      tokenType: "access" | "refresh";
+    }>,
+  ): string;
 }>;
 
 export type GoogleRefreshTokenWrite =
   | Readonly<{ mode: "preserve" }>
   | Readonly<{ mode: "update"; token: PlaintextGoogleToken }>
   | Readonly<{ mode: "clear" }>;
+
+export type GoogleRefreshedTokenWrite =
+  | Readonly<{ mode: "preserve" }>
+  | Readonly<{ mode: "update"; token: PlaintextGoogleToken }>;
 
 type GoogleCallbackConnectionState = Readonly<{
   tokenExpiryAt: string | null;
@@ -134,22 +164,34 @@ export type SaveGoogleCallbackConnectionInput = Readonly<{
 export type UpdateRefreshedGoogleAccessTokenInput = Readonly<{
   userId: string;
   accessToken: PlaintextGoogleToken;
+  refreshToken?: GoogleRefreshedTokenWrite;
   tokenExpiryAt: string | null;
   lastVerifiedAt: string;
   updatedAt: string;
 }>;
 
 export type GoogleTokenCredentialHandle = Readonly<{
+  exists(): boolean;
   getAccessToken(): PlaintextGoogleToken | null;
   getRefreshToken(): PlaintextGoogleToken | null;
   getTokenExpiryAt(): string | null;
+  getStatus(): string | null;
+  getScopes(): string | null;
+  toJSON(): never;
+}>;
+
+export type GoogleCallbackConnectionSnapshot = Readonly<{
+  exists(): boolean;
+  getRefreshToken(): PlaintextGoogleToken | null;
+  getTokenExpiryAt(): string | null;
+  getStatus(): string | null;
+  getScopes(): string | null;
   toJSON(): never;
 }>;
 
 export type GoogleTokenCredentials = GoogleTokenCredentialHandle;
 
-const GOOGLE_TOKEN_CREDENTIAL_HANDLE_DISPLAY =
-  "[GoogleTokenCredentialHandle]";
+const GOOGLE_TOKEN_CREDENTIAL_HANDLE_DISPLAY = "[GoogleTokenCredentialHandle]";
 const GOOGLE_TOKEN_CREDENTIAL_SERIALIZATION_ERROR =
   "Google token credentials cannot be serialized";
 
@@ -162,18 +204,30 @@ export class GoogleTokenCredentialSerializationError extends Error {
   }
 }
 
-export function createGoogleTokenCredentialHandle(input: Readonly<{
-  accessToken: PlaintextGoogleToken | null;
-  refreshToken: PlaintextGoogleToken | null;
-  tokenExpiryAt: string | null;
-}>): GoogleTokenCredentialHandle {
+export function createGoogleTokenCredentialHandle(
+  input: Readonly<{
+    accessToken: PlaintextGoogleToken | null;
+    refreshToken: PlaintextGoogleToken | null;
+    tokenExpiryAt: string | null;
+    status?: string | null;
+    scopes?: string | null;
+    rowExists?: boolean;
+  }>,
+): GoogleTokenCredentialHandle {
   const { accessToken, refreshToken, tokenExpiryAt } = input;
+  const status = input.status ?? null;
+  const scopes = input.scopes ?? null;
+  const rowExists = input.rowExists ?? true;
   const handle = Object.create(Object.prototype) as Record<
     PropertyKey,
     unknown
   >;
 
   Object.defineProperties(handle, {
+    exists: {
+      value: () => rowExists,
+      enumerable: false,
+    },
     getAccessToken: {
       value: () => accessToken,
       enumerable: false,
@@ -184,6 +238,14 @@ export function createGoogleTokenCredentialHandle(input: Readonly<{
     },
     getTokenExpiryAt: {
       value: () => tokenExpiryAt,
+      enumerable: false,
+    },
+    getStatus: {
+      value: () => status,
+      enumerable: false,
+    },
+    getScopes: {
+      value: () => scopes,
       enumerable: false,
     },
     toJSON: {
@@ -199,6 +261,41 @@ export function createGoogleTokenCredentialHandle(input: Readonly<{
   });
 
   return Object.freeze(handle) as GoogleTokenCredentialHandle;
+}
+
+function createGoogleCallbackConnectionSnapshot(
+  input: Readonly<{
+    rowExists: boolean;
+    refreshToken: PlaintextGoogleToken | null;
+    tokenExpiryAt: string | null;
+    status: string | null;
+    scopes: string | null;
+  }>,
+): GoogleCallbackConnectionSnapshot {
+  const snapshot = Object.create(Object.prototype) as Record<
+    PropertyKey,
+    unknown
+  >;
+
+  Object.defineProperties(snapshot, {
+    exists: { value: () => input.rowExists, enumerable: false },
+    getRefreshToken: { value: () => input.refreshToken, enumerable: false },
+    getTokenExpiryAt: { value: () => input.tokenExpiryAt, enumerable: false },
+    getStatus: { value: () => input.status, enumerable: false },
+    getScopes: { value: () => input.scopes, enumerable: false },
+    toJSON: {
+      value: (): never => {
+        throw new GoogleTokenCredentialSerializationError();
+      },
+      enumerable: false,
+    },
+    toString: {
+      value: () => "[GoogleCallbackConnectionSnapshot]",
+      enumerable: false,
+    },
+  });
+
+  return Object.freeze(snapshot) as GoogleCallbackConnectionSnapshot;
 }
 
 export class GoogleTokenStoreError extends Error {
@@ -275,11 +372,78 @@ function assertSingleWrite(result: RepositoryWriteResult): void {
   }
 }
 
-export function createGoogleTokenStore(dependencies: Readonly<{
-  repository: GoogleTokenRepository;
-  crypto: GoogleTokenCryptoAdapter;
-  now: () => string;
-}>) {
+function normalizeStoredExpiry(
+  value: string | null | undefined,
+): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (value.trim().length === 0) {
+    fail("GOOGLE_TOKEN_STORE_FAILED");
+  }
+
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) {
+    fail("GOOGLE_TOKEN_STORE_FAILED");
+  }
+
+  return new Date(timestamp).toISOString();
+}
+
+export function createGoogleTokenEncryptionWritePreflight(
+  dependencies: Readonly<{
+    crypto: GoogleTokenCryptoAdapter;
+    readInterlock: () => string | undefined;
+  }>,
+): () => void {
+  const selfTestUserId = "00000000-0000-4000-8000-000000000000" as GoogleUserId;
+  const selfTestToken =
+    "google-token-encryption-self-test" as PlaintextGoogleToken;
+
+  return () => {
+    const interlock = dependencies.readInterlock();
+    if (
+      interlock === "true" ||
+      (interlock !== undefined && interlock !== "false")
+    ) {
+      fail("GOOGLE_TOKEN_WRITE_DISABLED");
+    }
+
+    let encrypted: string;
+    let decrypted: string;
+    try {
+      encrypted = dependencies.crypto.encrypt({
+        token: selfTestToken,
+        userId: selfTestUserId,
+        tokenType: "access",
+      });
+      validateEncryptedGoogleToken(encrypted);
+      decrypted = dependencies.crypto.decrypt({
+        token: encrypted,
+        userId: selfTestUserId,
+        tokenType: "access",
+      });
+    } catch (error) {
+      if (error instanceof GoogleTokenCryptoError) {
+        throw error;
+      }
+      fail("GOOGLE_TOKEN_ENCRYPT_FAILED");
+    }
+
+    if (decrypted !== selfTestToken) {
+      fail("GOOGLE_TOKEN_ENCRYPT_FAILED");
+    }
+  };
+}
+
+export function createGoogleTokenStore(
+  dependencies: Readonly<{
+    repository: GoogleTokenRepository;
+    crypto: GoogleTokenCryptoAdapter;
+    now: () => string;
+  }>,
+) {
   const { repository, crypto, now } = dependencies;
 
   function encryptForStore(
@@ -328,17 +492,54 @@ export function createGoogleTokenStore(dependencies: Readonly<{
     const row = getSingleRow(result);
 
     return createGoogleTokenCredentialHandle({
-      accessToken: decryptStoredToken(
-        row.accessTokenStored,
-        userId,
-        "access",
-      ),
+      accessToken: decryptStoredToken(row.accessTokenStored, userId, "access"),
       refreshToken: decryptStoredToken(
         row.refreshTokenStored,
         userId,
         "refresh",
       ),
-      tokenExpiryAt: null,
+      tokenExpiryAt: normalizeStoredExpiry(row.tokenExpiryAtStored),
+      status: row.statusStored ?? null,
+      scopes: row.scopesStored ?? null,
+    });
+  }
+
+  async function loadGoogleCallbackConnectionSnapshot(
+    rawUserId: string,
+  ): Promise<GoogleCallbackConnectionSnapshot> {
+    const userId = validateUserId(rawUserId);
+    const result = await repository.selectConnectionsByUserId({
+      userId,
+      columns: GOOGLE_CALLBACK_SNAPSHOT_COLUMNS,
+    });
+
+    if (!result.ok) {
+      fail("GOOGLE_TOKEN_STORE_FAILED");
+    }
+    if (result.rows.length > 1) {
+      fail("GOOGLE_TOKEN_ROW_DUPLICATE");
+    }
+    if (result.rows.length === 0) {
+      return createGoogleCallbackConnectionSnapshot({
+        rowExists: false,
+        refreshToken: null,
+        tokenExpiryAt: null,
+        status: null,
+        scopes: null,
+      });
+    }
+
+    const row = result.rows[0];
+    return createGoogleCallbackConnectionSnapshot({
+      rowExists: true,
+      refreshToken: decryptStoredToken(
+        row.refreshTokenStored,
+        userId,
+        "refresh",
+      ),
+      tokenExpiryAt: normalizeStoredExpiry(row.tokenExpiryAtStored),
+      status: row.statusStored ?? null,
+      scopes: row.scopesStored ?? null,
     });
   }
 
@@ -396,8 +597,7 @@ export function createGoogleTokenStore(dependencies: Readonly<{
       last_error_code: null,
       last_error_at: null,
       last_user_notified_at: input.state.lastUserNotifiedAt,
-      last_user_notified_error_code:
-        input.state.lastUserNotifiedErrorCode,
+      last_user_notified_error_code: input.state.lastUserNotifiedErrorCode,
       updated_at: input.state.updatedAt,
     });
 
@@ -418,8 +618,20 @@ export function createGoogleTokenStore(dependencies: Readonly<{
       userId,
       "access",
     );
+    const refreshTokenWrite = input.refreshToken ?? { mode: "preserve" };
+    const refreshTokenPayload =
+      refreshTokenWrite.mode === "update"
+        ? Object.freeze({
+            refresh_token_enc: encryptForStore(
+              refreshTokenWrite.token,
+              userId,
+              "refresh",
+            ),
+          })
+        : undefined;
     const payload: GoogleConnectionWritePayload = Object.freeze({
       access_token_enc: accessTokenEncrypted,
+      ...(refreshTokenPayload ?? {}),
       token_expiry_at: input.tokenExpiryAt,
       last_verified_at: input.lastVerifiedAt,
       updated_at: input.updatedAt,
@@ -458,6 +670,7 @@ export function createGoogleTokenStore(dependencies: Readonly<{
   return Object.freeze({
     loadGoogleTokenCredentials,
     loadGoogleRefreshTokenForCallback,
+    loadGoogleCallbackConnectionSnapshot,
     saveGoogleCallbackConnection,
     updateRefreshedGoogleAccessToken,
     disconnectGoogleConnection,

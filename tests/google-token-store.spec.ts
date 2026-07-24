@@ -3,9 +3,11 @@ import { inspect } from "node:util";
 import { expect, test } from "@playwright/test";
 import {
   createGoogleTokenCredentialHandle,
+  createGoogleTokenEncryptionWritePreflight,
   createGoogleTokenStore,
   createPlaintextGoogleToken,
   GOOGLE_CALLBACK_REFRESH_COLUMNS,
+  GOOGLE_CALLBACK_SNAPSHOT_COLUMNS,
   GOOGLE_TOKEN_CREDENTIAL_COLUMNS,
   GoogleTokenCredentialSerializationError,
   GoogleTokenStoreError,
@@ -199,11 +201,10 @@ function callbackInput(options?: {
     accessToken: createPlaintextGoogleToken(
       options?.accessToken ?? "callback-access-token",
     ),
-    refreshToken:
-      options?.refreshToken ?? {
-        mode: "update",
-        token: createPlaintextGoogleToken("callback-refresh-token"),
-      },
+    refreshToken: options?.refreshToken ?? {
+      mode: "update",
+      token: createPlaintextGoogleToken("callback-refresh-token"),
+    },
     state: {
       tokenExpiryAt: EXPIRY,
       scopes: "gmail.readonly drive.file",
@@ -289,7 +290,9 @@ function createSupabaseRepositoryHarness(options?: {
               }
 
               calls.writeSelect.push(columns);
-              return options?.insertResult ?? { data: [{ id: "row" }], error: null };
+              return (
+                options?.insertResult ?? { data: [{ id: "row" }], error: null }
+              );
             },
           };
         },
@@ -315,7 +318,12 @@ function createSupabaseRepositoryHarness(options?: {
                   }
 
                   calls.writeSelect.push(columns);
-                  return options?.updateResult ?? { data: [{ id: "row" }], error: null };
+                  return (
+                    options?.updateResult ?? {
+                      data: [{ id: "row" }],
+                      error: null,
+                    }
+                  );
                 },
               };
             },
@@ -380,7 +388,10 @@ test("whitespace plaintext tokens fail without normalization", () => {
 });
 
 test("load distinguishes missing, duplicate, and DB failure rows", async () => {
-  const cases: Array<{ result: SelectResult; code: GoogleTokenStoreErrorCode }> = [
+  const cases: Array<{
+    result: SelectResult;
+    code: GoogleTokenStoreErrorCode;
+  }> = [
     {
       result: { ok: true, rows: [] },
       code: "GOOGLE_TOKEN_ROW_NOT_FOUND",
@@ -479,6 +490,7 @@ test("credential handle preserves token and expiry variants exactly", () => {
     expect(handle.getAccessToken()).toBe(testCase.accessToken);
     expect(handle.getRefreshToken()).toBe(testCase.refreshToken);
     expect(handle.getTokenExpiryAt()).toBe(testCase.tokenExpiryAt);
+    expect(handle.exists()).toBe(true);
   }
 });
 
@@ -495,6 +507,7 @@ test("credential handle does not expose tokens through enumeration or copy", () 
     Object.entries(handle),
     { ...handle },
     Object.assign({}, handle),
+    structuredClone(handle),
   ];
 
   for (const result of results) {
@@ -610,9 +623,11 @@ test("swapped token types fail decryption without DB writes", async () => {
     },
   });
 
-  await expect(store.loadGoogleTokenCredentials(USER_ID)).rejects.toMatchObject({
-    code: "GOOGLE_TOKEN_DECRYPT_FAILED",
-  });
+  await expect(store.loadGoogleTokenCredentials(USER_ID)).rejects.toMatchObject(
+    {
+      code: "GOOGLE_TOKEN_DECRYPT_FAILED",
+    },
+  );
   expect(calls.inserts).toHaveLength(0);
   expect(calls.updates).toHaveLength(0);
 });
@@ -625,12 +640,135 @@ test("callback refresh load requests only refresh token and dual-reads it", asyn
     },
   });
 
-  await expect(
-    store.loadGoogleRefreshTokenForCallback(USER_ID),
-  ).resolves.toBe("legacy-callback-refresh");
+  await expect(store.loadGoogleRefreshTokenForCallback(USER_ID)).resolves.toBe(
+    "legacy-callback-refresh",
+  );
   expect(calls.selects).toEqual([
     { userId: USER_ID, columns: [...GOOGLE_CALLBACK_REFRESH_COLUMNS] },
   ]);
+});
+
+test("callback snapshot distinguishes a missing row from a null refresh token", async () => {
+  const missing = createHarness({ selectResult: { ok: true, rows: [] } });
+  const missingSnapshot =
+    await missing.store.loadGoogleCallbackConnectionSnapshot(USER_ID);
+
+  expect(missingSnapshot.exists()).toBe(false);
+  expect(missingSnapshot.getRefreshToken()).toBeNull();
+  expect(missing.calls.selects).toEqual([
+    { userId: USER_ID, columns: [...GOOGLE_CALLBACK_SNAPSHOT_COLUMNS] },
+  ]);
+
+  const present = createHarness({
+    selectResult: {
+      ok: true,
+      rows: [
+        {
+          refreshTokenStored: null,
+          statusStored: "connected",
+          tokenExpiryAtStored: EXPIRY,
+          scopesStored: "gmail.readonly",
+        },
+      ],
+    },
+  });
+  const presentSnapshot =
+    await present.store.loadGoogleCallbackConnectionSnapshot(USER_ID);
+
+  expect(presentSnapshot.exists()).toBe(true);
+  expect(presentSnapshot.getRefreshToken()).toBeNull();
+  expect(presentSnapshot.getTokenExpiryAt()).toBe(EXPIRY);
+  expect(presentSnapshot.getStatus()).toBe("connected");
+  expect(presentSnapshot.getScopes()).toBe("gmail.readonly");
+  expect(Object.keys(presentSnapshot)).toEqual([]);
+  expect(structuredClone(presentSnapshot)).toEqual({});
+  expect(() => JSON.stringify(presentSnapshot)).toThrow(
+    GoogleTokenCredentialSerializationError,
+  );
+});
+
+test("callback snapshot dual-reads legacy refresh and rejects invalid expiry", async () => {
+  const valid = createHarness({
+    selectResult: {
+      ok: true,
+      rows: [
+        {
+          refreshTokenStored: "legacy-refresh-token",
+          statusStored: null,
+          tokenExpiryAtStored: null,
+          scopesStored: null,
+        },
+      ],
+    },
+  });
+  const snapshot =
+    await valid.store.loadGoogleCallbackConnectionSnapshot(USER_ID);
+  expect(snapshot.getRefreshToken()).toBe("legacy-refresh-token");
+
+  const invalid = createHarness({
+    selectResult: {
+      ok: true,
+      rows: [
+        {
+          refreshTokenStored: null,
+          statusStored: "connected",
+          tokenExpiryAtStored: "not-a-date",
+          scopesStored: null,
+        },
+      ],
+    },
+  });
+  await expectStoreErrorAsync(
+    () => invalid.store.loadGoogleCallbackConnectionSnapshot(USER_ID),
+    "GOOGLE_TOKEN_STORE_FAILED",
+  );
+});
+
+test("encryption write preflight is strict and performs no repository access", () => {
+  for (const value of ["true", "TRUE", "1", " false "]) {
+    const crypto = createCryptoAdapter();
+    const preflight = createGoogleTokenEncryptionWritePreflight({
+      crypto: crypto.adapter,
+      readInterlock: () => value,
+    });
+    expect(() => preflight()).toThrow(
+      expect.objectContaining({ code: "GOOGLE_TOKEN_WRITE_DISABLED" }),
+    );
+  }
+
+  for (const value of [undefined, "false"]) {
+    const crypto = createCryptoAdapter();
+    const preflight = createGoogleTokenEncryptionWritePreflight({
+      crypto: crypto.adapter,
+      readInterlock: () => value,
+    });
+    expect(() => preflight()).not.toThrow();
+  }
+});
+
+test("encryption write preflight fails closed on key or round-trip failure", () => {
+  const keyFailure = createCryptoAdapter({
+    encryptErrorCode: "GOOGLE_TOKEN_KEY_MISSING",
+  });
+  const keyPreflight = createGoogleTokenEncryptionWritePreflight({
+    crypto: keyFailure.adapter,
+    readInterlock: () => undefined,
+  });
+  expect(() => keyPreflight()).toThrow(
+    expect.objectContaining({ code: "GOOGLE_TOKEN_KEY_MISSING" }),
+  );
+
+  const working = createCryptoAdapter();
+  const mismatchPreflight = createGoogleTokenEncryptionWritePreflight({
+    crypto: {
+      ...working.adapter,
+      decrypt: () => "different-token",
+    },
+    readInterlock: () => "false",
+  });
+  expect(() => mismatchPreflight()).toThrow(
+    expect.objectContaining({ code: "GOOGLE_TOKEN_ENCRYPT_FAILED" }),
+  );
 });
 
 test("callback insert encrypts both tokens before one insert", async () => {
@@ -710,10 +848,7 @@ test("callback insert requires a new refresh token before DB access", async () =
   ]) {
     const { store, calls } = createHarness();
     await expectStoreErrorAsync(
-      () =>
-        store.saveGoogleCallbackConnection(
-          callbackInput({ refreshToken }),
-        ),
+      () => store.saveGoogleCallbackConnection(callbackInput({ refreshToken })),
       "GOOGLE_TOKEN_INPUT_INVALID",
     );
     expect(calls.inserts).toHaveLength(0);
@@ -847,6 +982,9 @@ test("production repository loads its client lazily and uses the select chain", 
         {
           access_token_enc: "legacy-access",
           refresh_token_enc: null,
+          status: "connected",
+          token_expiry_at: null,
+          scopes: "gmail.readonly",
         },
       ],
       error: null,
@@ -858,10 +996,14 @@ test("production repository loads its client lazily and uses the select chain", 
   expect(credentials.getAccessToken()).toBe("legacy-access");
   expect(credentials.getRefreshToken()).toBeNull();
   expect(credentials.getTokenExpiryAt()).toBeNull();
+  expect(credentials.getStatus()).toBe("connected");
+  expect(credentials.getScopes()).toBe("gmail.readonly");
   expect(calls).toMatchObject({
     clientLoads: 1,
     from: ["google_connections"],
-    select: ["access_token_enc,refresh_token_enc"],
+    select: [
+      "access_token_enc,refresh_token_enc,status,token_expiry_at,scopes",
+    ],
     eq: [{ column: "user_id", value: USER_ID }],
     limit: [2],
   });
@@ -1013,10 +1155,7 @@ test("production repository hides query builder and await exceptions", async () 
         : testCase.operation === "insert"
           ? () => harness.store.saveGoogleCallbackConnection(callbackInput())
           : () => harness.store.disconnectGoogleConnection(USER_ID);
-    const error = await expectStoreErrorAsync(
-      run,
-      "GOOGLE_TOKEN_STORE_FAILED",
-    );
+    const error = await expectStoreErrorAsync(run, "GOOGLE_TOKEN_STORE_FAILED");
 
     expect(harness.calls.clientLoads).toBe(1);
     expect(harness.calls.from).toEqual(["google_connections"]);
@@ -1082,10 +1221,7 @@ test("production repository verifies insert and update result counts", async () 
     if (count === 1) {
       await expect(insertAction()).resolves.toBeUndefined();
     } else {
-      await expectStoreErrorAsync(
-        insertAction,
-        "GOOGLE_TOKEN_UPDATE_CONFLICT",
-      );
+      await expectStoreErrorAsync(insertAction, "GOOGLE_TOKEN_UPDATE_CONFLICT");
     }
     expect(insert.calls.writeSelect).toEqual(["id"]);
 
@@ -1097,15 +1233,10 @@ test("production repository verifies insert and update result counts", async () 
     if (count === 1) {
       await expect(updateAction()).resolves.toBeUndefined();
     } else {
-      await expectStoreErrorAsync(
-        updateAction,
-        "GOOGLE_TOKEN_UPDATE_CONFLICT",
-      );
+      await expectStoreErrorAsync(updateAction, "GOOGLE_TOKEN_UPDATE_CONFLICT");
     }
     expect(update.calls.writeSelect).toEqual(["id"]);
-    expect(update.calls.eq).toEqual([
-      { column: "user_id", value: USER_ID },
-    ]);
+    expect(update.calls.eq).toEqual([{ column: "user_id", value: USER_ID }]);
   }
 });
 
@@ -1207,6 +1338,43 @@ test("refresh encryption failure prevents DB update", async () => {
   expect(calls.updates).toHaveLength(0);
 });
 
+test("refresh update rotates access and refresh tokens in one update", async () => {
+  const { store, calls, key } = createHarness();
+
+  await store.updateRefreshedGoogleAccessToken({
+    userId: USER_ID,
+    accessToken: createPlaintextGoogleToken("rotated-access-token"),
+    refreshToken: {
+      mode: "update",
+      token: createPlaintextGoogleToken("rotated-refresh-token"),
+    },
+    tokenExpiryAt: EXPIRY,
+    lastVerifiedAt: NOW,
+    updatedAt: NOW,
+  });
+
+  expect(calls.updates).toHaveLength(1);
+  const payload = calls.updates[0].payload;
+  expect(
+    decryptGoogleToken({
+      token: String(payload.access_token_enc),
+      userId: USER_ID,
+      tokenType: "access",
+      keyId: KEY_ID,
+      key,
+    }),
+  ).toBe("rotated-access-token");
+  expect(
+    decryptGoogleToken({
+      token: String(payload.refresh_token_enc),
+      userId: USER_ID,
+      tokenType: "refresh",
+      keyId: KEY_ID,
+      key,
+    }),
+  ).toBe("rotated-refresh-token");
+});
+
 test("refresh DB failure and zero-row update use defined codes", async () => {
   for (const testCase of [
     {
@@ -1280,6 +1448,7 @@ test("store errors normalize safely without reconnect classification", () => {
   const codes: GoogleTokenStoreErrorCode[] = [
     "GOOGLE_TOKEN_INPUT_INVALID",
     "GOOGLE_TOKEN_ENCRYPT_FAILED",
+    "GOOGLE_TOKEN_WRITE_DISABLED",
     "GOOGLE_TOKEN_STORE_FAILED",
     "GOOGLE_TOKEN_UPDATE_CONFLICT",
     "GOOGLE_TOKEN_ROW_NOT_FOUND",
