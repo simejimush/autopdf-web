@@ -9,7 +9,10 @@ type QueryResult = Readonly<{ data: unknown; error: unknown }>;
 
 type GoogleConnectionsTable = Readonly<{
   select(columns: string): Readonly<{
-    eq(column: "user_id", value: string): Readonly<{
+    eq(
+      column: "user_id",
+      value: string,
+    ): Readonly<{
       limit(count: 2): PromiseLike<QueryResult>;
     }>;
   }>;
@@ -17,7 +20,10 @@ type GoogleConnectionsTable = Readonly<{
     select(columns: "id"): PromiseLike<QueryResult>;
   }>;
   update(payload: GoogleConnectionWritePayload): Readonly<{
-    eq(column: "user_id", value: string): Readonly<{
+    eq(
+      column: "user_id",
+      value: string,
+    ): Readonly<{
       select(columns: "id"): PromiseLike<QueryResult>;
     }>;
   }>;
@@ -42,6 +48,9 @@ function parseConnectionRow(
   const row: {
     accessTokenStored?: string | null;
     refreshTokenStored?: string | null;
+    statusStored?: string | null;
+    tokenExpiryAtStored?: string | null;
+    scopesStored?: string | null;
   } = {};
 
   for (const column of columns) {
@@ -49,15 +58,21 @@ function parseConnectionRow(
       return null;
     }
 
-    const token = value[column];
-    if (token !== null && typeof token !== "string") {
+    const storedValue = value[column];
+    if (storedValue !== null && typeof storedValue !== "string") {
       return null;
     }
 
     if (column === "access_token_enc") {
-      row.accessTokenStored = token;
-    } else {
-      row.refreshTokenStored = token;
+      row.accessTokenStored = storedValue;
+    } else if (column === "refresh_token_enc") {
+      row.refreshTokenStored = storedValue;
+    } else if (column === "status") {
+      row.statusStored = storedValue;
+    } else if (column === "token_expiry_at") {
+      row.tokenExpiryAtStored = storedValue;
+    } else if (column === "scopes") {
+      row.scopesStored = storedValue;
     }
   }
 

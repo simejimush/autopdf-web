@@ -1,8 +1,10 @@
 import "server-only";
 
 import {
+  createGoogleTokenEncryptionWritePreflight,
   createGoogleTokenStore,
   createPlaintextGoogleToken,
+  type GoogleTokenCryptoAdapter,
 } from "@/lib/google/tokenStoreCore";
 import {
   createGoogleTokenRepository,
@@ -22,47 +24,68 @@ const repository = createGoogleTokenRepository(async () => {
   return supabaseAdmin as unknown as GoogleTokenSupabaseClient;
 });
 
+const crypto: GoogleTokenCryptoAdapter = Object.freeze({
+  encrypt({ token, userId, tokenType }) {
+    const currentKey = getCurrentGoogleTokenKey();
+    return encryptGoogleToken({
+      token,
+      userId,
+      tokenType,
+      keyId: currentKey.keyId,
+      key: currentKey.key,
+    });
+  },
+  decrypt({ token, userId, tokenType }) {
+    return decryptGoogleToken({
+      token,
+      userId,
+      tokenType,
+      resolveKey: getGoogleTokenDecryptKey,
+    });
+  },
+});
+
 const tokenStore = createGoogleTokenStore({
   repository,
-  crypto: {
-    encrypt({ token, userId, tokenType }) {
-      const currentKey = getCurrentGoogleTokenKey();
-      return encryptGoogleToken({
-        token,
-        userId,
-        tokenType,
-        keyId: currentKey.keyId,
-        key: currentKey.key,
-      });
-    },
-    decrypt({ token, userId, tokenType }) {
-      return decryptGoogleToken({
-        token,
-        userId,
-        tokenType,
-        resolveKey: getGoogleTokenDecryptKey,
-      });
-    },
-  },
+  crypto,
   now: () => new Date().toISOString(),
 });
+
+const runEncryptionWritePreflight = createGoogleTokenEncryptionWritePreflight({
+  crypto,
+  readInterlock: () => process.env.GOOGLE_TOKEN_ENCRYPTION_WRITES_DISABLED,
+});
+
+export function preflightGoogleTokenEncryptionWrite(): void {
+  runEncryptionWritePreflight();
+}
 
 export { createPlaintextGoogleToken };
 export type {
   GoogleRefreshTokenWrite,
+  GoogleRefreshedTokenWrite,
+  GoogleCallbackConnectionSnapshot,
   GoogleTokenCredentials,
   PlaintextGoogleToken,
   SaveGoogleCallbackConnectionInput,
   UpdateRefreshedGoogleAccessTokenInput,
 } from "@/lib/google/tokenStoreCore";
 
-export const loadGoogleTokenCredentials =
-  tokenStore.loadGoogleTokenCredentials;
+export const loadGoogleTokenCredentials = tokenStore.loadGoogleTokenCredentials;
 export const loadGoogleRefreshTokenForCallback =
   tokenStore.loadGoogleRefreshTokenForCallback;
-export const saveGoogleCallbackConnection =
-  tokenStore.saveGoogleCallbackConnection;
-export const updateRefreshedGoogleAccessToken =
-  tokenStore.updateRefreshedGoogleAccessToken;
-export const disconnectGoogleConnection =
-  tokenStore.disconnectGoogleConnection;
+export const loadGoogleCallbackConnectionSnapshot =
+  tokenStore.loadGoogleCallbackConnectionSnapshot;
+export async function saveGoogleCallbackConnection(
+  input: import("@/lib/google/tokenStoreCore").SaveGoogleCallbackConnectionInput,
+): Promise<void> {
+  preflightGoogleTokenEncryptionWrite();
+  await tokenStore.saveGoogleCallbackConnection(input);
+}
+export async function updateRefreshedGoogleAccessToken(
+  input: import("@/lib/google/tokenStoreCore").UpdateRefreshedGoogleAccessTokenInput,
+): Promise<void> {
+  preflightGoogleTokenEncryptionWrite();
+  await tokenStore.updateRefreshedGoogleAccessToken(input);
+}
+export const disconnectGoogleConnection = tokenStore.disconnectGoogleConnection;
