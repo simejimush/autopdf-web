@@ -3,6 +3,12 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { google } from "googleapis";
+import {
+  createPlaintextGoogleToken,
+  loadGoogleCallbackConnectionSnapshot,
+  preflightGoogleTokenEncryptionWrite,
+  saveGoogleCallbackConnection,
+} from "@/lib/google/tokenStore";
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
@@ -48,6 +54,31 @@ export async function GET(req: Request) {
   }
 
   try {
+    preflightGoogleTokenEncryptionWrite();
+  } catch {
+    console.error("[google.callback] token write preflight failed", {
+      code: "GOOGLE_TOKEN_WRITE_PREFLIGHT_FAILED",
+      location: "oauth_callback_preflight",
+    });
+    return NextResponse.redirect(
+      new URL("/settings?google=env_missing", url.origin),
+    );
+  }
+
+  let callbackSnapshot;
+  try {
+    callbackSnapshot = await loadGoogleCallbackConnectionSnapshot(user.id);
+  } catch {
+    console.error("[google.callback] failed to load existing connection", {
+      code: "GOOGLE_CONNECTION_LOAD_FAILED",
+      location: "load_existing_google_connection",
+    });
+    return NextResponse.redirect(
+      new URL("/settings?google=load_failed", url.origin),
+    );
+  }
+
+  try {
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -69,8 +100,9 @@ export async function GET(req: Request) {
         location: "oauth_token_exchange",
       });
 
-      const reason =
-        typeof token?.error === "string" ? token.error : "token_failed";
+      const reason = ["access_denied", "invalid_grant"].includes(token?.error)
+        ? token.error
+        : "token_failed";
 
       return NextResponse.redirect(
         new URL(`/settings?google=${encodeURIComponent(reason)}`, url.origin),
@@ -84,31 +116,27 @@ export async function GET(req: Request) {
       ? new Date(Date.now() + expiresIn * 1000).toISOString()
       : null;
 
-    // 既存接続を取得して refresh_token を維持する
-    const { data: existingConnection, error: existingErr } = await supabase
-      .from("google_connections")
-      .select("refresh_token_enc")
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    if (existingErr) {
-      console.error("[google.callback] failed to load existing connection", {
-        code: "GOOGLE_CONNECTION_LOAD_FAILED",
-        dbCode:
-          typeof existingErr.code === "string" ? existingErr.code : undefined,
-        location: "load_existing_google_connection",
-      });
-      return NextResponse.redirect(
-        new URL("/settings?google=load_failed", url.origin),
-      );
-    }
-
-    const refreshTokenToSave =
-      token.refresh_token ?? existingConnection?.refresh_token_enc ?? null;
-
+    const refreshTokenFromExchange = token?.refresh_token;
     const now = new Date().toISOString();
+    let verifiedAccessToken;
+    let refreshTokenToSave = callbackSnapshot.getRefreshToken();
+    let validatedRefreshToken = refreshTokenToSave;
+    let verifiedExpiryAt = tokenExpiryAt;
 
     try {
+      if (
+        refreshTokenFromExchange !== undefined &&
+        refreshTokenFromExchange !== null
+      ) {
+        if (typeof refreshTokenFromExchange !== "string") {
+          throw new Error("invalid_refresh_token");
+        }
+        refreshTokenToSave = createPlaintextGoogleToken(
+          refreshTokenFromExchange,
+        );
+        validatedRefreshToken = refreshTokenToSave;
+      }
+
       if (!refreshTokenToSave) {
         throw new Error("missing_refresh_token");
       }
@@ -119,25 +147,33 @@ export async function GET(req: Request) {
         redirectUri,
       );
 
+      oauth2Client.on("tokens", (tokens) => {
+        const candidate = tokens.refresh_token?.trim();
+        if (candidate) {
+          validatedRefreshToken = createPlaintextGoogleToken(candidate);
+        }
+      });
+
       oauth2Client.setCredentials({
         refresh_token: refreshTokenToSave,
       });
 
       const accessTokenResult = await oauth2Client.getAccessToken();
-      const verifiedAccessToken = accessTokenResult?.token?.trim() ?? "";
+      const accessToken = accessTokenResult?.token?.trim() ?? "";
 
-      if (!verifiedAccessToken) {
+      if (!accessToken) {
         throw new Error("missing_access_token");
       }
 
-      if (!token.access_token) {
-        token.access_token = verifiedAccessToken;
+      verifiedAccessToken = createPlaintextGoogleToken(accessToken);
+      if (typeof oauth2Client.credentials.expiry_date === "number") {
+        verifiedExpiryAt = new Date(
+          oauth2Client.credentials.expiry_date,
+        ).toISOString();
       }
-    } catch (verifyErr) {
+    } catch {
       console.error("[google.callback] token validation failed", {
-        userId: user.id,
         reason: "oauth_access_token_check_failed",
-        errorName: verifyErr instanceof Error ? verifyErr.name : "unknown",
       });
 
       const { error: markErr } = await supabase
@@ -157,8 +193,6 @@ export async function GET(req: Request) {
       if (markErr) {
         console.error("[google.callback] failed to mark token invalid", {
           code: "GOOGLE_CONNECTION_HEALTH_UPDATE_FAILED",
-          dbCode:
-            typeof markErr.code === "string" ? markErr.code : undefined,
           location: "mark_google_token_invalid",
         });
       }
@@ -168,39 +202,33 @@ export async function GET(req: Request) {
       );
     }
 
-    const payload: Record<string, unknown> = {
-      user_id: user.id,
-      status: "connected",
-      access_token_enc: token.access_token ?? null,
-      refresh_token_enc: refreshTokenToSave,
-      token_expiry_at: tokenExpiryAt,
-      last_verified_at: now,
-      scopes: token.scope ?? null,
-      reauth_required: false,
-      last_error_code: null,
-      last_error_at: null,
-      last_user_notified_at: null,
-      last_user_notified_error_code: null,
-      updated_at: now,
-    };
+    if (!validatedRefreshToken) {
+      return NextResponse.redirect(
+        new URL("/settings?google=token_invalid", url.origin),
+      );
+    }
 
-    // ここ重要:
-    // google_connections テーブルに接続エラー系カラムがあるなら、
-    // 再接続成功時に必ずクリアする
-    // 例:
-    // payload.last_error_code = null;
-    // payload.last_error_message = null;
-    // payload.needs_reconnect = false;
-
-    const { error: saveErr } = await supabase
-      .from("google_connections")
-      .upsert(payload, { onConflict: "user_id" });
-
-    if (saveErr) {
+    try {
+      await saveGoogleCallbackConnection({
+        userId: user.id,
+        writeMode: callbackSnapshot.exists() ? "update" : "insert",
+        accessToken: verifiedAccessToken,
+        refreshToken: { mode: "update", token: validatedRefreshToken },
+        state: {
+          tokenExpiryAt: verifiedExpiryAt,
+          scopes:
+            typeof token?.scope === "string"
+              ? token.scope
+              : callbackSnapshot.getScopes(),
+          lastVerifiedAt: now,
+          lastUserNotifiedAt: null,
+          lastUserNotifiedErrorCode: null,
+          updatedAt: now,
+        },
+      });
+    } catch {
       console.error("[google.callback] failed to save connection", {
         code: "GOOGLE_CONNECTION_SAVE_FAILED",
-        dbCode:
-          typeof saveErr.code === "string" ? saveErr.code : undefined,
         location: "save_google_connection",
       });
       return NextResponse.redirect(
@@ -211,10 +239,9 @@ export async function GET(req: Request) {
     return NextResponse.redirect(
       new URL("/settings?google=connected", url.origin),
     );
-  } catch (error) {
+  } catch {
     console.error("[google.callback] unexpected error", {
       code: "GOOGLE_CALLBACK_FAILED",
-      errorName: error instanceof Error ? error.name : "UnknownError",
       location: "oauth_callback",
     });
     return NextResponse.redirect(
