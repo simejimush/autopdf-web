@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { preflightGoogleTokenEncryptionWrite } from "@/lib/google/tokenStore";
 
 export async function GET() {
   const supabase = await createSupabaseServerClient();
@@ -7,6 +8,18 @@ export async function GET() {
 
   if (!data.user) {
     return NextResponse.redirect(new URL("/login", process.env.APP_URL!));
+  }
+
+  try {
+    preflightGoogleTokenEncryptionWrite();
+  } catch {
+    console.error("[google.connect] token write preflight failed", {
+      code: "GOOGLE_TOKEN_WRITE_PREFLIGHT_FAILED",
+      location: "oauth_connect_preflight",
+    });
+    return NextResponse.redirect(
+      new URL("/settings?google=env_missing", process.env.APP_URL!),
+    );
   }
 
   const clientId = process.env.GOOGLE_CLIENT_ID!;
