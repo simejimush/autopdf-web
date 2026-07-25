@@ -9,6 +9,7 @@ import {
 import { uploadFileToDrive, uploadPdfToDrive } from "@/lib/google/drive";
 import { getRunErrorMessage } from "@/lib/runs/getRunErrorMessage";
 import { normalizeRunErrorCode } from "@/lib/runs/normalizeRunErrorCode";
+import { finalizeRunForUser } from "@/lib/runs/runUpdateRepository";
 import { updateGoogleConnectionHealth } from "@/lib/monitoring/updateGoogleConnectionHealth";
 import { notifySlack } from "@/lib/monitoring/notifySlack";
 import { notifyUser } from "@/lib/monitoring/notifyUser";
@@ -303,18 +304,17 @@ export async function executeRule(
     if (!messageIds.length) {
       const message = "No emails found";
 
-      await supabaseAdmin
-        .from("runs")
-        .update({
+      await finalizeRunForUser({
+        runId: params.runId,
+        userId: params.userId,
+        finalization: {
           status: "success",
-          processed_count: 0,
-          saved_count: 0,
-          skipped_count: 0,
+          processedCount: 0,
+          savedCount: 0,
+          skippedCount: 0,
           message,
-          finished_at: new Date().toISOString(),
-        })
-        .eq("id", params.runId)
-        .eq("user_id", params.userId);
+        },
+      });
 
       await updateGoogleConnectionHealth({
         userId: params.userId,
@@ -344,18 +344,17 @@ export async function executeRule(
     if (existingProcessed) {
       const message = "Skipped 1 already processed email";
 
-      await supabaseAdmin
-        .from("runs")
-        .update({
+      await finalizeRunForUser({
+        runId: params.runId,
+        userId: params.userId,
+        finalization: {
           status: "success",
-          processed_count: 0,
-          saved_count: 0,
-          skipped_count: 1,
+          processedCount: 0,
+          savedCount: 0,
+          skippedCount: 1,
           message,
-          finished_at: new Date().toISOString(),
-        })
-        .eq("id", params.runId)
-        .eq("user_id", params.userId);
+        },
+      });
 
       await updateGoogleConnectionHealth({
         userId: params.userId,
@@ -378,19 +377,16 @@ export async function executeRule(
       const message =
         "Freeプランの今月のPDF保存上限（10件）に達しています。翌月まで待つか、Proプランへの変更をご検討ください。";
 
-      await supabaseAdmin
-        .from("runs")
-        .update({
+      await finalizeRunForUser({
+        runId: params.runId,
+        userId: params.userId,
+        finalization: {
           status: "error",
-          error_code: "FREE_MONTHLY_LIMIT_EXCEEDED",
-          processed_count: 0,
-          saved_count: 0,
-          skipped_count: 0,
+          errorCode: "FREE_MONTHLY_LIMIT_EXCEEDED",
+          resetCounts: true,
           message,
-          finished_at: new Date().toISOString(),
-        })
-        .eq("id", params.runId)
-        .eq("user_id", params.userId);
+        },
+      });
 
       return {
         ok: false,
@@ -424,7 +420,9 @@ export async function executeRule(
     const safeSubject = sanitizeFilename(message.subject, "email").slice(0, 80);
     const safeSender = getSenderNameForFilename(message.from);
     const shortMessageId = getShortMessageId(messageId);
-    const normalizedStoredFormat = normalizeFileNameFormat(rule.file_name_format);
+    const normalizedStoredFormat = normalizeFileNameFormat(
+      rule.file_name_format,
+    );
     const filenameFormat = normalizeFileNameFormatForPlan(
       normalizedStoredFormat,
       effectivePlan,
@@ -546,17 +544,17 @@ export async function executeRule(
         ? `Saved ${savedCount} files to Drive`
         : "Saved 1 PDF to Drive";
 
-    await supabaseAdmin
-      .from("runs")
-      .update({
+    await finalizeRunForUser({
+      runId: params.runId,
+      userId: params.userId,
+      finalization: {
         status: "success",
-        processed_count: 1,
-        saved_count: savedCount,
-        skipped_count: skippedAttachmentCount,
+        processedCount: 1,
+        savedCount,
+        skippedCount: skippedAttachmentCount,
         message: successMessage,
-        finished_at: new Date().toISOString(),
-      })
-      .eq("id", params.runId);
+      },
+    });
 
     await updateGoogleConnectionHealth({
       userId: params.userId,
@@ -586,15 +584,16 @@ export async function executeRule(
       ? `${userFacing.title}。${detail}`
       : userFacing.title;
 
-    await supabaseAdmin
-      .from("runs")
-      .update({
+    await finalizeRunForUser({
+      runId: params.runId,
+      userId: params.userId,
+      finalization: {
         status: "error",
-        error_code: errorCode,
+        errorCode,
+        resetCounts: false,
         message: safeMessage,
-        finished_at: new Date().toISOString(),
-      })
-      .eq("id", params.runId);
+      },
+    });
 
     if (SLACK_NOTIFY_ERROR_CODES.has(errorCode)) {
       try {
