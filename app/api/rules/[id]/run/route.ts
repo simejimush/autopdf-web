@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { executeRule } from "@/lib/runs/executeRule";
+import { createManualRun } from "@/lib/runs/manualRunRepository";
 import { isFreePlanOverflowRule } from "@/lib/rules/freePlanLimit";
 
 export const runtime = "nodejs";
@@ -50,7 +51,7 @@ export async function POST(_req: NextRequest, context: RouteContext) {
       );
     }
 
-    if (!rule) {
+    if (!rule || rule.id !== ruleId || rule.user_id !== user.id) {
       return NextResponse.json({ error: "Rule not found" }, { status: 404 });
     }
 
@@ -70,26 +71,17 @@ export async function POST(_req: NextRequest, context: RouteContext) {
       );
     }
 
-    const startedAt = new Date().toISOString();
-
-    const { data: run, error: runErr } = await supabase
-      .from("runs")
-      .insert({
-        user_id: user.id,
-        rule_id: rule.id,
-        trigger: "manual",
-        status: "running",
-        processed_count: 0,
-        saved_count: 0,
-        skipped_count: 0,
-        message: "Run started",
-        started_at: startedAt,
-      })
-      .select("id, status, started_at")
-      .single();
-
-    if (runErr) {
-      return NextResponse.json({ error: runErr.message }, { status: 500 });
+    let run;
+    try {
+      run = await createManualRun({
+        userId: user.id,
+        ruleId: rule.id,
+      });
+    } catch {
+      return NextResponse.json(
+        { error: "Failed to create run" },
+        { status: 500 },
+      );
     }
 
     const result = await executeRule({
