@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
+import { saveStripeCustomerReference } from "@/lib/billing/billingProfileRepository";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const secretKey = process.env.STRIPE_SECRET_KEY;
@@ -117,15 +118,12 @@ export async function POST() {
 
       customerId = customer.id;
 
-      const { error: updateCustomerErr } = await supabase
-        .from("user_profiles")
-        .update({
-          billing_customer_id: customerId,
-          billing_provider: "stripe",
-        })
-        .eq("user_id", user.id);
-
-      if (updateCustomerErr) {
+      try {
+        await saveStripeCustomerReference({
+          userId: user.id,
+          customerId,
+        });
+      } catch {
         return errorResponse(
           500,
           "INTERNAL_ERROR",
