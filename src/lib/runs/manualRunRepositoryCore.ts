@@ -1,15 +1,16 @@
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+import {
+  RUN_CREATION_SELECT,
+  RunCreationRepositoryError,
+  createRunCreationRepository,
+  type CreatedRun,
+  type RunCreationInsertPayload,
+  type RunCreationRepositoryErrorCode,
+  type RunCreationSupabaseClient,
+} from "@/lib/runs/runCreationRepositoryCore";
 
-export const MANUAL_RUN_SELECT =
-  "id, user_id, rule_id, trigger, status, started_at";
+export const MANUAL_RUN_SELECT = RUN_CREATION_SELECT;
 
-export type ManualRunRepositoryErrorCode =
-  | "RUN_STORE_INPUT_INVALID"
-  | "RUN_STORE_FAILED"
-  | "RUN_STORE_RESULT_MISSING"
-  | "RUN_STORE_RESULT_DUPLICATE"
-  | "RUN_STORE_RESULT_MISMATCH";
+export type ManualRunRepositoryErrorCode = RunCreationRepositoryErrorCode;
 
 const SAFE_ERROR_MESSAGES: Readonly<
   Record<ManualRunRepositoryErrorCode, string>
@@ -31,92 +32,9 @@ export class ManualRunRepositoryError extends Error {
   }
 }
 
-export type ManualRunInsertPayload = Readonly<{
-  user_id: string;
-  rule_id: string;
-  trigger: "manual";
-  status: "running";
-  processed_count: 0;
-  saved_count: 0;
-  skipped_count: 0;
-  message: "Run started";
-  started_at: string;
-}>;
-
-export type CreatedManualRun = Readonly<{
-  id: string;
-  status: "running";
-  started_at: string;
-}>;
-
-type ManualRunWriteResult = Readonly<{
-  data: unknown;
-  error: unknown;
-}>;
-
-export type ManualRunSupabaseClient = Readonly<{
-  from(table: "runs"): Readonly<{
-    insert(payload: ManualRunInsertPayload): Readonly<{
-      select(
-        columns: typeof MANUAL_RUN_SELECT,
-      ): PromiseLike<ManualRunWriteResult>;
-    }>;
-  }>;
-}>;
-
-function fail(code: ManualRunRepositoryErrorCode): never {
-  throw new ManualRunRepositoryError(code);
-}
-
-function isIsoTimestamp(value: unknown): value is string {
-  if (typeof value !== "string" || value.trim() !== value) {
-    return false;
-  }
-
-  const timestamp = Date.parse(value);
-  return Number.isFinite(timestamp);
-}
-
-function validateInput(
-  input: Readonly<{
-    userId: string;
-    ruleId: string;
-  }>,
-): void {
-  if (!UUID_PATTERN.test(input.userId) || !UUID_PATTERN.test(input.ruleId)) {
-    fail("RUN_STORE_INPUT_INVALID");
-  }
-}
-
-function toCreatedManualRun(
-  row: unknown,
-  input: Readonly<{ userId: string; ruleId: string }>,
-): CreatedManualRun {
-  if (!row || typeof row !== "object") {
-    fail("RUN_STORE_FAILED");
-  }
-
-  const record = row as Record<string, unknown>;
-  if (typeof record.id !== "string" || !UUID_PATTERN.test(record.id)) {
-    fail("RUN_STORE_FAILED");
-  }
-
-  if (
-    record.user_id !== input.userId ||
-    record.rule_id !== input.ruleId ||
-    record.trigger !== "manual" ||
-    record.status !== "running" ||
-    !isIsoTimestamp(record.started_at)
-  ) {
-    fail("RUN_STORE_RESULT_MISMATCH");
-  }
-
-  return Object.freeze({
-    id: record.id,
-    status: "running",
-    started_at: record.started_at,
-  });
-}
+export type ManualRunInsertPayload = RunCreationInsertPayload<"manual">;
+export type CreatedManualRun = CreatedRun;
+export type ManualRunSupabaseClient = RunCreationSupabaseClient<"manual">;
 
 export function createManualRunRepository(
   dependencies: Readonly<{
@@ -124,61 +42,22 @@ export function createManualRunRepository(
     now: () => string;
   }>,
 ) {
+  const repository = createRunCreationRepository({
+    ...dependencies,
+    trigger: "manual",
+  });
+
   async function createManualRun(
-    input: Readonly<{
-      userId: string;
-      ruleId: string;
-    }>,
+    input: Parameters<typeof repository.createRun>[0],
   ): Promise<CreatedManualRun> {
-    validateInput(input);
-
-    let startedAt: string;
     try {
-      startedAt = dependencies.now();
-    } catch {
-      fail("RUN_STORE_FAILED");
+      return await repository.createRun(input);
+    } catch (error) {
+      if (error instanceof RunCreationRepositoryError) {
+        throw new ManualRunRepositoryError(error.code);
+      }
+      throw new ManualRunRepositoryError("RUN_STORE_FAILED");
     }
-
-    if (!isIsoTimestamp(startedAt)) {
-      fail("RUN_STORE_FAILED");
-    }
-
-    const payload: ManualRunInsertPayload = Object.freeze({
-      user_id: input.userId,
-      rule_id: input.ruleId,
-      trigger: "manual",
-      status: "running",
-      processed_count: 0,
-      saved_count: 0,
-      skipped_count: 0,
-      message: "Run started",
-      started_at: startedAt,
-    });
-
-    let result: ManualRunWriteResult;
-    try {
-      const client = await dependencies.getClient();
-      result = await client
-        .from("runs")
-        .insert(payload)
-        .select(MANUAL_RUN_SELECT);
-    } catch {
-      fail("RUN_STORE_FAILED");
-    }
-
-    if (result.error || !Array.isArray(result.data)) {
-      fail("RUN_STORE_FAILED");
-    }
-
-    if (result.data.length === 0) {
-      fail("RUN_STORE_RESULT_MISSING");
-    }
-
-    if (result.data.length !== 1) {
-      fail("RUN_STORE_RESULT_DUPLICATE");
-    }
-
-    return toCreatedManualRun(result.data[0], input);
   }
 
   return Object.freeze({ createManualRun });
