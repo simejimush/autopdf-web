@@ -1,10 +1,22 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { executeRule } from "@/lib/runs/executeRule";
+import { createCronRun } from "@/lib/runs/cronRunRepository";
 import { getFreePlanOverflowRuleIds } from "@/lib/rules/freePlanLimit";
 
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const RUN_STORE_ERROR_CODES = new Set([
+  "RUN_STORE_INPUT_INVALID",
+  "RUN_STORE_FAILED",
+  "RUN_STORE_RESULT_MISSING",
+  "RUN_STORE_RESULT_DUPLICATE",
+  "RUN_STORE_RESULT_MISMATCH",
+]);
+
 type RuleRow = {
-  id: string;
+  id?: string;
   user_id?: string | null;
   is_enabled?: boolean | null;
   enabled?: boolean | null;
@@ -25,6 +37,14 @@ function isEnabledRule(rule: RuleRow): boolean {
   return value === undefined ? true : Boolean(value);
 }
 
+function hasValidIdentity(
+  rule: RuleRow,
+): rule is RuleRow & { id: string; user_id: string } {
+  return (
+    UUID_PATTERN.test(rule.id ?? "") && UUID_PATTERN.test(rule.user_id ?? "")
+  );
+}
+
 export async function GET(req: Request) {
   const authorization = req.headers.get("authorization");
   const expected = process.env.CRON_SECRET;
@@ -40,20 +60,32 @@ export async function GET(req: Request) {
   const { data, error } = await supabaseAdmin.from("rules").select("*");
 
   if (error) {
-    console.error("[cron] Failed to fetch rules:", error);
+    console.error("[cron] Failed to fetch rules");
     return NextResponse.json(
-      { error: "Failed to fetch rules", detail: error.message },
+      { error: "Failed to fetch rules" },
       { status: 500 },
     );
   }
 
-  const rules = (data ?? []) as RuleRow[];
+  const rules = (Array.isArray(data) ? data : []).map((rule) =>
+    rule && typeof rule === "object" ? (rule as RuleRow) : ({} as RuleRow),
+  );
   const enabledRules = rules.filter(isEnabledRule);
+
+  const ruleIdCounts = new Map<string, number>();
+  for (const rule of enabledRules) {
+    const ruleId = rule.id ?? "";
+    ruleIdCounts.set(ruleId, (ruleIdCounts.get(ruleId) ?? 0) + 1);
+  }
+
+  const validUniqueRules = enabledRules.filter(
+    (rule) => hasValidIdentity(rule) && ruleIdCounts.get(rule.id) === 1,
+  );
 
   const overflowRuleIds = new Set<string>();
   const userIds = Array.from(
     new Set(
-      enabledRules
+      validUniqueRules
         .map((rule) => rule.user_id)
         .filter((userId): userId is string => Boolean(userId)),
     ),
@@ -68,7 +100,7 @@ export async function GET(req: Request) {
   }
 
   const runnableRules = enabledRules.filter(
-    (rule) => !overflowRuleIds.has(rule.id),
+    (rule) => !overflowRuleIds.has(rule.id ?? ""),
   );
 
   console.log(
@@ -89,42 +121,37 @@ export async function GET(req: Request) {
 
   for (const rule of runnableRules) {
     try {
-      if (!rule.id || !rule.user_id) {
+      if (!hasValidIdentity(rule) || ruleIdCounts.get(rule.id ?? "") !== 1) {
         ng++;
-        console.error("[cron] Skip invalid rule row:", rule);
+        console.error("[cron] Skip invalid rule row");
         results.push({
-          id: rule.id ?? "(unknown)",
+          id: UUID_PATTERN.test(rule.id ?? "") ? rule.id! : "(unknown)",
           ok: false,
-          error: "Invalid rule row: missing id or user_id",
+          error: "RUN_STORE_INPUT_INVALID",
         });
         continue;
       }
 
-      const startedAt = new Date().toISOString();
-
-      const { data: run, error: runErr } = await supabaseAdmin
-        .from("runs")
-        .insert({
-          user_id: rule.user_id,
-          rule_id: rule.id,
-          trigger: "cron",
-          status: "running",
-          processed_count: 0,
-          saved_count: 0,
-          skipped_count: 0,
-          message: "Run started",
-          started_at: startedAt,
-        })
-        .select("id")
-        .single();
-
-      if (runErr || !run) {
+      let run;
+      try {
+        run = await createCronRun({
+          userId: rule.user_id,
+          ruleId: rule.id,
+        });
+      } catch (error) {
         ng++;
-        console.error("[cron] Failed to create run:", rule.id, runErr);
+        console.error("[cron] Failed to create run");
         results.push({
           id: rule.id,
           ok: false,
-          error: runErr?.message ?? "Failed to create run",
+          error:
+            error &&
+            typeof error === "object" &&
+            "code" in error &&
+            typeof error.code === "string" &&
+            RUN_STORE_ERROR_CODES.has(error.code)
+              ? error.code
+              : "RUN_STORE_FAILED",
         });
         continue;
       }
@@ -148,17 +175,14 @@ export async function GET(req: Request) {
         message: result.message,
         ...(result.ok ? {} : { error: result.errorCode ?? "UNKNOWN" }),
       });
-    } catch (error) {
+    } catch {
       ng++;
-      const message =
-        error instanceof Error ? error.message : "Unknown cron error";
-
-      console.error("[cron] rule failed:", rule.id, message);
+      console.error("[cron] rule failed");
 
       results.push({
-        id: rule.id,
+        id: UUID_PATTERN.test(rule.id ?? "") ? rule.id! : "(unknown)",
         ok: false,
-        error: message,
+        error: "UNKNOWN",
       });
     }
   }
