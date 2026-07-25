@@ -975,6 +975,140 @@ test("callback success health state is fixed inside the store", async () => {
   });
 });
 
+test("credential validation failure updates only fixed health columns", async () => {
+  const { store, calls } = createHarness();
+
+  await store.recordGoogleCredentialValidationFailure({
+    userId: USER_ID,
+    writeMode: "update",
+  });
+
+  expect(calls.inserts).toEqual([]);
+  expect(calls.updates).toEqual([
+    {
+      userId: USER_ID,
+      payload: {
+        status: "error",
+        reauth_required: true,
+        last_error_code: "GOOGLE_TOKEN_INVALID",
+        last_error_at: NOW,
+        updated_at: NOW,
+      },
+    },
+  ]);
+  const payload = calls.updates[0].payload;
+  for (const preservedColumn of [
+    "access_token_enc",
+    "refresh_token_enc",
+    "token_expiry_at",
+    "scopes",
+    "last_verified_at",
+    "last_success_at",
+    "last_user_notified_at",
+    "last_user_notified_error_code",
+  ]) {
+    expect(payload).not.toHaveProperty(preservedColumn);
+  }
+});
+
+test("credential validation failure inserts a minimal row when none exists", async () => {
+  const { store, calls } = createHarness();
+
+  await store.recordGoogleCredentialValidationFailure({
+    userId: USER_ID,
+    writeMode: "insert",
+  });
+
+  expect(calls.updates).toEqual([]);
+  expect(calls.inserts).toEqual([
+    {
+      userId: USER_ID,
+      payload: {
+        status: "error",
+        reauth_required: true,
+        last_error_code: "GOOGLE_TOKEN_INVALID",
+        last_error_at: NOW,
+        updated_at: NOW,
+      },
+    },
+  ]);
+});
+
+test("credential validation failure fixes user scope and rejects invalid mode", async () => {
+  const scoped = createHarness();
+  await scoped.store.recordGoogleCredentialValidationFailure({
+    userId: USER_ID,
+    writeMode: "update",
+  });
+  expect(scoped.calls.updates[0].userId).toBe(USER_ID);
+
+  const invalid = createHarness();
+  await expectStoreErrorAsync(
+    () =>
+      invalid.store.recordGoogleCredentialValidationFailure({
+        userId: USER_ID,
+        writeMode: "invalid" as never,
+      }),
+    "GOOGLE_TOKEN_INPUT_INVALID",
+  );
+  expect(invalid.calls.inserts).toEqual([]);
+  expect(invalid.calls.updates).toEqual([]);
+});
+
+test("credential validation failure fails closed on DB and cardinality errors", async () => {
+  for (const testCase of [
+    {
+      updateResult: { ok: false } as const,
+      code: "GOOGLE_TOKEN_STORE_FAILED" as const,
+    },
+    {
+      updateResult: { ok: true, count: 0 } as const,
+      code: "GOOGLE_TOKEN_UPDATE_CONFLICT" as const,
+    },
+    {
+      updateResult: { ok: true, count: 2 } as const,
+      code: "GOOGLE_TOKEN_UPDATE_CONFLICT" as const,
+    },
+  ]) {
+    const { store } = createHarness({
+      updateResult: testCase.updateResult,
+    });
+    const error = await expectStoreErrorAsync(
+      () =>
+        store.recordGoogleCredentialValidationFailure({
+          userId: USER_ID,
+          writeMode: "update",
+        }),
+      testCase.code,
+    );
+    expect(error.message).not.toContain("raw-db-secret");
+    expect(error.message).not.toContain("autopdf-token:v1:");
+    expect(error).not.toHaveProperty("cause");
+  }
+});
+
+test("production repository scopes validation health update by user ID", async () => {
+  const { store, calls } = createSupabaseRepositoryHarness();
+
+  await store.recordGoogleCredentialValidationFailure({
+    userId: USER_ID,
+    writeMode: "update",
+  });
+
+  expect(calls.update).toEqual([
+    {
+      status: "error",
+      reauth_required: true,
+      last_error_code: "GOOGLE_TOKEN_INVALID",
+      last_error_at: NOW,
+      updated_at: NOW,
+    },
+  ]);
+  expect(calls.eq).toEqual([{ column: "user_id", value: USER_ID }]);
+  expect(calls.writeSelect).toEqual(["id"]);
+  expect(JSON.stringify(calls)).not.toContain(OTHER_USER_ID);
+});
+
 test("production repository loads its client lazily and uses the select chain", async () => {
   const { store, calls } = createSupabaseRepositoryHarness({
     selectResult: {

@@ -170,6 +170,11 @@ export type UpdateRefreshedGoogleAccessTokenInput = Readonly<{
   updatedAt: string;
 }>;
 
+export type RecordGoogleCredentialValidationFailureInput = Readonly<{
+  userId: string;
+  writeMode: "insert" | "update";
+}>;
+
 export type GoogleTokenCredentialHandle = Readonly<{
   exists(): boolean;
   getAccessToken(): PlaintextGoogleToken | null;
@@ -644,6 +649,29 @@ export function createGoogleTokenStore(
     assertSingleWrite(result);
   }
 
+  async function recordGoogleCredentialValidationFailure(
+    input: RecordGoogleCredentialValidationFailureInput,
+  ): Promise<void> {
+    const userId = validateUserId(input.userId);
+    if (input.writeMode !== "insert" && input.writeMode !== "update") {
+      fail("GOOGLE_TOKEN_INPUT_INVALID");
+    }
+    const timestamp = now();
+    const payload: GoogleConnectionWritePayload = Object.freeze({
+      status: "error",
+      reauth_required: true,
+      last_error_code: "GOOGLE_TOKEN_INVALID",
+      last_error_at: timestamp,
+      updated_at: timestamp,
+    });
+    const result =
+      input.writeMode === "insert"
+        ? await repository.insertConnection({ userId, payload })
+        : await repository.updateConnectionByUserId({ userId, payload });
+
+    assertSingleWrite(result);
+  }
+
   async function disconnectGoogleConnection(rawUserId: string): Promise<void> {
     const userId = validateUserId(rawUserId);
     const timestamp = now();
@@ -673,6 +701,7 @@ export function createGoogleTokenStore(
     loadGoogleCallbackConnectionSnapshot,
     saveGoogleCallbackConnection,
     updateRefreshedGoogleAccessToken,
+    recordGoogleCredentialValidationFailure,
     disconnectGoogleConnection,
   });
 }
