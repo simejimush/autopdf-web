@@ -11,7 +11,11 @@ export type ProcessedEmailRepositoryErrorCode =
   | "PROCESSED_EMAIL_RESULT_MISSING"
   | "PROCESSED_EMAIL_RESULT_DUPLICATE"
   | "PROCESSED_EMAIL_RESULT_MISMATCH"
-  | "PROCESSED_EMAIL_ALREADY_EXISTS";
+  | "PROCESSED_EMAIL_ALREADY_EXISTS"
+  | "PROCESSED_EMAIL_LOOKUP_INPUT_INVALID"
+  | "PROCESSED_EMAIL_LOOKUP_FAILED"
+  | "PROCESSED_EMAIL_LOOKUP_DUPLICATE"
+  | "PROCESSED_EMAIL_LOOKUP_MISMATCH";
 
 const SAFE_ERROR_MESSAGES: Readonly<
   Record<ProcessedEmailRepositoryErrorCode, string>
@@ -24,6 +28,13 @@ const SAFE_ERROR_MESSAGES: Readonly<
   PROCESSED_EMAIL_RESULT_MISMATCH:
     "Stored processed email did not match its input",
   PROCESSED_EMAIL_ALREADY_EXISTS: "Processed email already exists",
+  PROCESSED_EMAIL_LOOKUP_INPUT_INVALID:
+    "Processed email lookup input is invalid",
+  PROCESSED_EMAIL_LOOKUP_FAILED: "Processed email lookup failed",
+  PROCESSED_EMAIL_LOOKUP_DUPLICATE:
+    "Processed email lookup returned multiple rows",
+  PROCESSED_EMAIL_LOOKUP_MISMATCH:
+    "Processed email lookup did not match its input",
 });
 
 export class ProcessedEmailRepositoryError extends Error {
@@ -55,6 +66,11 @@ type ProcessedEmailWriteResult = Readonly<{
   error: unknown;
 }>;
 
+type ProcessedEmailLookupResult = Readonly<{
+  data: unknown;
+  error: unknown;
+}>;
+
 export type ProcessedEmailSupabaseClient = Readonly<{
   from(table: "processed_emails"): Readonly<{
     insert(payload: ProcessedEmailInsertPayload): Readonly<{
@@ -62,19 +78,43 @@ export type ProcessedEmailSupabaseClient = Readonly<{
         columns: typeof PROCESSED_EMAIL_SELECT,
       ): PromiseLike<ProcessedEmailWriteResult>;
     }>;
+    select(columns: typeof PROCESSED_EMAIL_SELECT): Readonly<{
+      eq(
+        column: "user_id",
+        value: string,
+      ): Readonly<{
+        eq(
+          column: "rule_id",
+          value: string,
+        ): Readonly<{
+          eq(
+            column: "gmail_message_id",
+            value: string,
+          ): PromiseLike<ProcessedEmailLookupResult>;
+        }>;
+      }>;
+    }>;
   }>;
 }>;
 
-type RecordProcessedEmailInput = Readonly<{
+type ProcessedEmailIdentityInput = Readonly<{
   userId: string;
   ruleId: string;
   gmailMessageId: string;
-  drive: Readonly<{
-    fileId: string | null;
-    webViewLink: string | null;
-    fileName: string;
-  }>;
 }>;
+
+type RecordProcessedEmailInput = ProcessedEmailIdentityInput &
+  Readonly<{
+    drive: Readonly<{
+      fileId: string | null;
+      webViewLink: string | null;
+      fileName: string;
+    }>;
+  }>;
+
+export type ProcessedEmailState =
+  | Readonly<{ exists: false }>
+  | Readonly<{ exists: true }>;
 
 function fail(code: ProcessedEmailRepositoryErrorCode): never {
   throw new ProcessedEmailRepositoryError(code);
@@ -120,14 +160,23 @@ function isNullableHttpsUrl(value: unknown) {
   }
 }
 
-function validateInput(input: RecordProcessedEmailInput): void {
+function validateIdentityInput(
+  input: ProcessedEmailIdentityInput,
+  errorCode:
+    | "PROCESSED_EMAIL_INPUT_INVALID"
+    | "PROCESSED_EMAIL_LOOKUP_INPUT_INVALID",
+): void {
   if (!UUID_PATTERN.test(input.userId) || !UUID_PATTERN.test(input.ruleId)) {
-    fail("PROCESSED_EMAIL_INPUT_INVALID");
+    fail(errorCode);
   }
 
   if (!isBoundedNonEmptyString(input.gmailMessageId, 1024)) {
-    fail("PROCESSED_EMAIL_INPUT_INVALID");
+    fail(errorCode);
   }
+}
+
+function validateRecordInput(input: RecordProcessedEmailInput): void {
+  validateIdentityInput(input, "PROCESSED_EMAIL_INPUT_INVALID");
 
   if (!input.drive || typeof input.drive !== "object") {
     fail("PROCESSED_EMAIL_INPUT_INVALID");
@@ -179,6 +228,28 @@ function toStoredProcessedEmail(
   return Object.freeze({ id: record.id });
 }
 
+function verifyLookupRow(
+  row: unknown,
+  input: ProcessedEmailIdentityInput,
+): void {
+  if (!row || typeof row !== "object") {
+    fail("PROCESSED_EMAIL_LOOKUP_FAILED");
+  }
+
+  const record = row as Record<string, unknown>;
+  if (typeof record.id !== "string" || !UUID_PATTERN.test(record.id)) {
+    fail("PROCESSED_EMAIL_LOOKUP_FAILED");
+  }
+
+  if (
+    record.user_id !== input.userId ||
+    record.rule_id !== input.ruleId ||
+    record.gmail_message_id !== input.gmailMessageId
+  ) {
+    fail("PROCESSED_EMAIL_LOOKUP_MISMATCH");
+  }
+}
+
 export function createProcessedEmailRepository(
   dependencies: Readonly<{
     getClient: () =>
@@ -190,7 +261,7 @@ export function createProcessedEmailRepository(
   async function recordProcessedEmail(
     input: RecordProcessedEmailInput,
   ): Promise<StoredProcessedEmail> {
-    validateInput(input);
+    validateRecordInput(input);
 
     let savedAt: string;
     try {
@@ -253,5 +324,44 @@ export function createProcessedEmailRepository(
     return toStoredProcessedEmail(writeResult.data[0], input);
   }
 
-  return Object.freeze({ recordProcessedEmail });
+  async function getProcessedEmailState(
+    input: ProcessedEmailIdentityInput,
+  ): Promise<ProcessedEmailState> {
+    validateIdentityInput(input, "PROCESSED_EMAIL_LOOKUP_INPUT_INVALID");
+
+    let result: unknown;
+    try {
+      const client = await dependencies.getClient();
+      result = await client
+        .from("processed_emails")
+        .select(PROCESSED_EMAIL_SELECT)
+        .eq("user_id", input.userId)
+        .eq("rule_id", input.ruleId)
+        .eq("gmail_message_id", input.gmailMessageId);
+    } catch {
+      fail("PROCESSED_EMAIL_LOOKUP_FAILED");
+    }
+
+    if (!result || typeof result !== "object") {
+      fail("PROCESSED_EMAIL_LOOKUP_FAILED");
+    }
+
+    const lookupResult = result as ProcessedEmailLookupResult;
+    if (lookupResult.error || !Array.isArray(lookupResult.data)) {
+      fail("PROCESSED_EMAIL_LOOKUP_FAILED");
+    }
+
+    if (lookupResult.data.length === 0) {
+      return Object.freeze({ exists: false });
+    }
+
+    if (lookupResult.data.length !== 1) {
+      fail("PROCESSED_EMAIL_LOOKUP_DUPLICATE");
+    }
+
+    verifyLookupRow(lookupResult.data[0], input);
+    return Object.freeze({ exists: true });
+  }
+
+  return Object.freeze({ getProcessedEmailState, recordProcessedEmail });
 }

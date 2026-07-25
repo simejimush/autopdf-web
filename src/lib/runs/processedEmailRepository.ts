@@ -15,3 +15,5 @@ const processedEmailRepository = createProcessedEmailRepository({
 
 export const recordProcessedEmail =
   processedEmailRepository.recordProcessedEmail;
+export const getProcessedEmailState =
+  processedEmailRepository.getProcessedEmailState;
