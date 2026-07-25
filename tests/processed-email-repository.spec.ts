@@ -43,6 +43,9 @@ function createHarness(options?: {
   result?: unknown;
   getClientError?: Error;
   queryError?: Error;
+  lookupResult?: unknown;
+  lookupQueryError?: Error;
+  clientOverride?: unknown;
   now?: string;
   nowError?: Error;
 }) {
@@ -52,6 +55,8 @@ function createHarness(options?: {
     from: [] as string[],
     insert: [] as ProcessedEmailInsertPayload[],
     select: [] as string[],
+    lookupSelect: [] as string[],
+    lookupEq: [] as Array<{ column: string; value: string }>,
   };
   const client: ProcessedEmailSupabaseClient = {
     from(table) {
@@ -76,6 +81,41 @@ function createHarness(options?: {
             },
           };
         },
+        select(columns) {
+          calls.lookupSelect.push(columns);
+          return {
+            eq(column, value) {
+              calls.lookupEq.push({ column, value });
+              return {
+                eq(secondColumn, secondValue) {
+                  calls.lookupEq.push({
+                    column: secondColumn,
+                    value: secondValue,
+                  });
+                  return {
+                    async eq(thirdColumn, thirdValue) {
+                      calls.lookupEq.push({
+                        column: thirdColumn,
+                        value: thirdValue,
+                      });
+                      if (options?.lookupQueryError) {
+                        throw options.lookupQueryError;
+                      }
+                      return (
+                        options && "lookupResult" in options
+                          ? options.lookupResult
+                          : { data: [], error: null }
+                      ) as {
+                        data: unknown;
+                        error: unknown;
+                      };
+                    },
+                  };
+                },
+              };
+            },
+          };
+        },
       };
     },
   };
@@ -84,6 +124,9 @@ function createHarness(options?: {
       calls.clientLoads += 1;
       if (options?.getClientError) {
         throw options.getClientError;
+      }
+      if (options && "clientOverride" in options) {
+        return options.clientOverride as ProcessedEmailSupabaseClient;
       }
       return client;
     },
@@ -150,10 +193,154 @@ test("inserts fixed owner, rule, message, Drive fields, and server saved time", 
       },
     ],
     select: [PROCESSED_EMAIL_SELECT],
+    lookupSelect: [],
+    lookupEq: [],
   });
   expect(record).toEqual({ id: RECORD_ID });
   expect(Object.isFrozen(record)).toBe(true);
   expect(Object.isFrozen(calls.insert[0])).toBe(true);
+});
+
+test("lookup selects only identity columns and scopes owner, rule, and message", async () => {
+  const { repository, calls } = createHarness({
+    lookupResult: { data: [storedRow()], error: null },
+  });
+
+  const state = await repository.getProcessedEmailState({
+    userId: USER_ID,
+    ruleId: RULE_ID,
+    gmailMessageId: MESSAGE_ID,
+  });
+
+  expect(state).toEqual({ exists: true });
+  expect(state).not.toHaveProperty("id");
+  expect(Object.isFrozen(state)).toBe(true);
+  expect(calls.from).toEqual(["processed_emails"]);
+  expect(calls.lookupSelect).toEqual([PROCESSED_EMAIL_SELECT]);
+  expect(PROCESSED_EMAIL_SELECT).toBe("id, user_id, rule_id, gmail_message_id");
+  expect(PROCESSED_EMAIL_SELECT).not.toContain("drive_");
+  expect(calls.lookupEq).toEqual([
+    { column: "user_id", value: USER_ID },
+    { column: "rule_id", value: RULE_ID },
+    { column: "gmail_message_id", value: MESSAGE_ID },
+  ]);
+  expect(calls.insert).toHaveLength(0);
+  expect(calls.now).toBe(0);
+});
+
+test("lookup returns an immutable exists false state for zero rows", async () => {
+  const { repository } = createHarness({
+    lookupResult: { data: [], error: null },
+  });
+
+  const state = await repository.getProcessedEmailState({
+    userId: USER_ID,
+    ruleId: RULE_ID,
+    gmailMessageId: MESSAGE_ID,
+  });
+
+  expect(state).toEqual({ exists: false });
+  expect(Object.isFrozen(state)).toBe(true);
+});
+
+test("invalid lookup IDs and message fail before service-role access", async () => {
+  for (const input of [
+    { userId: "request-user", ruleId: RULE_ID, gmailMessageId: MESSAGE_ID },
+    { userId: USER_ID, ruleId: "request-rule", gmailMessageId: MESSAGE_ID },
+    { userId: USER_ID, ruleId: RULE_ID, gmailMessageId: "" },
+    { userId: USER_ID, ruleId: RULE_ID, gmailMessageId: " padded " },
+  ]) {
+    const { repository, calls } = createHarness();
+    const error = await expectRepositoryError(
+      () => repository.getProcessedEmailState(input),
+      "PROCESSED_EMAIL_LOOKUP_INPUT_INVALID",
+    );
+
+    expect(calls.clientLoads).toBe(0);
+    expect(calls.lookupSelect).toHaveLength(0);
+    expect(error.message).not.toContain(input.userId);
+    expect(error.message).not.toContain(input.ruleId);
+    if (input.gmailMessageId) {
+      expect(error.message).not.toContain(input.gmailMessageId);
+    }
+  }
+});
+
+test("lookup duplicate, malformed, and mismatched rows fail closed", async () => {
+  const cases: Array<{
+    data: unknown;
+    code: ProcessedEmailRepositoryErrorCode;
+  }> = [
+    {
+      data: [storedRow(), storedRow()],
+      code: "PROCESSED_EMAIL_LOOKUP_DUPLICATE",
+    },
+    { data: [null], code: "PROCESSED_EMAIL_LOOKUP_FAILED" },
+    {
+      data: [storedRow({ id: "not-a-uuid" })],
+      code: "PROCESSED_EMAIL_LOOKUP_FAILED",
+    },
+    {
+      data: [storedRow({ user_id: OTHER_USER_ID })],
+      code: "PROCESSED_EMAIL_LOOKUP_MISMATCH",
+    },
+    {
+      data: [storedRow({ rule_id: OTHER_RULE_ID })],
+      code: "PROCESSED_EMAIL_LOOKUP_MISMATCH",
+    },
+    {
+      data: [storedRow({ gmail_message_id: "other-message" })],
+      code: "PROCESSED_EMAIL_LOOKUP_MISMATCH",
+    },
+  ];
+
+  for (const { data, code } of cases) {
+    const { repository } = createHarness({
+      lookupResult: { data, error: null },
+    });
+    await expectRepositoryError(
+      () =>
+        repository.getProcessedEmailState({
+          userId: USER_ID,
+          ruleId: RULE_ID,
+          gmailMessageId: MESSAGE_ID,
+        }),
+      code,
+    );
+  }
+});
+
+test("lookup DB, client, query, and abnormal result errors hide raw identifiers", async () => {
+  const rawError = "raw processed email lookup details";
+  for (const options of [
+    {
+      lookupResult: {
+        data: null,
+        error: { code: "42501", message: rawError },
+      },
+    },
+    { lookupResult: { data: { id: RECORD_ID }, error: null } },
+    { lookupResult: undefined },
+    { clientOverride: { from: () => ({ select: () => ({}) }) } },
+    { getClientError: new Error(rawError) },
+    { lookupQueryError: new Error(rawError) },
+  ]) {
+    const { repository } = createHarness(options);
+    const error = await expectRepositoryError(
+      () =>
+        repository.getProcessedEmailState({
+          userId: USER_ID,
+          ruleId: RULE_ID,
+          gmailMessageId: MESSAGE_ID,
+        }),
+      "PROCESSED_EMAIL_LOOKUP_FAILED",
+    );
+
+    expect(error.message).not.toContain(rawError);
+    expect(error.message).not.toContain(USER_ID);
+    expect(error.message).not.toContain(RULE_ID);
+    expect(error.message).not.toContain(MESSAGE_ID);
+  }
 });
 
 test("request-style protected columns cannot enter the fixed payload", async () => {

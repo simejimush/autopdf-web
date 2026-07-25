@@ -51,6 +51,7 @@ function loadExecuteRule(options?: {
   trigger?: Trigger;
   messageIds?: string[];
   existingProcessed?: boolean;
+  processedLookupError?: Error;
   limitOk?: boolean;
   attachments?: Array<{
     filename: string;
@@ -81,7 +82,12 @@ function loadExecuteRule(options?: {
     ruleEq: [] as Array<{ column: string; value: string }>,
     finalizations: [] as FinalizeCall[],
     processedEmails: [] as ProcessedEmailCall[],
-    forbiddenProcessedInserts: [] as unknown[],
+    processedLookups: [] as Array<{
+      userId: string;
+      ruleId: string;
+      gmailMessageId: string;
+    }>,
+    forbiddenProcessedQueries: [] as unknown[],
     forbiddenRunQueries: [] as string[],
     health: [] as unknown[],
     slack: [] as unknown[],
@@ -157,37 +163,8 @@ function loadExecuteRule(options?: {
         };
       }
       if (table === "processed_emails") {
-        return {
-          select() {
-            return {
-              eq() {
-                return {
-                  eq() {
-                    return {
-                      eq() {
-                        return {
-                          async maybeSingle() {
-                            return {
-                              data: options?.existingProcessed
-                                ? { id: "processed-id" }
-                                : null,
-                            };
-                          },
-                        };
-                      },
-                    };
-                  },
-                };
-              },
-            };
-          },
-          insert(payload: unknown) {
-            calls.forbiddenProcessedInserts.push(payload);
-            throw new Error(
-              "executeRule must not insert processed_emails directly",
-            );
-          },
-        };
+        calls.forbiddenProcessedQueries.push(table);
+        throw new Error("executeRule must not query processed_emails directly");
       }
       throw new Error(`Unexpected table: ${table}`);
     },
@@ -222,6 +199,18 @@ function loadExecuteRule(options?: {
     }
     if (specifier === "@/lib/runs/processedEmailRepository") {
       return {
+        async getProcessedEmailState(input: {
+          userId: string;
+          ruleId: string;
+          gmailMessageId: string;
+        }) {
+          calls.order.push("processed_email:lookup");
+          calls.processedLookups.push(input);
+          if (options?.processedLookupError) {
+            throw options.processedLookupError;
+          }
+          return { exists: options?.existingProcessed ?? false };
+        },
         async recordProcessedEmail(input: ProcessedEmailCall) {
           calls.order.push("processed_email:record");
           calls.processedEmails.push(input);
@@ -410,19 +399,38 @@ test("manual and cron no-message success finalize the owned run with zero counts
 });
 
 test("already-processed and Free-limit outcomes preserve counts and messages", async () => {
-  const skipped = loadExecuteRule({
-    messageIds: [MESSAGE_ID],
-    existingProcessed: true,
-  });
-  const skippedResult = await skipped.executeRule(skipped.input);
-  expect(skippedResult.skippedCount).toBe(1);
-  expect(skipped.calls.finalizations[0].finalization).toMatchObject({
-    status: "success",
-    processedCount: 0,
-    savedCount: 0,
-    skippedCount: 1,
-    message: "Skipped 1 already processed email",
-  });
+  for (const trigger of ["manual", "cron"] as const) {
+    const skipped = loadExecuteRule({
+      trigger,
+      messageIds: [MESSAGE_ID],
+      existingProcessed: true,
+    });
+    const skippedResult = await skipped.executeRule(skipped.input);
+    expect(skippedResult).toMatchObject({
+      ok: true,
+      processedCount: 0,
+      savedCount: 0,
+      skippedCount: 1,
+      errorCode: null,
+      message: "Skipped 1 already processed email",
+    });
+    expect(skipped.calls.processedLookups).toEqual([
+      {
+        userId: USER_ID,
+        ruleId: RULE_ID,
+        gmailMessageId: MESSAGE_ID,
+      },
+    ]);
+    expect(skipped.calls.order).toEqual([
+      "processed_email:lookup",
+      "run:success",
+    ]);
+    expect(skipped.calls.health).toEqual([
+      { userId: USER_ID, event: "success" },
+    ]);
+    expect(skipped.calls.processedEmails).toHaveLength(0);
+    expect(skipped.calls.attachmentUploads).toBe(0);
+  }
 
   const limited = loadExecuteRule({
     messageIds: [MESSAGE_ID],
@@ -445,6 +453,52 @@ test("already-processed and Free-limit outcomes preserve counts and messages", a
       resetCounts: true,
     },
   });
+});
+
+test("lookup failure fails closed before Gmail fetch, PDF, or Drive and records run error", async () => {
+  const rawError = "raw processed lookup DB details";
+  const harness = loadExecuteRule({
+    trigger: "cron",
+    messageIds: [MESSAGE_ID],
+    attachments: [
+      {
+        filename: "invoice.pdf",
+        mimeType: "application/pdf",
+        attachmentId: "attachment-1",
+      },
+    ],
+    processedLookupError: new Error(rawError),
+  });
+  const result = await harness.executeRule(harness.input);
+
+  expect(result).toMatchObject({
+    ok: false,
+    processedCount: 0,
+    savedCount: 0,
+    skippedCount: 0,
+    errorCode: "UNKNOWN",
+  });
+  expect(result.message).not.toContain(rawError);
+  expect(harness.calls.order).toEqual(["processed_email:lookup", "run:error"]);
+  expect(harness.calls.processedEmails).toHaveLength(0);
+  expect(harness.calls.attachmentUploads).toBe(0);
+  expect(harness.calls.slack).toHaveLength(1);
+  expect(harness.calls.health).toEqual([
+    { userId: USER_ID, event: "error", errorCode: "UNKNOWN" },
+  ]);
+});
+
+test("only the first Gmail search result is looked up and processed", async () => {
+  const harness = loadExecuteRule({
+    messageIds: [MESSAGE_ID, "second-gmail-message"],
+  });
+  const result = await harness.executeRule(harness.input);
+
+  expect(result).toMatchObject({ ok: true, processedCount: 1, savedCount: 1 });
+  expect(harness.calls.processedLookups).toEqual([
+    { userId: USER_ID, ruleId: RULE_ID, gmailMessageId: MESSAGE_ID },
+  ]);
+  expect(harness.calls.processedEmails[0].gmailMessageId).toBe(MESSAGE_ID);
 });
 
 test("normal and partially-saved success finalize exact owner counts", async () => {
@@ -487,12 +541,13 @@ test("normal and partially-saved success finalize exact owner counts", async () 
     },
   ]);
   expect(harness.calls.order).toEqual([
+    "processed_email:lookup",
     "drive:pdf",
     "drive:attachment",
     "processed_email:record",
     "run:success",
   ]);
-  expect(harness.calls.forbiddenProcessedInserts).toHaveLength(0);
+  expect(harness.calls.forbiddenProcessedQueries).toHaveLength(0);
   expect(harness.calls.finalizations).toEqual([
     {
       runId: RUN_ID,
@@ -629,6 +684,7 @@ test("processed-email repository failure records run error after Drive save with
   expect(result.message).not.toContain("Processed email storage failed");
   expect(harness.calls.processedEmails).toHaveLength(1);
   expect(harness.calls.order).toEqual([
+    "processed_email:lookup",
     "drive:pdf",
     "processed_email:record",
     "run:error",
@@ -655,7 +711,9 @@ test("repository failure cannot be reported as success and executeRule has no di
   );
   expect(harness.calls.finalizations).toHaveLength(2);
   expect(harness.calls.forbiddenRunQueries).toHaveLength(0);
+  expect(harness.calls.forbiddenProcessedQueries).toHaveLength(0);
   expect(harness.source).not.toContain('.from("runs")');
+  expect(harness.source).not.toContain('.from("processed_emails")');
   expect(harness.source).not.toContain(".insert({\n        user_id:");
   expect(harness.source).not.toContain("raw service-role run update details");
 });

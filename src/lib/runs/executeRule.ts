@@ -10,7 +10,10 @@ import { uploadFileToDrive, uploadPdfToDrive } from "@/lib/google/drive";
 import { getRunErrorMessage } from "@/lib/runs/getRunErrorMessage";
 import { normalizeRunErrorCode } from "@/lib/runs/normalizeRunErrorCode";
 import { finalizeRunForUser } from "@/lib/runs/runUpdateRepository";
-import { recordProcessedEmail } from "@/lib/runs/processedEmailRepository";
+import {
+  getProcessedEmailState,
+  recordProcessedEmail,
+} from "@/lib/runs/processedEmailRepository";
 import { updateGoogleConnectionHealth } from "@/lib/monitoring/updateGoogleConnectionHealth";
 import { notifySlack } from "@/lib/monitoring/notifySlack";
 import { notifyUser } from "@/lib/monitoring/notifyUser";
@@ -335,15 +338,13 @@ export async function executeRule(
 
     const messageId = messageIds[0];
 
-    const { data: existingProcessed } = await supabaseAdmin
-      .from("processed_emails")
-      .select("id")
-      .eq("user_id", params.userId)
-      .eq("rule_id", rule.id)
-      .eq("gmail_message_id", messageId)
-      .maybeSingle();
+    const processedEmailState = await getProcessedEmailState({
+      userId: params.userId,
+      ruleId: rule.id,
+      gmailMessageId: messageId,
+    });
 
-    if (existingProcessed) {
+    if (processedEmailState.exists) {
       const message = "Skipped 1 already processed email";
 
       await finalizeRunForUser({
