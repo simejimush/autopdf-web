@@ -46,19 +46,10 @@ function hasValidIdentity(
 }
 
 export async function GET(req: Request) {
-  const url = new URL(req.url);
-  const secret = url.searchParams.get("secret") ?? "";
-  const expected = process.env.CRON_SECRET ?? "";
+  const authorization = req.headers.get("authorization");
+  const expected = process.env.CRON_SECRET;
 
-  if (!expected) {
-    console.error("[cron] CRON_SECRET is missing in env");
-    return NextResponse.json(
-      { error: "CRON_SECRET is missing in env" },
-      { status: 500 },
-    );
-  }
-
-  if (secret !== expected) {
+  if (!expected?.trim() || authorization !== "Bearer " + expected) {
     console.error("[cron] Unauthorized");
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

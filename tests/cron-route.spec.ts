@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { runInNewContext } from "node:vm";
@@ -6,6 +7,7 @@ import { NextResponse } from "next/server";
 import ts from "typescript";
 
 const ROUTE_PATH = resolve(process.cwd(), "app/api/cron/route.ts");
+const VERCEL_CONFIG_PATH = resolve(process.cwd(), "vercel.json");
 const SECRET = "test-secret-never-return";
 const USER_ID = "44444444-4444-4444-8444-444444444444";
 const RULE_ID = "66666666-6666-4666-8666-666666666666";
@@ -24,6 +26,8 @@ function loadRoute(options?: {
   repositoryErrorFor?: string;
   repositoryError?: unknown;
   executeErrorFor?: string;
+  cronSecret?: string;
+  omitCronSecret?: boolean;
 }) {
   const source = readFileSync(ROUTE_PATH, "utf8");
   const compiled = ts.transpileModule(source, {
@@ -45,6 +49,7 @@ function loadRoute(options?: {
       runId: string;
       trigger: string;
     }>,
+    logs: [] as unknown[][],
     errors: [] as unknown[][],
   };
   const loadedModule = {
@@ -141,9 +146,15 @@ function loadRoute(options?: {
     module: loadedModule,
     require: localRequire,
     URL,
-    process: { env: { CRON_SECRET: SECRET } },
+    process: {
+      env: options?.omitCronSecret
+        ? {}
+        : { CRON_SECRET: options?.cronSecret ?? SECRET },
+    },
     console: {
-      log() {},
+      log(...args: unknown[]) {
+        calls.logs.push(args);
+      },
       error(...args: unknown[]) {
         calls.errors.push(args);
       },
@@ -153,15 +164,28 @@ function loadRoute(options?: {
   return { GET: loadedModule.exports.GET, calls, source };
 }
 
-function request(secret = SECRET) {
-  return new Request(
-    `https://example.invalid/api/cron?secret=${encodeURIComponent(secret)}`,
-  );
+function request(options?: { authorization?: string; querySecret?: string }) {
+  const url = new URL("https://example.invalid/api/cron");
+  if (options?.querySecret) {
+    url.searchParams.set("secret", options.querySecret);
+  }
+
+  return new Request(url, {
+    headers: options?.authorization
+      ? { Authorization: options.authorization }
+      : undefined,
+  });
 }
 
-test("rejects a mismatched secret before rule or run access", async () => {
-  const route = loadRoute();
-  const response = await route.GET(request("wrong-secret"));
+function authorizedRequest() {
+  return request({ authorization: `Bearer ${SECRET}` });
+}
+
+async function expectUnauthorized(
+  route: ReturnType<typeof loadRoute>,
+  cronRequest: Request,
+) {
+  const response = await route.GET(cronRequest);
   const text = await response.clone().text();
 
   expect(response.status).toBe(401);
@@ -170,11 +194,36 @@ test("rejects a mismatched secret before rule or run access", async () => {
   expect(route.calls.repository).toHaveLength(0);
   expect(route.calls.execute).toHaveLength(0);
   expect(text).not.toContain(SECRET);
+  expect(JSON.stringify(route.calls.logs)).not.toContain(SECRET);
+  expect(JSON.stringify(route.calls.errors)).not.toContain(SECRET);
+}
+
+test("rejects missing, malformed, and mismatched authorization", async () => {
+  for (const authorization of [
+    undefined,
+    SECRET,
+    `Basic ${SECRET}`,
+    "Bearer wrong-secret",
+  ]) {
+    await expectUnauthorized(loadRoute(), request({ authorization }));
+  }
+});
+
+test("fails closed when CRON_SECRET is missing or empty", async () => {
+  await expectUnauthorized(
+    loadRoute({ omitCronSecret: true }),
+    authorizedRequest(),
+  );
+  await expectUnauthorized(loadRoute({ cronSecret: "" }), authorizedRequest());
+});
+
+test("rejects legacy query authentication without authorization", async () => {
+  await expectUnauthorized(loadRoute(), request({ querySecret: SECRET }));
 });
 
 test("preserves rule selection and delegates owned identities before execution", async () => {
   const route = loadRoute();
-  const response = await route.GET(request());
+  const response = await route.GET(authorizedRequest());
   const body = await response.json();
 
   expect(response.status).toBe(200);
@@ -222,7 +271,7 @@ test("repository failure is safe, stops that rule, and continues other rules", a
     repositoryErrorFor: RULE_ID,
     repositoryError: { code: "RUN_STORE_FAILED", message: rawError },
   });
-  const response = await route.GET(request());
+  const response = await route.GET(authorizedRequest());
   const text = await response.clone().text();
   const body = await response.json();
 
@@ -257,7 +306,7 @@ test("malformed and duplicate rule rows fail closed before repository access", a
     ],
   ]) {
     const route = loadRoute({ rules });
-    const response = await route.GET(request());
+    const response = await route.GET(authorizedRequest());
     const body = await response.json();
 
     expect(response.status).toBe(200);
@@ -278,7 +327,7 @@ test("malformed and duplicate rule rows fail closed before repository access", a
 test("rule-query and thrown execution failures do not expose raw errors", async () => {
   const ruleRaw = "raw rules database detail";
   const failedQuery = loadRoute({ ruleError: { message: ruleRaw } });
-  const queryResponse = await failedQuery.GET(request());
+  const queryResponse = await failedQuery.GET(authorizedRequest());
   const queryText = await queryResponse.clone().text();
   expect(queryResponse.status).toBe(500);
   expect(await queryResponse.json()).toEqual({
@@ -289,7 +338,7 @@ test("rule-query and thrown execution failures do not expose raw errors", async 
 
   const executeRaw = "raw execute detail";
   const failedExecute = loadRoute({ executeErrorFor: RULE_ID });
-  const executeResponse = await failedExecute.GET(request());
+  const executeResponse = await failedExecute.GET(authorizedRequest());
   const text = await executeResponse.clone().text();
   expect(executeResponse.status).toBe(200);
   expect(await executeResponse.json()).toMatchObject({
@@ -299,4 +348,34 @@ test("rule-query and thrown execution failures do not expose raw errors", async 
   });
   expect(text).not.toContain(executeRaw);
   expect(JSON.stringify(failedExecute.calls.errors)).not.toContain(executeRaw);
+});
+
+test("tracked configuration does not contain Cron query authentication", () => {
+  const config = JSON.parse(readFileSync(VERCEL_CONFIG_PATH, "utf8"));
+  expect(config.crons).toEqual([{ path: "/api/cron", schedule: "0 0 * * *" }]);
+
+  const safeDirectory = process.cwd().replaceAll("\\", "/");
+  const trackedFiles = execFileSync(
+    "git",
+    ["-c", `safe.directory=${safeDirectory}`, "ls-files", "-z"],
+    {
+      cwd: process.cwd(),
+      encoding: "utf8",
+    },
+  )
+    .split("\0")
+    .filter(Boolean)
+    .filter((path) => !path.startsWith(".env"))
+    .filter((path) => /\.(?:[cm]?[jt]sx?|json|md|ya?ml|toml)$/.test(path));
+  const legacyCronQueryPattern = new RegExp(
+    ["/api/cron", "\\?", "[^\\s\\\"']*", "(?:secret|token)="].join(""),
+    "i",
+  );
+  const unsafeFiles = trackedFiles.filter((path) =>
+    legacyCronQueryPattern.test(
+      readFileSync(resolve(process.cwd(), path), "utf8"),
+    ),
+  );
+
+  expect(unsafeFiles).toEqual([]);
 });
