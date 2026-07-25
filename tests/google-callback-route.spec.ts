@@ -7,6 +7,7 @@ import ts from "typescript";
 
 const ROUTE_PATH = resolve(process.cwd(), "app/api/google/callback/route.ts");
 const USER_ID = "44444444-4444-4444-8444-444444444444";
+const OTHER_USER_ID = "55555555-5555-4555-8555-555555555555";
 
 function loadRoute(options?: {
   user?: { id: string } | null;
@@ -22,7 +23,8 @@ function loadRoute(options?: {
   validationRotatedRefreshToken?: string;
   verifyError?: Error;
   saveError?: Error;
-  metadataError?: object | null;
+  validationFailureError?: Error;
+  state?: string | null;
 }) {
   const source = readFileSync(ROUTE_PATH, "utf8");
   const compiled = ts.transpileModule(source, {
@@ -40,7 +42,8 @@ function loadRoute(options?: {
     fetch: 0,
     credentials: [] as Array<Record<string, unknown>>,
     saves: [] as Array<Record<string, unknown>>,
-    metadataUpserts: [] as Array<Record<string, unknown>>,
+    validationFailures: [] as Array<Record<string, unknown>>,
+    jwtFrom: 0,
     logs: [] as unknown[][],
   };
 
@@ -83,19 +86,19 @@ function loadRoute(options?: {
             auth: {
               async getUser() {
                 return {
-                  data: { user: options?.user ?? { id: USER_ID } },
+                  data: {
+                    user:
+                      options?.user === undefined
+                        ? { id: USER_ID }
+                        : options.user,
+                  },
                   error: null,
                 };
               },
             },
             from(table: string) {
-              expect(table).toBe("google_connections");
-              return {
-                async upsert(payload: Record<string, unknown>) {
-                  calls.metadataUpserts.push(payload);
-                  return { error: options?.metadataError ?? null };
-                },
-              };
+              calls.jwtFrom += 1;
+              throw new Error(`Authenticated DB access is forbidden: ${table}`);
             },
           };
         },
@@ -126,6 +129,15 @@ function loadRoute(options?: {
           events.push("save");
           calls.saves.push(input);
           if (options?.saveError) throw options.saveError;
+        },
+        async recordGoogleCredentialValidationFailure(
+          input: Record<string, unknown>,
+        ) {
+          events.push("validation-failure");
+          calls.validationFailures.push(input);
+          if (options?.validationFailureError) {
+            throw options.validationFailureError;
+          }
         },
       };
     }
@@ -168,7 +180,9 @@ function loadRoute(options?: {
   });
 
   const request = new Request(
-    `https://app.example.test/api/google/callback?code=dummy-code&state=${USER_ID}`,
+    `https://app.example.test/api/google/callback?code=dummy-code&state=${
+      options?.state === undefined ? USER_ID : (options.state ?? "")
+    }&user_id=${OTHER_USER_ID}`,
   );
   return { GET: loadedModule.exports.GET, request, calls, events, source };
 }
@@ -271,14 +285,66 @@ test("missing or invalid refresh fails validation without token save", async () 
       "https://app.example.test/settings?google=token_invalid",
     );
     expect(route.calls.saves).toEqual([]);
-    expect(route.calls.metadataUpserts).toHaveLength(1);
-    expect(route.calls.metadataUpserts[0]).not.toHaveProperty(
-      "access_token_enc",
-    );
-    expect(route.calls.metadataUpserts[0]).not.toHaveProperty(
-      "refresh_token_enc",
-    );
+    expect(route.calls.validationFailures).toEqual([
+      { userId: USER_ID, writeMode: "insert" },
+    ]);
+    expect(route.calls.jwtFrom).toBe(0);
   }
+});
+
+test("validation failure updates an existing row through the token store", async () => {
+  const route = loadRoute({
+    rowExists: true,
+    storedRefreshToken: "stored-refresh",
+    verifyError: new Error("provider-validation-failed"),
+  });
+  const response = await route.GET(route.request);
+
+  expect(response.headers.get("location")).toBe(
+    "https://app.example.test/settings?google=token_invalid",
+  );
+  expect(route.calls.validationFailures).toEqual([
+    { userId: USER_ID, writeMode: "update" },
+  ]);
+  expect(JSON.stringify(route.calls.validationFailures)).not.toContain(
+    OTHER_USER_ID,
+  );
+  expect(route.calls.jwtFrom).toBe(0);
+});
+
+test("state mismatch and unauthenticated callbacks never write health", async () => {
+  const invalidState = loadRoute({ state: "not-the-authenticated-user" });
+  const invalidStateResponse = await invalidState.GET(invalidState.request);
+  expect(invalidStateResponse.headers.get("location")).toContain(
+    "google=state_invalid",
+  );
+  expect(invalidState.calls.validationFailures).toEqual([]);
+  expect(invalidState.calls.fetch).toBe(0);
+
+  const unauthenticated = loadRoute({ user: null });
+  const unauthenticatedResponse = await unauthenticated.GET(
+    unauthenticated.request,
+  );
+  expect(unauthenticatedResponse.headers.get("location")).toBe(
+    "https://app.example.test/login",
+  );
+  expect(unauthenticated.calls.validationFailures).toEqual([]);
+  expect(unauthenticated.calls.fetch).toBe(0);
+});
+
+test("health write failure preserves the token-invalid redirect safely", async () => {
+  const secret = "raw-health-db-secret";
+  const route = loadRoute({
+    verifyError: new Error("provider-validation-failed"),
+    validationFailureError: new Error(secret),
+  });
+  const response = await route.GET(route.request);
+
+  expect(response.headers.get("location")).toBe(
+    "https://app.example.test/settings?google=token_invalid",
+  );
+  expect(JSON.stringify(route.calls.logs)).not.toContain(secret);
+  expect(route.calls.jwtFrom).toBe(0);
 });
 
 test("preflight and snapshot failures stop before Google token exchange", async () => {
@@ -327,5 +393,9 @@ test("callback has no direct token column read or write", () => {
   expect(source).not.toContain("access_token_enc:");
   expect(source).not.toContain("refresh_token_enc:");
   expect(source).not.toContain("token.access_token =");
+  expect(source).not.toContain('.from("google_connections")');
+  expect(source).not.toContain(".upsert(");
+  expect(source).not.toContain("supabaseAdmin");
+  expect(source).toContain("recordGoogleCredentialValidationFailure");
   expect(source).toContain("saveGoogleCallbackConnection");
 });

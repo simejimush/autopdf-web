@@ -7,6 +7,7 @@ import {
   createPlaintextGoogleToken,
   loadGoogleCallbackConnectionSnapshot,
   preflightGoogleTokenEncryptionWrite,
+  recordGoogleCredentialValidationFailure,
   saveGoogleCallbackConnection,
 } from "@/lib/google/tokenStore";
 
@@ -176,21 +177,12 @@ export async function GET(req: Request) {
         reason: "oauth_access_token_check_failed",
       });
 
-      const { error: markErr } = await supabase
-        .from("google_connections")
-        .upsert(
-          {
-            user_id: user.id,
-            status: "error",
-            reauth_required: true,
-            last_error_code: "GOOGLE_TOKEN_INVALID",
-            last_error_at: now,
-            updated_at: now,
-          },
-          { onConflict: "user_id" },
-        );
-
-      if (markErr) {
+      try {
+        await recordGoogleCredentialValidationFailure({
+          userId: user.id,
+          writeMode: callbackSnapshot.exists() ? "update" : "insert",
+        });
+      } catch {
         console.error("[google.callback] failed to mark token invalid", {
           code: "GOOGLE_CONNECTION_HEALTH_UPDATE_FAILED",
           location: "mark_google_token_invalid",

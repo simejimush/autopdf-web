@@ -67,6 +67,7 @@ export type {
   GoogleCallbackConnectionSnapshot,
   GoogleTokenCredentials,
   PlaintextGoogleToken,
+  RecordGoogleCredentialValidationFailureInput,
   SaveGoogleCallbackConnectionInput,
   UpdateRefreshedGoogleAccessTokenInput,
 } from "@/lib/google/tokenStoreCore";
@@ -88,4 +89,6 @@ export async function updateRefreshedGoogleAccessToken(
   preflightGoogleTokenEncryptionWrite();
   await tokenStore.updateRefreshedGoogleAccessToken(input);
 }
+export const recordGoogleCredentialValidationFailure =
+  tokenStore.recordGoogleCredentialValidationFailure;
 export const disconnectGoogleConnection = tokenStore.disconnectGoogleConnection;
