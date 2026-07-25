@@ -32,6 +32,17 @@ type FinalizeCall = {
       };
 };
 
+type ProcessedEmailCall = {
+  userId: string;
+  ruleId: string;
+  gmailMessageId: string;
+  drive: {
+    fileId: string | null;
+    webViewLink: string | null;
+    fileName: string;
+  };
+};
+
 function codedError(code: string) {
   return Object.assign(new Error(`raw ${code} detail`), { code });
 }
@@ -52,6 +63,8 @@ function loadExecuteRule(options?: {
   finalizeError?: Error;
   slackError?: Error;
   userNotifyError?: Error;
+  returnedRuleId?: string;
+  returnedRuleOwnerId?: string;
 }) {
   const source = readFileSync(EXECUTE_PATH, "utf8");
   const compiled = ts.transpileModule(source, {
@@ -63,7 +76,12 @@ function loadExecuteRule(options?: {
     fileName: EXECUTE_PATH,
   }).outputText;
   const calls = {
+    order: [] as string[],
+    ruleSelect: [] as string[],
+    ruleEq: [] as Array<{ column: string; value: string }>,
     finalizations: [] as FinalizeCall[],
+    processedEmails: [] as ProcessedEmailCall[],
+    forbiddenProcessedInserts: [] as unknown[],
     forbiddenRunQueries: [] as string[],
     health: [] as unknown[],
     slack: [] as unknown[],
@@ -89,20 +107,31 @@ function loadExecuteRule(options?: {
       }
       if (table === "rules") {
         return {
-          select() {
+          select(columns: string) {
+            calls.ruleSelect.push(columns);
             return {
-              eq() {
+              eq(column: string, value: string) {
+                calls.ruleEq.push({ column, value });
                 return {
-                  async single() {
-                    if (options?.failAt === "rule") {
-                      throw codedError(errorCode);
-                    }
+                  eq(secondColumn: string, secondValue: string) {
+                    calls.ruleEq.push({
+                      column: secondColumn,
+                      value: secondValue,
+                    });
                     return {
-                      data: {
-                        id: RULE_ID,
-                        gmail_query: "from:billing@example.com",
-                        drive_folder_id: "drive-folder-id",
-                        file_name_format: "date_subject",
+                      async single() {
+                        if (options?.failAt === "rule") {
+                          throw codedError(errorCode);
+                        }
+                        return {
+                          data: {
+                            id: options?.returnedRuleId ?? RULE_ID,
+                            user_id: options?.returnedRuleOwnerId ?? USER_ID,
+                            gmail_query: "from:billing@example.com",
+                            drive_folder_id: "drive-folder-id",
+                            file_name_format: "date_subject",
+                          },
+                        };
                       },
                     };
                   },
@@ -152,12 +181,11 @@ function loadExecuteRule(options?: {
               },
             };
           },
-          async insert() {
-            return {
-              error: options?.processedInsertError
-                ? { code: "raw-db-code" }
-                : null,
-            };
+          insert(payload: unknown) {
+            calls.forbiddenProcessedInserts.push(payload);
+            throw new Error(
+              "executeRule must not insert processed_emails directly",
+            );
           },
         };
       }
@@ -186,8 +214,21 @@ function loadExecuteRule(options?: {
     if (specifier === "@/lib/runs/runUpdateRepository") {
       return {
         async finalizeRunForUser(input: FinalizeCall) {
+          calls.order.push(`run:${input.finalization.status}`);
           calls.finalizations.push(input);
           if (options?.finalizeError) throw options.finalizeError;
+        },
+      };
+    }
+    if (specifier === "@/lib/runs/processedEmailRepository") {
+      return {
+        async recordProcessedEmail(input: ProcessedEmailCall) {
+          calls.order.push("processed_email:record");
+          calls.processedEmails.push(input);
+          if (options?.processedInsertError) {
+            throw new Error("Processed email storage failed");
+          }
+          return { id: "99999999-9999-4999-8999-999999999999" };
         },
       };
     }
@@ -224,9 +265,11 @@ function loadExecuteRule(options?: {
       return {
         async uploadPdfToDrive() {
           if (options?.failAt === "drive") throw codedError(errorCode);
+          calls.order.push("drive:pdf");
           return { fileId: "file-id", webViewLink: "https://safe.invalid" };
         },
         async uploadFileToDrive() {
+          calls.order.push("drive:attachment");
           calls.attachmentUploads += 1;
         },
       };
@@ -431,6 +474,25 @@ test("normal and partially-saved success finalize exact owner counts", async () 
     message: "Saved 2 files to Drive",
   });
   expect(harness.calls.attachmentUploads).toBe(1);
+  expect(harness.calls.processedEmails).toEqual([
+    {
+      userId: USER_ID,
+      ruleId: RULE_ID,
+      gmailMessageId: MESSAGE_ID,
+      drive: {
+        fileId: "file-id",
+        webViewLink: "https://safe.invalid",
+        fileName: "2026-08-04_Invoice_gmail-me.pdf",
+      },
+    },
+  ]);
+  expect(harness.calls.order).toEqual([
+    "drive:pdf",
+    "drive:attachment",
+    "processed_email:record",
+    "run:success",
+  ]);
+  expect(harness.calls.forbiddenProcessedInserts).toHaveLength(0);
   expect(harness.calls.finalizations).toEqual([
     {
       runId: RUN_ID,
@@ -444,6 +506,50 @@ test("normal and partially-saved success finalize exact owner counts", async () 
       },
     },
   ]);
+});
+
+test("manual and cron successes pass the same owned processed-email identity", async () => {
+  for (const trigger of ["manual", "cron"] as const) {
+    const harness = loadExecuteRule({
+      trigger,
+      messageIds: [MESSAGE_ID],
+    });
+    const result = await harness.executeRule(harness.input);
+
+    expect(result).toMatchObject({ ok: true, savedCount: 1 });
+    expect(harness.calls.processedEmails).toHaveLength(1);
+    expect(harness.calls.processedEmails[0]).toMatchObject({
+      userId: USER_ID,
+      ruleId: RULE_ID,
+      gmailMessageId: MESSAGE_ID,
+    });
+  }
+});
+
+test("service-role rule lookup fixes ID and owner and rejects mismatched returned identity", async () => {
+  const otherRuleId = "77777777-7777-4777-8777-777777777777";
+  for (const options of [
+    { returnedRuleId: otherRuleId },
+    { returnedRuleOwnerId: OTHER_USER_ID },
+  ]) {
+    const harness = loadExecuteRule({ messageIds: [MESSAGE_ID], ...options });
+    const result = await harness.executeRule(harness.input);
+
+    expect(harness.calls.ruleSelect).toEqual([
+      "id, user_id, gmail_query, drive_folder_id, file_name_format",
+    ]);
+    expect(harness.calls.ruleEq).toEqual([
+      { column: "id", value: RULE_ID },
+      { column: "user_id", value: USER_ID },
+    ]);
+    expect(result).toMatchObject({ ok: false, errorCode: "UNKNOWN" });
+    expect(harness.calls.processedEmails).toHaveLength(0);
+    expect(harness.calls.finalizations[0]).toMatchObject({
+      runId: RUN_ID,
+      userId: USER_ID,
+      finalization: { status: "error", errorCode: "UNKNOWN" },
+    });
+  }
 });
 
 test("Google reauth, Gmail, PDF, Drive, DB, and unexpected failures share safe owned finalization", async () => {
@@ -505,6 +611,39 @@ test("Google reauth notifications remain after finalization and notifier failure
   ]);
 });
 
+test("processed-email repository failure records run error after Drive save without raw details", async () => {
+  const harness = loadExecuteRule({
+    trigger: "cron",
+    messageIds: [MESSAGE_ID],
+    processedInsertError: true,
+  });
+  const result = await harness.executeRule(harness.input);
+
+  expect(result).toMatchObject({
+    ok: false,
+    processedCount: 0,
+    savedCount: 0,
+    skippedCount: 0,
+    errorCode: "DB_INSERT_FAILED",
+  });
+  expect(result.message).not.toContain("Processed email storage failed");
+  expect(harness.calls.processedEmails).toHaveLength(1);
+  expect(harness.calls.order).toEqual([
+    "drive:pdf",
+    "processed_email:record",
+    "run:error",
+  ]);
+  expect(harness.calls.finalizations[0]).toMatchObject({
+    runId: RUN_ID,
+    userId: USER_ID,
+    finalization: {
+      status: "error",
+      errorCode: "DB_INSERT_FAILED",
+      resetCounts: false,
+    },
+  });
+});
+
 test("repository failure cannot be reported as success and executeRule has no direct Runs query", async () => {
   const harness = loadExecuteRule({
     messageIds: [],
@@ -517,6 +656,7 @@ test("repository failure cannot be reported as success and executeRule has no di
   expect(harness.calls.finalizations).toHaveLength(2);
   expect(harness.calls.forbiddenRunQueries).toHaveLength(0);
   expect(harness.source).not.toContain('.from("runs")');
+  expect(harness.source).not.toContain(".insert({\n        user_id:");
   expect(harness.source).not.toContain("raw service-role run update details");
 });
 

@@ -10,6 +10,7 @@ import { uploadFileToDrive, uploadPdfToDrive } from "@/lib/google/drive";
 import { getRunErrorMessage } from "@/lib/runs/getRunErrorMessage";
 import { normalizeRunErrorCode } from "@/lib/runs/normalizeRunErrorCode";
 import { finalizeRunForUser } from "@/lib/runs/runUpdateRepository";
+import { recordProcessedEmail } from "@/lib/runs/processedEmailRepository";
 import { updateGoogleConnectionHealth } from "@/lib/monitoring/updateGoogleConnectionHealth";
 import { notifySlack } from "@/lib/monitoring/notifySlack";
 import { notifyUser } from "@/lib/monitoring/notifyUser";
@@ -268,11 +269,12 @@ export async function executeRule(
   try {
     const { data: rule } = await supabaseAdmin
       .from("rules")
-      .select("id, gmail_query, drive_folder_id, file_name_format")
+      .select("id, user_id, gmail_query, drive_folder_id, file_name_format")
       .eq("id", params.ruleId)
+      .eq("user_id", params.userId)
       .single();
 
-    if (!rule) {
+    if (!rule || rule.id !== params.ruleId || rule.user_id !== params.userId) {
       throw new Error("rule not found");
     }
 
@@ -337,7 +339,7 @@ export async function executeRule(
       .from("processed_emails")
       .select("id")
       .eq("user_id", params.userId)
-      .eq("rule_id", params.ruleId)
+      .eq("rule_id", rule.id)
       .eq("gmail_message_id", messageId)
       .maybeSingle();
 
@@ -504,35 +506,20 @@ export async function executeRule(
 
     const savedCount = 1 + savedAttachmentCount;
 
-    const { error: processedInsertError } = await supabaseAdmin
-      .from("processed_emails")
-      .insert({
-        user_id: params.userId,
-        rule_id: rule.id,
-        gmail_message_id: messageId,
-        drive_file_id:
-          typeof driveResult === "object" &&
-          driveResult &&
-          "fileId" in driveResult
-            ? driveResult.fileId
-            : null,
-        drive_web_view_link:
-          typeof driveResult === "object" &&
-          driveResult &&
-          "webViewLink" in driveResult
-            ? driveResult.webViewLink
-            : null,
-        drive_file_name: filename,
-        saved_at: new Date().toISOString(),
+    try {
+      await recordProcessedEmail({
+        userId: params.userId,
+        ruleId: rule.id,
+        gmailMessageId: messageId,
+        drive: {
+          fileId: driveResult.fileId,
+          webViewLink: driveResult.webViewLink,
+          fileName: filename,
+        },
       });
-
-    if (processedInsertError) {
+    } catch {
       console.error("[executeRule] processed_emails insert failed:", {
         code: "PROCESSED_EMAIL_INSERT_FAILED",
-        dbCode:
-          typeof processedInsertError.code === "string"
-            ? processedInsertError.code
-            : undefined,
         location: "insert_processed_email",
       });
 
