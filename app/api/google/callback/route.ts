@@ -1,8 +1,14 @@
 //app\api\google\callback\route.ts
 
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { google } from "googleapis";
+import {
+  getGoogleOAuthStateCookieOptions,
+  GOOGLE_OAUTH_STATE_COOKIE_NAME,
+  validateGoogleOAuthState,
+} from "@/lib/google/oauthStateCore";
 import {
   createPlaintextGoogleToken,
   loadGoogleCallbackConnectionSnapshot,
@@ -11,16 +17,24 @@ import {
   saveGoogleCallbackConnection,
 } from "@/lib/google/tokenStore";
 
+function redirectWithConsumedOAuthState(path: string, requestUrl: URL) {
+  const response = NextResponse.redirect(new URL(path, requestUrl.origin));
+  response.cookies.set(
+    GOOGLE_OAUTH_STATE_COOKIE_NAME,
+    "",
+    getGoogleOAuthStateCookieOptions({
+      secure: requestUrl.protocol === "https:",
+      consumed: true,
+    }),
+  );
+  return response;
+}
+
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
-
-  if (!code) {
-    return NextResponse.redirect(
-      new URL("/settings?google=missing", url.origin),
-    );
-  }
+  const providerError = url.searchParams.get("error");
 
   const supabase = await createSupabaseServerClient();
   const {
@@ -29,14 +43,7 @@ export async function GET(req: Request) {
   } = await supabase.auth.getUser();
 
   if (userErr || !user) {
-    return NextResponse.redirect(new URL("/login", url.origin));
-  }
-
-  // 最低限の state 検証
-  if (!state || state !== user.id) {
-    return NextResponse.redirect(
-      new URL("/settings?google=state_invalid", url.origin),
-    );
+    return redirectWithConsumedOAuthState("/login", url);
   }
 
   const clientId = process.env.GOOGLE_CLIENT_ID ?? "";
@@ -49,9 +56,36 @@ export async function GET(req: Request) {
       hasClientSecret: !!clientSecret,
       hasRedirectUri: !!redirectUri,
     });
-    return NextResponse.redirect(
-      new URL("/settings?google=env_missing", url.origin),
+    return redirectWithConsumedOAuthState("/settings?google=env_missing", url);
+  }
+
+  const cookieStore = await cookies();
+  const stateIsValid = validateGoogleOAuthState({
+    state,
+    cookieValue: cookieStore.get(GOOGLE_OAUTH_STATE_COOKIE_NAME)?.value ?? null,
+    userId: user.id,
+    redirectUri,
+    signingSecret: clientSecret,
+  });
+
+  if (!stateIsValid) {
+    return redirectWithConsumedOAuthState(
+      "/settings?google=state_invalid",
+      url,
     );
+  }
+
+  if (providerError) {
+    const reason =
+      providerError === "access_denied" ? providerError : "oauth_error";
+    return redirectWithConsumedOAuthState(
+      `/settings?google=${encodeURIComponent(reason)}`,
+      url,
+    );
+  }
+
+  if (!code) {
+    return redirectWithConsumedOAuthState("/settings?google=missing", url);
   }
 
   try {
@@ -61,9 +95,7 @@ export async function GET(req: Request) {
       code: "GOOGLE_TOKEN_WRITE_PREFLIGHT_FAILED",
       location: "oauth_callback_preflight",
     });
-    return NextResponse.redirect(
-      new URL("/settings?google=env_missing", url.origin),
-    );
+    return redirectWithConsumedOAuthState("/settings?google=env_missing", url);
   }
 
   let callbackSnapshot;
@@ -74,9 +106,7 @@ export async function GET(req: Request) {
       code: "GOOGLE_CONNECTION_LOAD_FAILED",
       location: "load_existing_google_connection",
     });
-    return NextResponse.redirect(
-      new URL("/settings?google=load_failed", url.origin),
-    );
+    return redirectWithConsumedOAuthState("/settings?google=load_failed", url);
   }
 
   try {
@@ -105,8 +135,9 @@ export async function GET(req: Request) {
         ? token.error
         : "token_failed";
 
-      return NextResponse.redirect(
-        new URL(`/settings?google=${encodeURIComponent(reason)}`, url.origin),
+      return redirectWithConsumedOAuthState(
+        `/settings?google=${encodeURIComponent(reason)}`,
+        url,
       );
     }
 
@@ -189,14 +220,16 @@ export async function GET(req: Request) {
         });
       }
 
-      return NextResponse.redirect(
-        new URL("/settings?google=token_invalid", url.origin),
+      return redirectWithConsumedOAuthState(
+        "/settings?google=token_invalid",
+        url,
       );
     }
 
     if (!validatedRefreshToken) {
-      return NextResponse.redirect(
-        new URL("/settings?google=token_invalid", url.origin),
+      return redirectWithConsumedOAuthState(
+        "/settings?google=token_invalid",
+        url,
       );
     }
 
@@ -223,21 +256,21 @@ export async function GET(req: Request) {
         code: "GOOGLE_CONNECTION_SAVE_FAILED",
         location: "save_google_connection",
       });
-      return NextResponse.redirect(
-        new URL("/settings?google=save_failed", url.origin),
+      return redirectWithConsumedOAuthState(
+        "/settings?google=save_failed",
+        url,
       );
     }
 
-    return NextResponse.redirect(
-      new URL("/settings?google=connected", url.origin),
-    );
+    return redirectWithConsumedOAuthState("/settings?google=connected", url);
   } catch {
     console.error("[google.callback] unexpected error", {
       code: "GOOGLE_CALLBACK_FAILED",
       location: "oauth_callback",
     });
-    return NextResponse.redirect(
-      new URL("/settings?google=callback_exception", url.origin),
+    return redirectWithConsumedOAuthState(
+      "/settings?google=callback_exception",
+      url,
     );
   }
 }
