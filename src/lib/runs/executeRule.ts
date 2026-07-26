@@ -514,7 +514,9 @@ export async function executeRule(
         location: "insert_processed_email",
       });
 
-      throw new Error("DB_INSERT_FAILED");
+      throw Object.assign(new Error("Processed email storage failed"), {
+        code: "DB_INSERT_FAILED",
+      });
     }
 
     const successMessage =

@@ -22,7 +22,10 @@ export function getRunErrorMessage(
         action: "ログイン中のアカウントを確認してください。",
       };
 
+    case "GOOGLE_CONNECTION_NOT_FOUND":
+    case "GOOGLE_REFRESH_TOKEN_MISSING":
     case "GOOGLE_TOKEN_INVALID":
+    case "GOOGLE_TOKEN_REFRESH_FAILED":
       return {
         title: "Googleの認証が切れています",
         message: "GmailまたはGoogle Driveへの接続に必要な認証情報が無効です。",
@@ -96,11 +99,19 @@ export function getRunErrorMessage(
         action: "改善しない場合は管理者確認が必要です。",
       };
 
+    case "DB_INSERT_FAILED":
     case "DB_CONSTRAINT":
       return {
         title: "データ保存中に問題が発生しました",
         message: "保存処理が正常に完了しませんでした。",
         action: "時間をおいて再実行してください。",
+      };
+
+    case "FREE_MONTHLY_LIMIT_EXCEEDED":
+      return {
+        title: "今月の保存上限に達しました",
+        message: "Freeプランの今月のPDF保存上限に達しています。",
+        action: "翌月まで待つか、プランの変更をご検討ください。",
       };
 
     default:
