@@ -60,7 +60,7 @@ export async function GET(req: Request) {
   }
 
   const cookieStore = await cookies();
-  const stateIsValid = validateGoogleOAuthState({
+  const codeVerifier = validateGoogleOAuthState({
     state,
     cookieValue: cookieStore.get(GOOGLE_OAUTH_STATE_COOKIE_NAME)?.value ?? null,
     userId: user.id,
@@ -68,7 +68,7 @@ export async function GET(req: Request) {
     signingSecret: clientSecret,
   });
 
-  if (!stateIsValid) {
+  if (!codeVerifier) {
     return redirectWithConsumedOAuthState(
       "/settings?google=state_invalid",
       url,
@@ -119,6 +119,7 @@ export async function GET(req: Request) {
         client_secret: clientSecret,
         redirect_uri: redirectUri,
         grant_type: "authorization_code",
+        code_verifier: codeVerifier,
       }),
     });
 

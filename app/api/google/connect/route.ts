@@ -69,6 +69,8 @@ export async function GET() {
   url.searchParams.set("include_granted_scopes", "true");
 
   url.searchParams.set("state", oauthState.state);
+  url.searchParams.set("code_challenge", oauthState.codeChallenge);
+  url.searchParams.set("code_challenge_method", "S256");
 
   const response = NextResponse.redirect(url.toString());
   response.cookies.set(

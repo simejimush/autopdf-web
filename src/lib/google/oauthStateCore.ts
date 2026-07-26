@@ -9,11 +9,14 @@ export const GOOGLE_OAUTH_STATE_COOKIE_NAME = "autopdf_google_oauth_state";
 export const GOOGLE_OAUTH_STATE_COOKIE_PATH = "/api/google/callback";
 export const GOOGLE_OAUTH_STATE_TTL_SECONDS = 10 * 60;
 
-const GOOGLE_OAUTH_STATE_VERSION = 1;
+const GOOGLE_OAUTH_STATE_VERSION = 2;
 const GOOGLE_OAUTH_STATE_NONCE_BYTES = 32;
+const GOOGLE_OAUTH_PKCE_VERIFIER_BYTES = 32;
 const GOOGLE_OAUTH_STATE_CLOCK_SKEW_MS = 60 * 1000;
 const GOOGLE_OAUTH_STATE_COOKIE_MAX_LENGTH = 1_024;
 const BASE64URL_SHA256_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+export const GOOGLE_OAUTH_PKCE_CODE_VERIFIER_PATTERN =
+  /^[A-Za-z0-9._~-]{43,128}$/;
 
 type GoogleOAuthStatePayload = Readonly<{
   v: typeof GOOGLE_OAUTH_STATE_VERSION;
@@ -22,11 +25,13 @@ type GoogleOAuthStatePayload = Readonly<{
   e: number;
   u: string;
   r: string;
+  p: string;
 }>;
 
 export type GoogleOAuthState = Readonly<{
   state: string;
   cookieValue: string;
+  codeChallenge: string;
 }>;
 
 export type GoogleOAuthStateCookieOptions = Readonly<{
@@ -66,7 +71,7 @@ function normalizeRedirectUri(value: string): string {
 function deriveSigningKey(secret: string): Buffer {
   if (!secret || secret.trim() !== secret) fail();
   return createHmac("sha256", secret)
-    .update("autopdf|google-oauth-state|signing-key|v1")
+    .update("autopdf|google-oauth-state|signing-key|v2")
     .digest();
 }
 
@@ -80,6 +85,10 @@ function hmacBase64Url(key: Buffer, purpose: string, value: string): string {
 
 function stateChallenge(nonce: string): string {
   return createHash("sha256").update(nonce).digest("base64url");
+}
+
+function pkceChallenge(codeVerifier: string): string {
+  return createHash("sha256").update(codeVerifier, "ascii").digest("base64url");
 }
 
 function safelyEqual(left: string, right: string): boolean {
@@ -105,7 +114,9 @@ function isPayload(value: unknown): value is GoogleOAuthStatePayload {
     typeof payload.u === "string" &&
     BASE64URL_SHA256_PATTERN.test(payload.u) &&
     typeof payload.r === "string" &&
-    BASE64URL_SHA256_PATTERN.test(payload.r)
+    BASE64URL_SHA256_PATTERN.test(payload.r) &&
+    typeof payload.p === "string" &&
+    GOOGLE_OAUTH_PKCE_CODE_VERIFIER_PATTERN.test(payload.p)
   );
 }
 
@@ -142,6 +153,9 @@ export function createGoogleOAuthState(
   const nonce = randomBytes(GOOGLE_OAUTH_STATE_NONCE_BYTES).toString(
     "base64url",
   );
+  const codeVerifier = randomBytes(GOOGLE_OAUTH_PKCE_VERIFIER_BYTES).toString(
+    "base64url",
+  );
   const expiresAt = now + GOOGLE_OAUTH_STATE_TTL_SECONDS * 1000;
   const payload: GoogleOAuthStatePayload = Object.freeze({
     v: GOOGLE_OAUTH_STATE_VERSION,
@@ -150,6 +164,7 @@ export function createGoogleOAuthState(
     e: expiresAt,
     u: hmacBase64Url(signingKey, "user", input.userId),
     r: hmacBase64Url(signingKey, "redirect", redirectUri),
+    p: codeVerifier,
   });
   const encodedPayload = Buffer.from(JSON.stringify(payload)).toString(
     "base64url",
@@ -159,6 +174,7 @@ export function createGoogleOAuthState(
   return Object.freeze({
     state: stateChallenge(nonce),
     cookieValue: `${encodedPayload}.${signature}`,
+    codeChallenge: pkceChallenge(codeVerifier),
   });
 }
 
@@ -171,7 +187,7 @@ export function validateGoogleOAuthState(
     signingSecret: string;
     now?: number;
   }>,
-): boolean {
+): string | null {
   try {
     const now = input.now ?? Date.now();
     if (
@@ -182,20 +198,20 @@ export function validateGoogleOAuthState(
       !input.cookieValue ||
       input.cookieValue.length > GOOGLE_OAUTH_STATE_COOKIE_MAX_LENGTH
     ) {
-      return false;
+      return null;
     }
 
     const redirectUri = normalizeRedirectUri(input.redirectUri);
     const signingKey = deriveSigningKey(input.signingSecret);
     const parts = input.cookieValue.split(".");
-    if (parts.length !== 2) return false;
+    if (parts.length !== 2) return null;
     const [encodedPayload, signature] = parts;
     if (
       !encodedPayload ||
       !signature ||
       !BASE64URL_SHA256_PATTERN.test(signature)
     ) {
-      return false;
+      return null;
     }
 
     const expectedSignature = hmacBase64Url(
@@ -203,7 +219,7 @@ export function validateGoogleOAuthState(
       "payload",
       encodedPayload,
     );
-    if (!safelyEqual(signature, expectedSignature)) return false;
+    if (!safelyEqual(signature, expectedSignature)) return null;
 
     let parsedPayload: unknown;
     try {
@@ -211,9 +227,9 @@ export function validateGoogleOAuthState(
         Buffer.from(encodedPayload, "base64url").toString("utf8"),
       );
     } catch {
-      return false;
+      return null;
     }
-    if (!isPayload(parsedPayload)) return false;
+    if (!isPayload(parsedPayload)) return null;
 
     const expectedLifetime = GOOGLE_OAUTH_STATE_TTL_SECONDS * 1000;
     if (
@@ -221,10 +237,10 @@ export function validateGoogleOAuthState(
       parsedPayload.i > now + GOOGLE_OAUTH_STATE_CLOCK_SKEW_MS ||
       parsedPayload.e < now
     ) {
-      return false;
+      return null;
     }
 
-    return (
+    const stateIsValid =
       safelyEqual(input.state, stateChallenge(parsedPayload.n)) &&
       safelyEqual(
         parsedPayload.u,
@@ -233,9 +249,10 @@ export function validateGoogleOAuthState(
       safelyEqual(
         parsedPayload.r,
         hmacBase64Url(signingKey, "redirect", redirectUri),
-      )
-    );
+      );
+
+    return stateIsValid ? parsedPayload.p : null;
   } catch {
-    return false;
+    return null;
   }
 }

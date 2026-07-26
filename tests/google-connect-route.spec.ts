@@ -4,9 +4,11 @@ import { runInNewContext } from "node:vm";
 import { expect, test } from "@playwright/test";
 import { NextResponse } from "next/server";
 import ts from "typescript";
+import { createHash } from "node:crypto";
 import {
   createGoogleOAuthState,
   getGoogleOAuthStateCookieOptions,
+  GOOGLE_OAUTH_PKCE_CODE_VERIFIER_PATTERN,
   GOOGLE_OAUTH_STATE_COOKIE_NAME,
   GOOGLE_OAUTH_STATE_COOKIE_PATH,
   GOOGLE_OAUTH_STATE_TTL_SECONDS,
@@ -18,7 +20,12 @@ const USER_ID = "44444444-4444-4444-8444-444444444444";
 function loadRoute(options?: {
   user?: { id: string } | null;
   preflightError?: Error;
+  appUrl?: string;
+  redirectUri?: string;
 }) {
+  const appUrl = options?.appUrl ?? "https://app.example.test";
+  const redirectUri =
+    options?.redirectUri ?? "https://app.example.test/api/google/callback";
   const source = readFileSync(ROUTE_PATH, "utf8");
   const compiled = ts.transpileModule(source, {
     compilerOptions: {
@@ -76,10 +83,10 @@ function loadRoute(options?: {
     console: { error: (...args: unknown[]) => calls.logs.push(args) },
     process: {
       env: {
-        APP_URL: "https://app.example.test",
+        APP_URL: appUrl,
         GOOGLE_CLIENT_ID: "dummy-client-id",
         GOOGLE_CLIENT_SECRET: "dummy-client-secret",
-        GOOGLE_REDIRECT_URI: "https://app.example.test/api/google/callback",
+        GOOGLE_REDIRECT_URI: redirectUri,
       },
     },
   });
@@ -102,6 +109,12 @@ test("authenticated connect preflights before returning the OAuth redirect", asy
   const response = await route.GET();
   const location = new URL(response.headers.get("location")!);
   const setCookie = response.headers.get("set-cookie") ?? "";
+  const cookieValue = setCookie.match(
+    new RegExp(`${GOOGLE_OAUTH_STATE_COOKIE_NAME}=([^;]+)`),
+  )?.[1];
+  const payload = JSON.parse(
+    Buffer.from(cookieValue!.split(".")[0], "base64url").toString("utf8"),
+  ) as { p: string };
 
   expect(route.calls.preflight).toBe(1);
   expect(location.origin).toBe("https://accounts.google.com");
@@ -110,6 +123,14 @@ test("authenticated connect preflights before returning the OAuth redirect", asy
   expect(location.toString()).not.toContain(USER_ID);
   expect(location.searchParams.get("access_type")).toBe("offline");
   expect(location.searchParams.get("prompt")).toBe("consent");
+  expect(location.searchParams.get("code_challenge_method")).toBe("S256");
+  expect(location.searchParams.get("code_challenge")).toBe(
+    createHash("sha256").update(payload.p, "ascii").digest("base64url"),
+  );
+  expect(location.searchParams.has("code_verifier")).toBe(false);
+  expect(payload.p).toMatch(GOOGLE_OAUTH_PKCE_CODE_VERIFIER_PATTERN);
+  expect(payload.p).toHaveLength(43);
+  expect(location.searchParams.get("state")).not.toContain(payload.p);
   expect(setCookie).toContain(`${GOOGLE_OAUTH_STATE_COOKIE_NAME}=`);
   expect(setCookie).toContain("HttpOnly");
   expect(setCookie).toContain("Secure");
@@ -121,12 +142,38 @@ test("authenticated connect preflights before returning the OAuth redirect", asy
 
 test("authenticated connect creates a fresh state for every attempt", async () => {
   const route = loadRoute({ user: { id: USER_ID } });
-  const first = new URL((await route.GET()).headers.get("location")!);
-  const second = new URL((await route.GET()).headers.get("location")!);
+  const firstResponse = await route.GET();
+  const secondResponse = await route.GET();
+  const first = new URL(firstResponse.headers.get("location")!);
+  const second = new URL(secondResponse.headers.get("location")!);
+  const verifierFrom = (response: Response) => {
+    const cookieValue = response.headers
+      .get("set-cookie")!
+      .match(new RegExp(`${GOOGLE_OAUTH_STATE_COOKIE_NAME}=([^;]+)`))?.[1];
+    return (
+      JSON.parse(
+        Buffer.from(cookieValue!.split(".")[0], "base64url").toString("utf8"),
+      ) as { p: string }
+    ).p;
+  };
 
   expect(first.searchParams.get("state")).not.toBe(
     second.searchParams.get("state"),
   );
+  expect(verifierFrom(firstResponse)).not.toBe(verifierFrom(secondResponse));
+});
+
+test("localhost development keeps the callback cookie available over HTTP", async () => {
+  const route = loadRoute({
+    user: { id: USER_ID },
+    appUrl: "http://localhost:3000",
+    redirectUri: "http://localhost:3000/api/google/callback",
+  });
+  const response = await route.GET();
+  const setCookie = response.headers.get("set-cookie") ?? "";
+
+  expect(setCookie).toContain(`${GOOGLE_OAUTH_STATE_COOKIE_NAME}=`);
+  expect(setCookie).not.toContain("Secure");
 });
 
 test("preflight failure fails closed without exposing the raw error", async () => {
@@ -151,5 +198,9 @@ test("connect contains no token write or user-bound preflight input", () => {
   expect(source).not.toContain("access_token_enc");
   expect(source).not.toContain("refresh_token_enc");
   expect(source).not.toContain("saveGoogleCallbackConnection");
+  expect(source).not.toContain("code_verifier");
+  expect(source).toContain(
+    'url.searchParams.set("code_challenge_method", "S256")',
+  );
   expect(source).toContain("preflightGoogleTokenEncryptionWrite()");
 });

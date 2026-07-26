@@ -4,6 +4,7 @@ import { runInNewContext } from "node:vm";
 import { expect, test } from "@playwright/test";
 import { NextResponse } from "next/server";
 import ts from "typescript";
+import { createHmac } from "node:crypto";
 import {
   GOOGLE_OAUTH_STATE_COOKIE_NAME,
   GOOGLE_OAUTH_STATE_COOKIE_PATH,
@@ -16,6 +17,39 @@ import {
 const ROUTE_PATH = resolve(process.cwd(), "app/api/google/callback/route.ts");
 const USER_ID = "44444444-4444-4444-8444-444444444444";
 const OTHER_USER_ID = "55555555-5555-4555-8555-555555555555";
+const REDIRECT_URI = "https://app.example.test/api/google/callback";
+const SIGNING_SECRET = "dummy-client-secret";
+
+type StatePayload = Readonly<{
+  v: number;
+  n: string;
+  i: number;
+  e: number;
+  u: string;
+  r: string;
+  p?: string;
+}>;
+
+function decodeStatePayload(cookieValue: string): StatePayload {
+  return JSON.parse(
+    Buffer.from(cookieValue.split(".")[0], "base64url").toString("utf8"),
+  ) as StatePayload;
+}
+
+function signStatePayload(payload: StatePayload): string {
+  const signingKey = createHmac("sha256", SIGNING_SECRET)
+    .update("autopdf|google-oauth-state|signing-key|v2")
+    .digest();
+  const encodedPayload = Buffer.from(JSON.stringify(payload)).toString(
+    "base64url",
+  );
+  const signature = createHmac("sha256", signingKey)
+    .update("payload")
+    .update("\0")
+    .update(encodedPayload)
+    .digest("base64url");
+  return `${encodedPayload}.${signature}`;
+}
 
 function loadRoute(options?: {
   user?: { id: string } | null;
@@ -37,13 +71,12 @@ function loadRoute(options?: {
   stateIssuedAt?: number;
   code?: string | null;
   providerError?: string | null;
+  transformStateCookie?: (cookieValue: string) => string;
 }) {
-  const redirectUri = "https://app.example.test/api/google/callback";
-  const signingSecret = "dummy-client-secret";
   const generatedState = createGoogleOAuthState({
     userId: USER_ID,
-    redirectUri,
-    signingSecret,
+    redirectUri: REDIRECT_URI,
+    signingSecret: SIGNING_SECRET,
     ...(options?.stateIssuedAt === undefined
       ? {}
       : { now: options.stateIssuedAt }),
@@ -52,8 +85,10 @@ function loadRoute(options?: {
     options?.state === undefined ? generatedState.state : options.state;
   const stateCookie =
     options?.stateCookie === undefined
-      ? generatedState.cookieValue
+      ? (options?.transformStateCookie?.(generatedState.cookieValue) ??
+        generatedState.cookieValue)
       : options.stateCookie;
+  const codeVerifier = decodeStatePayload(generatedState.cookieValue).p!;
   const source = readFileSync(ROUTE_PATH, "utf8");
   const compiled = ts.transpileModule(source, {
     compilerOptions: {
@@ -68,6 +103,11 @@ function loadRoute(options?: {
     preflight: 0,
     snapshots: [] as string[],
     fetch: 0,
+    tokenRequests: [] as Array<{
+      url: string;
+      codeVerifier: string | null;
+      grantType: string | null;
+    }>,
     credentials: [] as Array<Record<string, unknown>>,
     saves: [] as Array<Record<string, unknown>>,
     validationFailures: [] as Array<Record<string, unknown>>,
@@ -191,9 +231,24 @@ function loadRoute(options?: {
     }
     throw new Error(`Unexpected dependency: ${specifier}`);
   };
-  const fetchMock = async () => {
+  const fetchMock = async (input: string | URL, init?: RequestInit) => {
     calls.fetch += 1;
     events.push("fetch");
+    const body = new URLSearchParams(String(init?.body ?? ""));
+    calls.tokenRequests.push({
+      url: String(input),
+      codeVerifier: body.get("code_verifier"),
+      grantType: body.get("grant_type"),
+    });
+    if (body.get("code_verifier") !== codeVerifier) {
+      return {
+        ok: false,
+        status: 400,
+        async json() {
+          return { error: "invalid_grant" };
+        },
+      };
+    }
     return {
       ok: options?.exchangeOk ?? true,
       status: options?.exchangeStatus ?? 200,
@@ -221,8 +276,8 @@ function loadRoute(options?: {
     process: {
       env: {
         GOOGLE_CLIENT_ID: "dummy-client-id",
-        GOOGLE_CLIENT_SECRET: signingSecret,
-        GOOGLE_REDIRECT_URI: redirectUri,
+        GOOGLE_CLIENT_SECRET: SIGNING_SECRET,
+        GOOGLE_REDIRECT_URI: REDIRECT_URI,
       },
     },
   });
@@ -245,6 +300,7 @@ function loadRoute(options?: {
     source,
     state: requestState,
     stateCookie,
+    codeVerifier,
   };
 }
 
@@ -270,6 +326,13 @@ test("initial callback preflights, validates, and inserts encrypted-store input"
     accessToken: "verified-access",
     refreshToken: { mode: "update", token: "exchange-refresh" },
   });
+  expect(route.calls.tokenRequests).toEqual([
+    {
+      url: "https://oauth2.googleapis.com/token",
+      codeVerifier: route.codeVerifier,
+      grantType: "authorization_code",
+    },
+  ]);
   expect(route.calls.cookieGets).toEqual([GOOGLE_OAUTH_STATE_COOKIE_NAME]);
   expect(setCookie).toContain(`${GOOGLE_OAUTH_STATE_COOKIE_NAME}=`);
   expect(setCookie).toContain("Max-Age=0");
@@ -400,6 +463,48 @@ test("missing, mismatched, and expired state stop before provider or database wo
   }
 });
 
+test("missing, invalid, old, and tampered verifier envelopes stop before all side effects", async () => {
+  const transforms = [
+    (cookieValue: string) => {
+      const payload = decodeStatePayload(cookieValue);
+      return signStatePayload({ ...payload, p: undefined });
+    },
+    (cookieValue: string) =>
+      signStatePayload({ ...decodeStatePayload(cookieValue), p: "" }),
+    (cookieValue: string) =>
+      signStatePayload({
+        ...decodeStatePayload(cookieValue),
+        p: `${"x".repeat(42)}=`,
+      }),
+    (cookieValue: string) =>
+      signStatePayload({ ...decodeStatePayload(cookieValue), v: 1 }),
+    (cookieValue: string) => {
+      const [, signature] = cookieValue.split(".");
+      const encodedPayload = Buffer.from(
+        JSON.stringify({
+          ...decodeStatePayload(cookieValue),
+          p: "z".repeat(43),
+        }),
+      ).toString("base64url");
+      return `${encodedPayload}.${signature}`;
+    },
+  ];
+
+  for (const transformStateCookie of transforms) {
+    const route = loadRoute({ transformStateCookie });
+    const response = await route.GET(route.request);
+
+    expect(response.headers.get("location")).toContain("google=state_invalid");
+    expect(route.calls.preflight).toBe(0);
+    expect(route.calls.snapshots).toEqual([]);
+    expect(route.calls.fetch).toBe(0);
+    expect(route.calls.tokenRequests).toEqual([]);
+    expect(route.calls.saves).toEqual([]);
+    expect(route.calls.validationFailures).toEqual([]);
+    expect(route.calls.jwtFrom).toBe(0);
+  }
+});
+
 test("state cannot cross users or authenticated browser sessions", async () => {
   const otherUser = loadRoute({ user: { id: OTHER_USER_ID } });
   const otherSession = loadRoute({ stateCookie: null });
@@ -438,6 +543,7 @@ test("provider errors still require valid state before error handling", async ()
     "google=state_invalid",
   );
   expect(invalid.calls.fetch).toBe(0);
+  expect(invalid.calls.tokenRequests).toEqual([]);
   expect(invalid.calls.snapshots).toEqual([]);
 
   const valid = loadRoute({ code: null, providerError: "access_denied" });
@@ -528,13 +634,16 @@ test("state rejection does not expose state cookie, tokens, or raw errors", asyn
   const response = await route.GET(route.request);
   const output = `${response.headers.get("location")}${await response
     .clone()
-    .text()}${JSON.stringify(route.calls.logs)}`;
+    .text()}${response.headers.get("set-cookie")}${JSON.stringify(
+    route.calls.logs,
+  )}`;
 
   expect(response.headers.get("location")).toContain("google=state_invalid");
   expect(output).not.toContain(route.state ?? "not-present");
   expect(output).not.toContain("tampered-cookie-with-private-nonce");
   expect(output).not.toContain("private-exchange-access-token");
   expect(output).not.toContain("private-exchange-refresh-token");
+  expect(output).not.toContain(route.codeVerifier);
   expect(route.calls.fetch).toBe(0);
   expect(route.calls.saves).toEqual([]);
 });
@@ -550,6 +659,7 @@ test("callback has no direct token column read or write", () => {
   expect(source).not.toContain("supabaseAdmin");
   expect(source).not.toContain("state !== user.id");
   expect(source).toContain("validateGoogleOAuthState");
+  expect(source).toContain("code_verifier: codeVerifier");
   expect(source).toContain("redirectWithConsumedOAuthState");
   expect(source).toContain("recordGoogleCredentialValidationFailure");
   expect(source).toContain("saveGoogleCallbackConnection");
