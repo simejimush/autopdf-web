@@ -55,6 +55,8 @@ function loadExecuteRule(options?: {
   existingProcessed?: boolean;
   processedLookupError?: Error;
   limitOk?: boolean;
+  limitResults?: boolean[];
+  limitErrorAt?: number;
   attachments?: Array<{
     filename: string;
     mimeType: string;
@@ -95,6 +97,7 @@ function loadExecuteRule(options?: {
     slack: [] as unknown[],
     userNotify: [] as unknown[],
     attachmentUploads: 0,
+    limitChecks: [] as string[],
   };
   const errorCode = options?.errorCode ?? "UNKNOWN";
   const supabaseAdmin = {
@@ -311,7 +314,14 @@ function loadExecuteRule(options?: {
     if (specifier === "@/lib/rules/freePlanLimit") {
       return {
         async checkFreeMonthlyPdfSaveLimit() {
-          return { ok: options?.limitOk ?? true };
+          const checkIndex = calls.limitChecks.length;
+          calls.limitChecks.push(USER_ID);
+          if (options?.limitErrorAt === checkIndex) {
+            throw new Error("raw quota count failure");
+          }
+          return {
+            ok: options?.limitResults?.[checkIndex] ?? options?.limitOk ?? true,
+          };
         },
       };
     }
@@ -435,6 +445,56 @@ test("already-processed and Free-limit outcomes preserve counts and messages", a
       resetCounts: true,
     },
   });
+  expect(limited.calls.limitChecks).toEqual([USER_ID]);
+});
+
+test("a final Free-limit recheck stops before any Drive upload", async () => {
+  const harness = loadExecuteRule({
+    messageIds: [MESSAGE_ID],
+    limitResults: [true, false],
+  });
+
+  const result = await harness.executeRule(harness.input);
+
+  expect(result).toMatchObject({
+    ok: false,
+    errorCode: "FREE_MONTHLY_LIMIT_EXCEEDED",
+    processedCount: 0,
+    savedCount: 0,
+  });
+  expect(harness.calls.limitChecks).toEqual([USER_ID, USER_ID]);
+  expect(harness.calls.order).toEqual(["processed_email:lookup", "run:error"]);
+  expect(harness.calls.processedEmails).toHaveLength(0);
+  expect(harness.calls.attachmentUploads).toBe(0);
+  expect(harness.calls.finalizations).toEqual([
+    {
+      runId: RUN_ID,
+      userId: USER_ID,
+      finalization: {
+        status: "error",
+        errorCode: "FREE_MONTHLY_LIMIT_EXCEEDED",
+        resetCounts: true,
+        message:
+          "Freeプランの今月のPDF保存上限（10件）に達しています。翌月まで待つか、Proプランへの変更をご検討ください。",
+      },
+    },
+  ]);
+});
+
+test("a failed final quota count fails closed before Drive upload", async () => {
+  const harness = loadExecuteRule({
+    messageIds: [MESSAGE_ID],
+    limitErrorAt: 1,
+  });
+
+  const result = await harness.executeRule(harness.input);
+
+  expect(result).toMatchObject({ ok: false, errorCode: "UNKNOWN" });
+  expect(harness.calls.limitChecks).toEqual([USER_ID, USER_ID]);
+  expect(harness.calls.order).toEqual(["processed_email:lookup", "run:error"]);
+  expect(harness.calls.processedEmails).toHaveLength(0);
+  expect(harness.calls.attachmentUploads).toBe(0);
+  expect(result.message).not.toContain("raw quota count failure");
 });
 
 test("lookup failure fails closed before Gmail fetch, PDF, or Drive and records run error", async () => {

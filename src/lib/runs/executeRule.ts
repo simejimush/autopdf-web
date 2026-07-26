@@ -66,6 +66,34 @@ const ALLOWED_ATTACHMENT_MIME_TYPES = new Set([
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 ]);
 
+const FREE_MONTHLY_LIMIT_MESSAGE =
+  "Freeプランの今月のPDF保存上限（10件）に達しています。翌月まで待つか、Proプランへの変更をご検討ください。";
+
+async function finalizeFreeMonthlyLimit(params: {
+  runId: string;
+  userId: string;
+}): Promise<ExecuteResult> {
+  await finalizeRunForUser({
+    runId: params.runId,
+    userId: params.userId,
+    finalization: {
+      status: "error",
+      errorCode: "FREE_MONTHLY_LIMIT_EXCEEDED",
+      resetCounts: true,
+      message: FREE_MONTHLY_LIMIT_MESSAGE,
+    },
+  });
+
+  return {
+    ok: false,
+    processedCount: 0,
+    savedCount: 0,
+    skippedCount: 0,
+    errorCode: "FREE_MONTHLY_LIMIT_EXCEEDED",
+    message: FREE_MONTHLY_LIMIT_MESSAGE,
+  };
+}
+
 function sanitizeFilename(value?: string | null, fallback = "file") {
   const cleaned = (value ?? fallback)
     .replace(/[\\/:*?"<>|]/g, "_")
@@ -367,28 +395,10 @@ export async function executeRule(
     const monthlyLimit = await checkFreeMonthlyPdfSaveLimit(params.userId);
 
     if (!monthlyLimit.ok) {
-      const message =
-        "Freeプランの今月のPDF保存上限（10件）に達しています。翌月まで待つか、Proプランへの変更をご検討ください。";
-
-      await finalizeRunForUser({
+      return finalizeFreeMonthlyLimit({
         runId: params.runId,
         userId: params.userId,
-        finalization: {
-          status: "error",
-          errorCode: "FREE_MONTHLY_LIMIT_EXCEEDED",
-          resetCounts: true,
-          message,
-        },
       });
-
-      return {
-        ok: false,
-        processedCount: 0,
-        savedCount: 0,
-        skippedCount: 0,
-        errorCode: "FREE_MONTHLY_LIMIT_EXCEEDED",
-        message,
-      };
     }
 
     const message = await getGmailMessage({
@@ -454,6 +464,15 @@ export async function executeRule(
       shortMessageId,
       filenameFormat,
     });
+
+    const uploadLimit = await checkFreeMonthlyPdfSaveLimit(params.userId);
+
+    if (!uploadLimit.ok) {
+      return finalizeFreeMonthlyLimit({
+        runId: params.runId,
+        userId: params.userId,
+      });
+    }
 
     const driveResult = await uploadPdfToDrive({
       userId: params.userId,
