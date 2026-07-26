@@ -7,6 +7,7 @@ import {
 declare const plaintextGoogleTokenBrand: unique symbol;
 declare const encryptedGoogleTokenBrand: unique symbol;
 declare const googleUserIdBrand: unique symbol;
+declare const googleCredentialVersionBrand: unique symbol;
 
 export type PlaintextGoogleToken = string & {
   readonly [plaintextGoogleTokenBrand]: true;
@@ -18,6 +19,10 @@ export type EncryptedGoogleToken = string & {
 
 export type GoogleUserId = string & {
   readonly [googleUserIdBrand]: true;
+};
+
+export type GoogleCredentialVersion = string & {
+  readonly [googleCredentialVersionBrand]: true;
 };
 
 export type GoogleTokenStoreErrorCode =
@@ -41,6 +46,8 @@ const SAFE_ERROR_MESSAGES: Record<GoogleTokenStoreErrorCode, string> = {
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const CREDENTIAL_VERSION_PATTERN = /^(0|[1-9][0-9]*)$/;
+const MAX_POSTGRES_BIGINT = BigInt("9223372036854775807");
 
 export const GOOGLE_TOKEN_CREDENTIAL_COLUMNS = Object.freeze([
   "access_token_enc",
@@ -48,6 +55,7 @@ export const GOOGLE_TOKEN_CREDENTIAL_COLUMNS = Object.freeze([
   "status",
   "token_expiry_at",
   "scopes",
+  "credential_version",
 ] as const);
 
 export const GOOGLE_CALLBACK_REFRESH_COLUMNS = Object.freeze([
@@ -59,6 +67,7 @@ export const GOOGLE_CALLBACK_SNAPSHOT_COLUMNS = Object.freeze([
   "status",
   "token_expiry_at",
   "scopes",
+  "credential_version",
 ] as const);
 
 export type GoogleTokenReadColumn =
@@ -72,6 +81,7 @@ export type GoogleTokenConnectionRow = Readonly<{
   statusStored?: string | null;
   tokenExpiryAtStored?: string | null;
   scopesStored?: string | null;
+  credentialVersionStored?: GoogleCredentialVersion;
 }>;
 
 export type GoogleConnectionWritePayload = Readonly<{
@@ -87,6 +97,7 @@ export type GoogleConnectionWritePayload = Readonly<{
   last_user_notified_at?: string | null;
   last_user_notified_error_code?: string | null;
   updated_at?: string;
+  credential_version?: GoogleCredentialVersion;
 }>;
 
 type RepositorySelectResult =
@@ -94,7 +105,10 @@ type RepositorySelectResult =
   | Readonly<{ ok: false }>;
 
 type RepositoryWriteResult =
-  | Readonly<{ ok: true; count: number }>
+  | Readonly<{
+      ok: true;
+      credentialVersions: readonly GoogleCredentialVersion[];
+    }>
   | Readonly<{ ok: false }>;
 
 export type GoogleTokenRepository = Readonly<{
@@ -110,9 +124,11 @@ export type GoogleTokenRepository = Readonly<{
       payload: GoogleConnectionWritePayload;
     }>,
   ): Promise<RepositoryWriteResult>;
-  updateConnectionByUserId(
+  updateConnectionByCredentialVersion(
     input: Readonly<{
       userId: GoogleUserId;
+      expectedStatus: string | null;
+      expectedCredentialVersion: GoogleCredentialVersion;
       payload: GoogleConnectionWritePayload;
     }>,
   ): Promise<RepositoryWriteResult>;
@@ -159,6 +175,8 @@ export type SaveGoogleCallbackConnectionInput = Readonly<{
   accessToken: PlaintextGoogleToken;
   refreshToken: GoogleRefreshTokenWrite;
   state: GoogleCallbackConnectionState;
+  expectedStatus?: string | null;
+  expectedCredentialVersion?: GoogleCredentialVersion;
 }>;
 
 export type UpdateRefreshedGoogleAccessTokenInput = Readonly<{
@@ -168,11 +186,14 @@ export type UpdateRefreshedGoogleAccessTokenInput = Readonly<{
   tokenExpiryAt: string | null;
   lastVerifiedAt: string;
   updatedAt: string;
+  expectedCredentialVersion: GoogleCredentialVersion;
 }>;
 
 export type RecordGoogleCredentialValidationFailureInput = Readonly<{
   userId: string;
   writeMode: "insert" | "update";
+  expectedStatus?: string | null;
+  expectedCredentialVersion?: GoogleCredentialVersion;
 }>;
 
 export type GoogleTokenCredentialHandle = Readonly<{
@@ -182,6 +203,7 @@ export type GoogleTokenCredentialHandle = Readonly<{
   getTokenExpiryAt(): string | null;
   getStatus(): string | null;
   getScopes(): string | null;
+  getCredentialVersion(): GoogleCredentialVersion;
   toJSON(): never;
 }>;
 
@@ -191,6 +213,7 @@ export type GoogleCallbackConnectionSnapshot = Readonly<{
   getTokenExpiryAt(): string | null;
   getStatus(): string | null;
   getScopes(): string | null;
+  getCredentialVersion(): GoogleCredentialVersion | null;
   toJSON(): never;
 }>;
 
@@ -217,12 +240,15 @@ export function createGoogleTokenCredentialHandle(
     status?: string | null;
     scopes?: string | null;
     rowExists?: boolean;
+    credentialVersion?: GoogleCredentialVersion;
   }>,
 ): GoogleTokenCredentialHandle {
   const { accessToken, refreshToken, tokenExpiryAt } = input;
   const status = input.status ?? null;
   const scopes = input.scopes ?? null;
   const rowExists = input.rowExists ?? true;
+  const credentialVersion =
+    input.credentialVersion ?? createGoogleCredentialVersion(0);
   const handle = Object.create(Object.prototype) as Record<
     PropertyKey,
     unknown
@@ -253,6 +279,10 @@ export function createGoogleTokenCredentialHandle(
       value: () => scopes,
       enumerable: false,
     },
+    getCredentialVersion: {
+      value: () => credentialVersion,
+      enumerable: false,
+    },
     toJSON: {
       value: (): never => {
         throw new GoogleTokenCredentialSerializationError();
@@ -275,6 +305,7 @@ function createGoogleCallbackConnectionSnapshot(
     tokenExpiryAt: string | null;
     status: string | null;
     scopes: string | null;
+    credentialVersion: GoogleCredentialVersion | null;
   }>,
 ): GoogleCallbackConnectionSnapshot {
   const snapshot = Object.create(Object.prototype) as Record<
@@ -288,6 +319,10 @@ function createGoogleCallbackConnectionSnapshot(
     getTokenExpiryAt: { value: () => input.tokenExpiryAt, enumerable: false },
     getStatus: { value: () => input.status, enumerable: false },
     getScopes: { value: () => input.scopes, enumerable: false },
+    getCredentialVersion: {
+      value: () => input.credentialVersion,
+      enumerable: false,
+    },
     toJSON: {
       value: (): never => {
         throw new GoogleTokenCredentialSerializationError();
@@ -335,6 +370,45 @@ export function createPlaintextGoogleToken(
   return token as PlaintextGoogleToken;
 }
 
+export function createGoogleCredentialVersion(
+  value: string | number,
+): GoogleCredentialVersion {
+  const normalized =
+    typeof value === "number"
+      ? Number.isSafeInteger(value) && value >= 0
+        ? String(value)
+        : ""
+      : value;
+
+  if (!CREDENTIAL_VERSION_PATTERN.test(normalized)) {
+    fail("GOOGLE_TOKEN_INPUT_INVALID");
+  }
+
+  let parsed: bigint;
+  try {
+    parsed = BigInt(normalized);
+  } catch {
+    fail("GOOGLE_TOKEN_INPUT_INVALID");
+  }
+
+  if (parsed > MAX_POSTGRES_BIGINT) {
+    fail("GOOGLE_TOKEN_INPUT_INVALID");
+  }
+
+  return normalized as GoogleCredentialVersion;
+}
+
+function nextCredentialVersion(
+  version: GoogleCredentialVersion,
+): GoogleCredentialVersion {
+  const current = BigInt(version);
+  if (current >= MAX_POSTGRES_BIGINT) {
+    fail("GOOGLE_TOKEN_STORE_FAILED");
+  }
+
+  return String(current + BigInt(1)) as GoogleCredentialVersion;
+}
+
 function markEncryptedGoogleToken(token: string): EncryptedGoogleToken {
   validateEncryptedGoogleToken(token);
 
@@ -367,13 +441,24 @@ function getSingleRow(
   return result.rows[0];
 }
 
-function assertSingleWrite(result: RepositoryWriteResult): void {
+function assertSingleWrite(
+  result: RepositoryWriteResult,
+  expectedCredentialVersion: GoogleCredentialVersion,
+): void {
   if (!result.ok) {
     fail("GOOGLE_TOKEN_STORE_FAILED");
   }
 
-  if (result.count !== 1) {
+  if (result.credentialVersions.length === 0) {
     fail("GOOGLE_TOKEN_UPDATE_CONFLICT");
+  }
+
+  if (result.credentialVersions.length > 1) {
+    fail("GOOGLE_TOKEN_ROW_DUPLICATE");
+  }
+
+  if (result.credentialVersions[0] !== expectedCredentialVersion) {
+    fail("GOOGLE_TOKEN_STORE_FAILED");
   }
 }
 
@@ -394,6 +479,16 @@ function normalizeStoredExpiry(
   }
 
   return new Date(timestamp).toISOString();
+}
+
+function getStoredCredentialVersion(
+  row: GoogleTokenConnectionRow,
+): GoogleCredentialVersion {
+  if (row.credentialVersionStored === undefined) {
+    fail("GOOGLE_TOKEN_STORE_FAILED");
+  }
+
+  return row.credentialVersionStored;
 }
 
 export function createGoogleTokenEncryptionWritePreflight(
@@ -506,6 +601,7 @@ export function createGoogleTokenStore(
       tokenExpiryAt: normalizeStoredExpiry(row.tokenExpiryAtStored),
       status: row.statusStored ?? null,
       scopes: row.scopesStored ?? null,
+      credentialVersion: getStoredCredentialVersion(row),
     });
   }
 
@@ -531,6 +627,7 @@ export function createGoogleTokenStore(
         tokenExpiryAt: null,
         status: null,
         scopes: null,
+        credentialVersion: null,
       });
     }
 
@@ -545,6 +642,7 @@ export function createGoogleTokenStore(
       tokenExpiryAt: normalizeStoredExpiry(row.tokenExpiryAtStored),
       status: row.statusStored ?? null,
       scopes: row.scopesStored ?? null,
+      credentialVersion: getStoredCredentialVersion(row),
     });
   }
 
@@ -569,6 +667,19 @@ export function createGoogleTokenStore(
     if (input.writeMode === "insert" && input.refreshToken.mode !== "update") {
       fail("GOOGLE_TOKEN_INPUT_INVALID");
     }
+
+    if (
+      input.writeMode === "update" &&
+      (input.expectedCredentialVersion === undefined ||
+        input.expectedStatus === undefined)
+    ) {
+      fail("GOOGLE_TOKEN_INPUT_INVALID");
+    }
+
+    const nextVersion =
+      input.writeMode === "insert"
+        ? createGoogleCredentialVersion(0)
+        : nextCredentialVersion(input.expectedCredentialVersion!);
 
     const accessTokenEncrypted = encryptForStore(
       input.accessToken,
@@ -604,19 +715,25 @@ export function createGoogleTokenStore(
       last_user_notified_at: input.state.lastUserNotifiedAt,
       last_user_notified_error_code: input.state.lastUserNotifiedErrorCode,
       updated_at: input.state.updatedAt,
+      credential_version: nextVersion,
     });
 
     const result =
       input.writeMode === "insert"
         ? await repository.insertConnection({ userId, payload })
-        : await repository.updateConnectionByUserId({ userId, payload });
+        : await repository.updateConnectionByCredentialVersion({
+            userId,
+            expectedStatus: input.expectedStatus!,
+            expectedCredentialVersion: input.expectedCredentialVersion!,
+            payload,
+          });
 
-    assertSingleWrite(result);
+    assertSingleWrite(result, nextVersion);
   }
 
   async function updateRefreshedGoogleAccessToken(
     input: UpdateRefreshedGoogleAccessTokenInput,
-  ): Promise<void> {
+  ): Promise<GoogleCredentialVersion> {
     const userId = validateUserId(input.userId);
     const accessTokenEncrypted = encryptForStore(
       input.accessToken,
@@ -624,6 +741,7 @@ export function createGoogleTokenStore(
       "access",
     );
     const refreshTokenWrite = input.refreshToken ?? { mode: "preserve" };
+    const nextVersion = nextCredentialVersion(input.expectedCredentialVersion);
     const refreshTokenPayload =
       refreshTokenWrite.mode === "update"
         ? Object.freeze({
@@ -640,13 +758,17 @@ export function createGoogleTokenStore(
       token_expiry_at: input.tokenExpiryAt,
       last_verified_at: input.lastVerifiedAt,
       updated_at: input.updatedAt,
+      credential_version: nextVersion,
     });
-    const result = await repository.updateConnectionByUserId({
+    const result = await repository.updateConnectionByCredentialVersion({
       userId,
+      expectedStatus: "connected",
+      expectedCredentialVersion: input.expectedCredentialVersion,
       payload,
     });
 
-    assertSingleWrite(result);
+    assertSingleWrite(result, nextVersion);
+    return nextVersion;
   }
 
   async function recordGoogleCredentialValidationFailure(
@@ -656,25 +778,51 @@ export function createGoogleTokenStore(
     if (input.writeMode !== "insert" && input.writeMode !== "update") {
       fail("GOOGLE_TOKEN_INPUT_INVALID");
     }
+    if (
+      input.writeMode === "update" &&
+      (input.expectedCredentialVersion === undefined ||
+        input.expectedStatus === undefined)
+    ) {
+      fail("GOOGLE_TOKEN_INPUT_INVALID");
+    }
     const timestamp = now();
+    const nextVersion =
+      input.writeMode === "insert"
+        ? createGoogleCredentialVersion(0)
+        : nextCredentialVersion(input.expectedCredentialVersion!);
     const payload: GoogleConnectionWritePayload = Object.freeze({
       status: "error",
       reauth_required: true,
       last_error_code: "GOOGLE_TOKEN_INVALID",
       last_error_at: timestamp,
       updated_at: timestamp,
+      credential_version: nextVersion,
     });
     const result =
       input.writeMode === "insert"
         ? await repository.insertConnection({ userId, payload })
-        : await repository.updateConnectionByUserId({ userId, payload });
+        : await repository.updateConnectionByCredentialVersion({
+            userId,
+            expectedStatus: input.expectedStatus!,
+            expectedCredentialVersion: input.expectedCredentialVersion!,
+            payload,
+          });
 
-    assertSingleWrite(result);
+    assertSingleWrite(result, nextVersion);
   }
 
   async function disconnectGoogleConnection(rawUserId: string): Promise<void> {
     const userId = validateUserId(rawUserId);
+    const snapshot = await loadGoogleCallbackConnectionSnapshot(rawUserId);
+    if (!snapshot.exists() || snapshot.getCredentialVersion() === null) {
+      fail("GOOGLE_TOKEN_ROW_NOT_FOUND");
+    }
     const timestamp = now();
+    const expectedCredentialVersion = snapshot.getCredentialVersion();
+    if (expectedCredentialVersion === null) {
+      fail("GOOGLE_TOKEN_STORE_FAILED");
+    }
+    const nextVersion = nextCredentialVersion(expectedCredentialVersion);
     const payload: GoogleConnectionWritePayload = Object.freeze({
       access_token_enc: null,
       refresh_token_enc: null,
@@ -686,13 +834,16 @@ export function createGoogleTokenStore(
       last_error_code: null,
       last_error_at: null,
       updated_at: timestamp,
+      credential_version: nextVersion,
     });
-    const result = await repository.updateConnectionByUserId({
+    const result = await repository.updateConnectionByCredentialVersion({
       userId,
+      expectedStatus: snapshot.getStatus(),
+      expectedCredentialVersion,
       payload,
     });
 
-    assertSingleWrite(result);
+    assertSingleWrite(result, nextVersion);
   }
 
   return Object.freeze({

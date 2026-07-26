@@ -5,6 +5,7 @@ import {
   createGoogleTokenCredentialHandle,
   createGoogleTokenEncryptionWritePreflight,
   createGoogleTokenStore,
+  createGoogleCredentialVersion,
   createPlaintextGoogleToken,
   GOOGLE_CALLBACK_REFRESH_COLUMNS,
   GOOGLE_CALLBACK_SNAPSHOT_COLUMNS,
@@ -12,6 +13,7 @@ import {
   GoogleTokenCredentialSerializationError,
   GoogleTokenStoreError,
   type GoogleConnectionWritePayload,
+  type GoogleCredentialVersion,
   type GoogleTokenConnectionRow,
   type GoogleTokenRepository,
   type GoogleTokenStoreErrorCode,
@@ -36,6 +38,8 @@ const OTHER_USER_ID = "55555555-5555-4555-8555-555555555555";
 const KEY_ID = "token-store-test-key";
 const NOW = "2026-08-01T00:00:00.000Z";
 const EXPIRY = "2026-08-01T01:00:00.000Z";
+const VERSION_0 = createGoogleCredentialVersion(0);
+const VERSION_1 = createGoogleCredentialVersion(1);
 
 type SelectResult =
   | { ok: true; rows: readonly GoogleTokenConnectionRow[] }
@@ -53,6 +57,8 @@ type RepositoryCalls = {
   }>;
   updates: Array<{
     userId: string;
+    expectedStatus: string | null;
+    expectedCredentialVersion: GoogleCredentialVersion;
     payload: GoogleConnectionWritePayload;
   }>;
 };
@@ -132,15 +138,48 @@ function createRepository(options?: {
         userId: input.userId,
         columns: [...input.columns],
       });
-      return options?.selectResult ?? { ok: true, rows: [] };
+      return (
+        options?.selectResult ?? {
+          ok: true,
+          rows: [
+            {
+              statusStored: "connected",
+              credentialVersionStored: VERSION_0,
+            },
+          ],
+        }
+      );
     },
     async insertConnection(input) {
       calls.inserts.push({ userId: input.userId, payload: input.payload });
-      return options?.insertResult ?? { ok: true, count: 1 };
+      const result = options?.insertResult ?? { ok: true, count: 1 };
+      return result.ok
+        ? {
+            ok: true,
+            credentialVersions: Array.from(
+              { length: result.count },
+              () => input.payload.credential_version ?? VERSION_0,
+            ),
+          }
+        : result;
     },
-    async updateConnectionByUserId(input) {
-      calls.updates.push({ userId: input.userId, payload: input.payload });
-      return options?.updateResult ?? { ok: true, count: 1 };
+    async updateConnectionByCredentialVersion(input) {
+      calls.updates.push({
+        userId: input.userId,
+        expectedStatus: input.expectedStatus,
+        expectedCredentialVersion: input.expectedCredentialVersion,
+        payload: input.payload,
+      });
+      const result = options?.updateResult ?? { ok: true, count: 1 };
+      return result.ok
+        ? {
+            ok: true,
+            credentialVersions: Array.from(
+              { length: result.count },
+              () => input.payload.credential_version ?? VERSION_1,
+            ),
+          }
+        : result;
     },
   };
 
@@ -166,6 +205,71 @@ function createHarness(options?: {
   });
 
   return { store, calls: repository.calls, key: crypto.key };
+}
+
+function createStatefulCasHarness() {
+  const crypto = createCryptoAdapter();
+  const state: {
+    userId: string;
+    status: string | null;
+    credentialVersion: GoogleCredentialVersion;
+    refreshTokenStored: string | null;
+    lastPayload: GoogleConnectionWritePayload | null;
+  } = {
+    userId: USER_ID,
+    status: "connected",
+    credentialVersion: VERSION_0,
+    refreshTokenStored: "legacy-refresh-token",
+    lastPayload: null,
+  };
+  const repository: GoogleTokenRepository = {
+    async selectConnectionsByUserId(input) {
+      if (input.userId !== state.userId) {
+        return { ok: true, rows: [] };
+      }
+      return {
+        ok: true,
+        rows: [
+          {
+            refreshTokenStored: state.refreshTokenStored,
+            statusStored: state.status,
+            credentialVersionStored: state.credentialVersion,
+          },
+        ],
+      };
+    },
+    async insertConnection() {
+      return { ok: false };
+    },
+    async updateConnectionByCredentialVersion(input) {
+      if (
+        input.userId !== state.userId ||
+        input.expectedStatus !== state.status ||
+        input.expectedCredentialVersion !== state.credentialVersion
+      ) {
+        return { ok: true, credentialVersions: [] };
+      }
+      const nextVersion = input.payload.credential_version;
+      if (nextVersion === undefined) {
+        return { ok: false };
+      }
+      state.status = input.payload.status ?? state.status;
+      state.credentialVersion = nextVersion;
+      if (
+        Object.prototype.hasOwnProperty.call(input.payload, "refresh_token_enc")
+      ) {
+        state.refreshTokenStored = input.payload.refresh_token_enc ?? null;
+      }
+      state.lastPayload = input.payload;
+      return { ok: true, credentialVersions: [nextVersion] };
+    },
+  };
+  const store = createGoogleTokenStore({
+    repository,
+    crypto: crypto.adapter,
+    now: () => NOW,
+  });
+  return { store, state };
 }
 
 function expectStoreError(
@@ -213,6 +317,12 @@ function callbackInput(options?: {
       lastUserNotifiedErrorCode: null,
       updatedAt: NOW,
     },
+    ...(options?.writeMode === "update"
+      ? {
+          expectedStatus: "connected",
+          expectedCredentialVersion: VERSION_0,
+        }
+      : {}),
   };
 }
 
@@ -265,7 +375,25 @@ function createSupabaseRepositoryHarness(options?: {
                   }
 
                   calls.limit.push(count);
-                  return options?.selectResult ?? { data: [], error: null };
+                  return (
+                    options?.selectResult ?? {
+                      data: [
+                        Object.fromEntries(
+                          columns
+                            .split(",")
+                            .map((selectedColumn) => [
+                              selectedColumn,
+                              selectedColumn === "status"
+                                ? "connected"
+                                : selectedColumn === "credential_version"
+                                  ? 0
+                                  : null,
+                            ]),
+                        ),
+                      ],
+                      error: null,
+                    }
+                  );
                 },
               };
             },
@@ -291,7 +419,10 @@ function createSupabaseRepositoryHarness(options?: {
 
               calls.writeSelect.push(columns);
               return (
-                options?.insertResult ?? { data: [{ id: "row" }], error: null }
+                options?.insertResult ?? {
+                  data: [{ id: "row", credential_version: 0 }],
+                  error: null,
+                }
               );
             },
           };
@@ -305,29 +436,41 @@ function createSupabaseRepositoryHarness(options?: {
           }
 
           calls.update.push(payload);
-          return {
-            eq(column, value) {
+          const filter = {
+            eq(
+              column: "user_id" | "status" | "credential_version",
+              value: string,
+            ) {
               calls.eq.push({ column, value });
-              return {
-                async select(columns) {
-                  if (
-                    options?.queryThrow?.operation === "update" &&
-                    options.queryThrow.stage === "await"
-                  ) {
-                    throw options.queryThrow.error;
-                  }
+              return filter;
+            },
+            is(column: "status", value: null) {
+              calls.eq.push({ column, value: String(value) });
+              return filter;
+            },
+            async select(columns: "id,credential_version") {
+              if (
+                options?.queryThrow?.operation === "update" &&
+                options.queryThrow.stage === "await"
+              ) {
+                throw options.queryThrow.error;
+              }
 
-                  calls.writeSelect.push(columns);
-                  return (
-                    options?.updateResult ?? {
-                      data: [{ id: "row" }],
-                      error: null,
-                    }
-                  );
-                },
-              };
+              calls.writeSelect.push(columns);
+              return (
+                options?.updateResult ?? {
+                  data: [
+                    {
+                      id: "row",
+                      credential_version: payload.credential_version,
+                    },
+                  ],
+                  error: null,
+                }
+              );
             },
           };
+          return filter;
         },
       };
     },
@@ -421,6 +564,7 @@ test("load dual-reads legacy access and refresh with explicit columns", async ()
         {
           accessTokenStored: "legacy-access-token",
           refreshTokenStored: "legacy-refresh-token",
+          credentialVersionStored: VERSION_0,
         },
       ],
     },
@@ -462,6 +606,7 @@ test("load decrypts encrypted access and refresh with separate AAD", async () =>
         {
           accessTokenStored: accessToken,
           refreshTokenStored: refreshToken,
+          credentialVersionStored: VERSION_0,
         },
       ],
     },
@@ -619,7 +764,12 @@ test("swapped token types fail decryption without DB writes", async () => {
     key,
     selectResult: {
       ok: true,
-      rows: [{ accessTokenStored: refreshCiphertext }],
+      rows: [
+        {
+          accessTokenStored: refreshCiphertext,
+          credentialVersionStored: VERSION_0,
+        },
+      ],
     },
   });
 
@@ -668,6 +818,7 @@ test("callback snapshot distinguishes a missing row from a null refresh token", 
           statusStored: "connected",
           tokenExpiryAtStored: EXPIRY,
           scopesStored: "gmail.readonly",
+          credentialVersionStored: VERSION_0,
         },
       ],
     },
@@ -697,6 +848,7 @@ test("callback snapshot dual-reads legacy refresh and rejects invalid expiry", a
           statusStored: null,
           tokenExpiryAtStored: null,
           scopesStored: null,
+          credentialVersionStored: VERSION_0,
         },
       ],
     },
@@ -714,6 +866,7 @@ test("callback snapshot dual-reads legacy refresh and rejects invalid expiry", a
           statusStored: "connected",
           tokenExpiryAtStored: "not-a-date",
           scopesStored: null,
+          credentialVersionStored: VERSION_0,
         },
       ],
     },
@@ -981,6 +1134,8 @@ test("credential validation failure updates only fixed health columns", async ()
   await store.recordGoogleCredentialValidationFailure({
     userId: USER_ID,
     writeMode: "update",
+    expectedStatus: "connected",
+    expectedCredentialVersion: VERSION_0,
   });
 
   expect(calls.inserts).toEqual([]);
@@ -993,7 +1148,10 @@ test("credential validation failure updates only fixed health columns", async ()
         last_error_code: "GOOGLE_TOKEN_INVALID",
         last_error_at: NOW,
         updated_at: NOW,
+        credential_version: VERSION_1,
       },
+      expectedStatus: "connected",
+      expectedCredentialVersion: VERSION_0,
     },
   ]);
   const payload = calls.updates[0].payload;
@@ -1029,6 +1187,7 @@ test("credential validation failure inserts a minimal row when none exists", asy
         last_error_code: "GOOGLE_TOKEN_INVALID",
         last_error_at: NOW,
         updated_at: NOW,
+        credential_version: VERSION_0,
       },
     },
   ]);
@@ -1039,6 +1198,8 @@ test("credential validation failure fixes user scope and rejects invalid mode", 
   await scoped.store.recordGoogleCredentialValidationFailure({
     userId: USER_ID,
     writeMode: "update",
+    expectedStatus: "connected",
+    expectedCredentialVersion: VERSION_0,
   });
   expect(scoped.calls.updates[0].userId).toBe(USER_ID);
 
@@ -1067,7 +1228,7 @@ test("credential validation failure fails closed on DB and cardinality errors", 
     },
     {
       updateResult: { ok: true, count: 2 } as const,
-      code: "GOOGLE_TOKEN_UPDATE_CONFLICT" as const,
+      code: "GOOGLE_TOKEN_ROW_DUPLICATE" as const,
     },
   ]) {
     const { store } = createHarness({
@@ -1078,6 +1239,8 @@ test("credential validation failure fails closed on DB and cardinality errors", 
         store.recordGoogleCredentialValidationFailure({
           userId: USER_ID,
           writeMode: "update",
+          expectedStatus: "connected",
+          expectedCredentialVersion: VERSION_0,
         }),
       testCase.code,
     );
@@ -1093,6 +1256,8 @@ test("production repository scopes validation health update by user ID", async (
   await store.recordGoogleCredentialValidationFailure({
     userId: USER_ID,
     writeMode: "update",
+    expectedStatus: "connected",
+    expectedCredentialVersion: VERSION_0,
   });
 
   expect(calls.update).toEqual([
@@ -1102,10 +1267,15 @@ test("production repository scopes validation health update by user ID", async (
       last_error_code: "GOOGLE_TOKEN_INVALID",
       last_error_at: NOW,
       updated_at: NOW,
+      credential_version: VERSION_1,
     },
   ]);
-  expect(calls.eq).toEqual([{ column: "user_id", value: USER_ID }]);
-  expect(calls.writeSelect).toEqual(["id"]);
+  expect(calls.eq).toEqual([
+    { column: "user_id", value: USER_ID },
+    { column: "credential_version", value: VERSION_0 },
+    { column: "status", value: "connected" },
+  ]);
+  expect(calls.writeSelect).toEqual(["id,credential_version"]);
   expect(JSON.stringify(calls)).not.toContain(OTHER_USER_ID);
 });
 
@@ -1119,6 +1289,7 @@ test("production repository loads its client lazily and uses the select chain", 
           status: "connected",
           token_expiry_at: null,
           scopes: "gmail.readonly",
+          credential_version: 0,
         },
       ],
       error: null,
@@ -1136,7 +1307,7 @@ test("production repository loads its client lazily and uses the select chain", 
     clientLoads: 1,
     from: ["google_connections"],
     select: [
-      "access_token_enc,refresh_token_enc,status,token_expiry_at,scopes",
+      "access_token_enc,refresh_token_enc,status,token_expiry_at,scopes,credential_version",
     ],
     eq: [{ column: "user_id", value: USER_ID }],
     limit: [2],
@@ -1291,8 +1462,11 @@ test("production repository hides query builder and await exceptions", async () 
           : () => harness.store.disconnectGoogleConnection(USER_ID);
     const error = await expectStoreErrorAsync(run, "GOOGLE_TOKEN_STORE_FAILED");
 
-    expect(harness.calls.clientLoads).toBe(1);
-    expect(harness.calls.from).toEqual(["google_connections"]);
+    const expectedLoads = testCase.operation === "update" ? 2 : 1;
+    expect(harness.calls.clientLoads).toBe(expectedLoads);
+    expect(harness.calls.from).toEqual(
+      Array.from({ length: expectedLoads }, () => "google_connections"),
+    );
     expect(error.message).not.toContain(rawMarker);
     expect(error.stack).not.toContain(rawMarker);
     expect(error).not.toHaveProperty("cause");
@@ -1311,7 +1485,7 @@ test("production repository forces the validated user ID on insert", async () =>
       userId: USER_ID as never,
       payload,
     }),
-  ).resolves.toEqual({ ok: true, count: 1 });
+  ).resolves.toEqual({ ok: true, credentialVersions: [VERSION_0] });
 
   expect(calls.insert).toEqual([
     {
@@ -1331,8 +1505,10 @@ test("production repository rejects own user_id properties on update", async () 
     } as unknown as GoogleConnectionWritePayload;
 
     await expect(
-      repository.updateConnectionByUserId({
+      repository.updateConnectionByCredentialVersion({
         userId: USER_ID as never,
+        expectedStatus: "connected",
+        expectedCredentialVersion: VERSION_0,
         payload,
       }),
     ).resolves.toEqual({ ok: false });
@@ -1345,9 +1521,12 @@ test("production repository rejects own user_id properties on update", async () 
 
 test("production repository verifies insert and update result counts", async () => {
   for (const count of [0, 1, 2]) {
-    const data = Array.from({ length: count }, (_, index) => ({ id: index }));
+    const insertData = Array.from({ length: count }, (_, index) => ({
+      id: String(index),
+      credential_version: 0,
+    }));
     const insert = createSupabaseRepositoryHarness({
-      insertResult: { data, error: null },
+      insertResult: { data: insertData, error: null },
     });
     const insertAction = () =>
       insert.store.saveGoogleCallbackConnection(callbackInput());
@@ -1355,22 +1534,41 @@ test("production repository verifies insert and update result counts", async () 
     if (count === 1) {
       await expect(insertAction()).resolves.toBeUndefined();
     } else {
-      await expectStoreErrorAsync(insertAction, "GOOGLE_TOKEN_UPDATE_CONFLICT");
+      await expectStoreErrorAsync(
+        insertAction,
+        count === 0
+          ? "GOOGLE_TOKEN_UPDATE_CONFLICT"
+          : "GOOGLE_TOKEN_ROW_DUPLICATE",
+      );
     }
-    expect(insert.calls.writeSelect).toEqual(["id"]);
+    expect(insert.calls.writeSelect).toEqual(["id,credential_version"]);
 
+    const updateData = Array.from({ length: count }, (_, index) => ({
+      id: String(index),
+      credential_version: 1,
+    }));
     const update = createSupabaseRepositoryHarness({
-      updateResult: { data, error: null },
+      updateResult: { data: updateData, error: null },
     });
     const updateAction = () => update.store.disconnectGoogleConnection(USER_ID);
 
     if (count === 1) {
       await expect(updateAction()).resolves.toBeUndefined();
     } else {
-      await expectStoreErrorAsync(updateAction, "GOOGLE_TOKEN_UPDATE_CONFLICT");
+      await expectStoreErrorAsync(
+        updateAction,
+        count === 0
+          ? "GOOGLE_TOKEN_UPDATE_CONFLICT"
+          : "GOOGLE_TOKEN_ROW_DUPLICATE",
+      );
     }
-    expect(update.calls.writeSelect).toEqual(["id"]);
-    expect(update.calls.eq).toEqual([{ column: "user_id", value: USER_ID }]);
+    expect(update.calls.writeSelect).toEqual(["id,credential_version"]);
+    expect(update.calls.eq).toEqual([
+      { column: "user_id", value: USER_ID },
+      { column: "user_id", value: USER_ID },
+      { column: "credential_version", value: VERSION_0 },
+      { column: "status", value: "connected" },
+    ]);
   }
 });
 
@@ -1435,9 +1633,10 @@ test("refresh update encrypts access with expiry and never writes refresh", asyn
     tokenExpiryAt: EXPIRY,
     lastVerifiedAt: NOW,
     updatedAt: NOW,
+    expectedCredentialVersion: VERSION_0,
   });
 
-  expect(result).toBeUndefined();
+  expect(result).toBe(VERSION_1);
   expect(calls.updates).toHaveLength(1);
   const payload = calls.updates[0].payload;
   expect(payload.token_expiry_at).toBe(EXPIRY);
@@ -1466,6 +1665,7 @@ test("refresh encryption failure prevents DB update", async () => {
         tokenExpiryAt: EXPIRY,
         lastVerifiedAt: NOW,
         updatedAt: NOW,
+        expectedCredentialVersion: VERSION_0,
       }),
     "GOOGLE_TOKEN_ENCRYPT_FAILED",
   );
@@ -1485,6 +1685,7 @@ test("refresh update rotates access and refresh tokens in one update", async () 
     tokenExpiryAt: EXPIRY,
     lastVerifiedAt: NOW,
     updatedAt: NOW,
+    expectedCredentialVersion: VERSION_0,
   });
 
   expect(calls.updates).toHaveLength(1);
@@ -1529,10 +1730,193 @@ test("refresh DB failure and zero-row update use defined codes", async () => {
           tokenExpiryAt: EXPIRY,
           lastVerifiedAt: NOW,
           updatedAt: NOW,
+          expectedCredentialVersion: VERSION_0,
         }),
       testCase.code,
     );
   }
+});
+
+test("production repository rejects malformed and mismatched CAS rows", async () => {
+  for (const data of [
+    [{}],
+    [{ id: "row" }],
+    [{ id: "", credential_version: 1 }],
+    [{ id: "row", credential_version: -1 }],
+    [{ id: "row", credential_version: "01" }],
+    [{ id: "row", credential_version: 2 }],
+  ]) {
+    const harness = createSupabaseRepositoryHarness({
+      updateResult: { data, error: null },
+    });
+    await expectStoreErrorAsync(
+      () => harness.store.disconnectGoogleConnection(USER_ID),
+      "GOOGLE_TOKEN_STORE_FAILED",
+    );
+  }
+});
+
+test("production repository rejects unsafe or invalid stored versions", async () => {
+  for (const credentialVersion of [
+    null,
+    -1,
+    "01",
+    "9223372036854775808",
+    Number.MAX_SAFE_INTEGER + 1,
+  ]) {
+    const harness = createSupabaseRepositoryHarness({
+      selectResult: {
+        data: [
+          {
+            access_token_enc: null,
+            refresh_token_enc: null,
+            status: "connected",
+            token_expiry_at: null,
+            scopes: null,
+            credential_version: credentialVersion,
+          },
+        ],
+        error: null,
+      },
+    });
+    await expectStoreErrorAsync(
+      () => harness.store.loadGoogleTokenCredentials(USER_ID),
+      "GOOGLE_TOKEN_STORE_FAILED",
+    );
+  }
+});
+
+test("two refresh saves from one version allow exactly one winner", async () => {
+  const { store, state } = createStatefulCasHarness();
+  const write = (label: string) =>
+    store.updateRefreshedGoogleAccessToken({
+      userId: USER_ID,
+      accessToken: createPlaintextGoogleToken(label),
+      tokenExpiryAt: EXPIRY,
+      lastVerifiedAt: NOW,
+      updatedAt: NOW,
+      expectedCredentialVersion: VERSION_0,
+    });
+
+  const results = await Promise.allSettled([
+    write("first-concurrent-access"),
+    write("second-concurrent-access"),
+  ]);
+
+  expect(
+    results.filter((result) => result.status === "fulfilled"),
+  ).toHaveLength(1);
+  const rejected = results.find((result) => result.status === "rejected");
+  expect(rejected).toMatchObject({
+    status: "rejected",
+    reason: { code: "GOOGLE_TOKEN_UPDATE_CONFLICT" },
+  });
+  expect(state.credentialVersion).toBe(VERSION_1);
+});
+
+test("callback CAS prevents an older refresh from overwriting reconnect", async () => {
+  const { store, state } = createStatefulCasHarness();
+  await store.saveGoogleCallbackConnection(
+    callbackInput({ writeMode: "update" }),
+  );
+  const callbackPayload = state.lastPayload;
+
+  await expectStoreErrorAsync(
+    () =>
+      store.updateRefreshedGoogleAccessToken({
+        userId: USER_ID,
+        accessToken: createPlaintextGoogleToken("stale-refresh-access"),
+        tokenExpiryAt: EXPIRY,
+        lastVerifiedAt: NOW,
+        updatedAt: NOW,
+        expectedCredentialVersion: VERSION_0,
+      }),
+    "GOOGLE_TOKEN_UPDATE_CONFLICT",
+  );
+
+  expect(state.credentialVersion).toBe(VERSION_1);
+  expect(state.lastPayload).toBe(callbackPayload);
+});
+
+test("disconnect CAS prevents an in-flight refresh from reviving credentials", async () => {
+  const { store, state } = createStatefulCasHarness();
+  await store.disconnectGoogleConnection(USER_ID);
+  const disconnectPayload = state.lastPayload;
+
+  await expectStoreErrorAsync(
+    () =>
+      store.updateRefreshedGoogleAccessToken({
+        userId: USER_ID,
+        accessToken: createPlaintextGoogleToken("stale-after-disconnect"),
+        tokenExpiryAt: EXPIRY,
+        lastVerifiedAt: NOW,
+        updatedAt: NOW,
+        expectedCredentialVersion: VERSION_0,
+      }),
+    "GOOGLE_TOKEN_UPDATE_CONFLICT",
+  );
+
+  expect(state.status).toBe("disconnected");
+  expect(state.credentialVersion).toBe(VERSION_1);
+  expect(state.lastPayload).toBe(disconnectPayload);
+});
+
+test("access-only refresh preserves the newest stored refresh token", async () => {
+  const { store, state } = createStatefulCasHarness();
+  await store.saveGoogleCallbackConnection(
+    callbackInput({ writeMode: "update" }),
+  );
+  const newestRefreshTokenStored = state.refreshTokenStored;
+
+  await store.updateRefreshedGoogleAccessToken({
+    userId: USER_ID,
+    accessToken: createPlaintextGoogleToken("access-only-refresh"),
+    refreshToken: { mode: "preserve" },
+    tokenExpiryAt: EXPIRY,
+    lastVerifiedAt: NOW,
+    updatedAt: NOW,
+    expectedCredentialVersion: VERSION_1,
+  });
+
+  expect(state.refreshTokenStored).toBe(newestRefreshTokenStored);
+  expect(state.credentialVersion).toBe(createGoogleCredentialVersion(2));
+});
+
+test("owner mismatch cannot update another user's credential", async () => {
+  const { store, state } = createStatefulCasHarness();
+  await expectStoreErrorAsync(
+    () =>
+      store.updateRefreshedGoogleAccessToken({
+        userId: OTHER_USER_ID,
+        accessToken: createPlaintextGoogleToken("other-owner-access"),
+        tokenExpiryAt: EXPIRY,
+        lastVerifiedAt: NOW,
+        updatedAt: NOW,
+        expectedCredentialVersion: VERSION_0,
+      }),
+    "GOOGLE_TOKEN_UPDATE_CONFLICT",
+  );
+  expect(state.credentialVersion).toBe(VERSION_0);
+  expect(state.lastPayload).toBeNull();
+});
+
+test("credential version overflow stops before repository update", async () => {
+  const { store, calls } = createHarness();
+  await expectStoreErrorAsync(
+    () =>
+      store.updateRefreshedGoogleAccessToken({
+        userId: USER_ID,
+        accessToken: createPlaintextGoogleToken("overflow-access"),
+        tokenExpiryAt: EXPIRY,
+        lastVerifiedAt: NOW,
+        updatedAt: NOW,
+        expectedCredentialVersion: createGoogleCredentialVersion(
+          "9223372036854775807",
+        ),
+      }),
+    "GOOGLE_TOKEN_STORE_FAILED",
+  );
+  expect(calls.updates).toEqual([]);
 });
 
 test("disconnect clears tokens and health state in one user-scoped update", async () => {
@@ -1543,6 +1927,8 @@ test("disconnect clears tokens and health state in one user-scoped update", asyn
   expect(calls.updates).toEqual([
     {
       userId: USER_ID,
+      expectedStatus: "connected",
+      expectedCredentialVersion: VERSION_0,
       payload: {
         access_token_enc: null,
         refresh_token_enc: null,
@@ -1554,6 +1940,7 @@ test("disconnect clears tokens and health state in one user-scoped update", asyn
         last_error_code: null,
         last_error_at: null,
         updated_at: NOW,
+        credential_version: VERSION_1,
       },
     },
   ]);

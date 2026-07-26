@@ -6,6 +6,7 @@ import ts from "typescript";
 import { createGoogleAuthCore } from "../src/lib/google/authCore";
 import {
   createGoogleTokenCredentialHandle,
+  createGoogleCredentialVersion,
   GoogleTokenStoreError,
   type GoogleTokenCredentials,
   type UpdateRefreshedGoogleAccessTokenInput,
@@ -13,6 +14,8 @@ import {
 
 const AUTH_PATH = resolve(process.cwd(), "src/lib/google/auth.ts");
 const USER_ID = "44444444-4444-4444-8444-444444444444";
+const VERSION_0 = createGoogleCredentialVersion(0);
+const VERSION_1 = createGoogleCredentialVersion(1);
 
 function credentials(options?: {
   accessToken?: string | null;
@@ -33,6 +36,7 @@ function credentials(options?: {
         : options.expiry,
     status: options?.status === undefined ? "connected" : options.status,
     scopes: "gmail.readonly drive.file",
+    credentialVersion: VERSION_0,
   });
 }
 
@@ -131,6 +135,7 @@ function loadAuth(options?: {
         ) {
           calls.updates.push(input);
           if (options?.updateError) throw options.updateError;
+          return VERSION_1;
         },
       };
     }
@@ -184,6 +189,7 @@ test("expired credentials refresh and persist access-only exactly once", async (
     userId: USER_ID,
     accessToken: "refreshed-access",
     refreshToken: { mode: "preserve" },
+    expectedCredentialVersion: VERSION_0,
   });
   expect(client.credentials).toMatchObject({
     access_token: "refreshed-access",

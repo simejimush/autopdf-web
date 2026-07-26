@@ -108,6 +108,14 @@ export async function GET(req: Request) {
     });
     return redirectWithConsumedOAuthState("/settings?google=load_failed", url);
   }
+  const callbackCredentialVersion = callbackSnapshot.getCredentialVersion();
+  if (callbackSnapshot.exists() && callbackCredentialVersion === null) {
+    console.error("[google.callback] invalid connection version", {
+      code: "GOOGLE_CONNECTION_LOAD_FAILED",
+      location: "load_existing_google_connection",
+    });
+    return redirectWithConsumedOAuthState("/settings?google=load_failed", url);
+  }
 
   try {
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
@@ -213,6 +221,12 @@ export async function GET(req: Request) {
         await recordGoogleCredentialValidationFailure({
           userId: user.id,
           writeMode: callbackSnapshot.exists() ? "update" : "insert",
+          ...(callbackSnapshot.exists()
+            ? {
+                expectedStatus: callbackSnapshot.getStatus(),
+                expectedCredentialVersion: callbackCredentialVersion!,
+              }
+            : {}),
         });
       } catch {
         console.error("[google.callback] failed to mark token invalid", {
@@ -240,6 +254,12 @@ export async function GET(req: Request) {
         writeMode: callbackSnapshot.exists() ? "update" : "insert",
         accessToken: verifiedAccessToken,
         refreshToken: { mode: "update", token: validatedRefreshToken },
+        ...(callbackSnapshot.exists()
+          ? {
+              expectedStatus: callbackSnapshot.getStatus(),
+              expectedCredentialVersion: callbackCredentialVersion!,
+            }
+          : {}),
         state: {
           tokenExpiryAt: verifiedExpiryAt,
           scopes:

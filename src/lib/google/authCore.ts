@@ -1,6 +1,7 @@
 import {
   createGoogleTokenCredentialHandle,
   GoogleTokenStoreError,
+  type GoogleCredentialVersion,
   type GoogleTokenCredentials,
   type PlaintextGoogleToken,
   type UpdateRefreshedGoogleAccessTokenInput,
@@ -27,7 +28,7 @@ export type GoogleAuthCoreDependencies = Readonly<{
   ): Promise<GoogleTokenRefreshResult>;
   updateRefreshedTokens(
     input: UpdateRefreshedGoogleAccessTokenInput,
-  ): Promise<void>;
+  ): Promise<GoogleCredentialVersion>;
 }>;
 
 function normalizeRefreshedExpiry(value: string): string {
@@ -79,7 +80,7 @@ export function createGoogleAuthCore(dependencies: GoogleAuthCoreDependencies) {
     const tokenExpiryAt = normalizeRefreshedExpiry(refreshed.tokenExpiryAt);
     const timestamp = new Date(currentTimestamp).toISOString();
 
-    await dependencies.updateRefreshedTokens({
+    const savedCredentialVersion = await dependencies.updateRefreshedTokens({
       userId,
       accessToken: refreshed.accessToken,
       refreshToken: refreshed.refreshToken
@@ -88,6 +89,7 @@ export function createGoogleAuthCore(dependencies: GoogleAuthCoreDependencies) {
       tokenExpiryAt,
       lastVerifiedAt: timestamp,
       updatedAt: timestamp,
+      expectedCredentialVersion: credentials.getCredentialVersion(),
     });
 
     return createGoogleTokenCredentialHandle({
@@ -96,6 +98,7 @@ export function createGoogleAuthCore(dependencies: GoogleAuthCoreDependencies) {
       tokenExpiryAt,
       status: credentials.getStatus(),
       scopes: credentials.getScopes(),
+      credentialVersion: savedCredentialVersion,
     });
   }
 
