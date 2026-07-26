@@ -3,6 +3,8 @@ import { resolve } from "node:path";
 import { runInNewContext } from "node:vm";
 import { expect, test } from "@playwright/test";
 import ts from "typescript";
+import { getRunErrorMessage } from "../src/lib/runs/getRunErrorMessage";
+import { normalizeRunErrorCode } from "../src/lib/runs/normalizeRunErrorCode";
 
 const EXECUTE_PATH = resolve(process.cwd(), "src/lib/runs/executeRule.ts");
 const USER_ID = "44444444-4444-4444-8444-444444444444";
@@ -264,30 +266,10 @@ function loadExecuteRule(options?: {
       };
     }
     if (specifier === "@/lib/runs/normalizeRunErrorCode") {
-      return {
-        normalizeRunErrorCode(error: unknown) {
-          if (
-            error &&
-            typeof error === "object" &&
-            "code" in error &&
-            typeof error.code === "string"
-          ) {
-            return error.code;
-          }
-          return options?.processedInsertError ? "DB_INSERT_FAILED" : "UNKNOWN";
-        },
-      };
+      return { normalizeRunErrorCode };
     }
     if (specifier === "@/lib/runs/getRunErrorMessage") {
-      return {
-        getRunErrorMessage(code: string) {
-          return {
-            title: `Safe ${code}`,
-            message: "Safe message",
-            action: "Safe action",
-          };
-        },
-      };
+      return { getRunErrorMessage };
     }
     if (specifier === "@/lib/monitoring/updateGoogleConnectionHealth") {
       return {
@@ -607,12 +589,11 @@ test("service-role rule lookup fixes ID and owner and rejects mismatched returne
   }
 });
 
-test("Google reauth, Gmail, PDF, Drive, DB, and unexpected failures share safe owned finalization", async () => {
+test("known Google, DB, and unexpected failures share safe owned finalization", async () => {
   const scenarios = [
     { failAt: "search", errorCode: "GOOGLE_TOKEN_INVALID" },
-    { failAt: "search", errorCode: "GMAIL_QUERY_INVALID" },
-    { failAt: "pdf", errorCode: "TEMPORARY_UNAVAILABLE" },
-    { failAt: "drive", errorCode: "DRIVE_UPLOAD_FAILED" },
+    { failAt: "search", errorCode: "GOOGLE_TOKEN_REFRESH_FAILED" },
+    { failAt: "drive", errorCode: "GOOGLE_PERMISSION_DENIED" },
     { processedInsertError: true, errorCode: "DB_INSERT_FAILED" },
     { failAt: "rule", errorCode: "UNKNOWN" },
   ] as const;
@@ -634,6 +615,32 @@ test("Google reauth, Gmail, PDF, Drive, DB, and unexpected failures share safe o
         status: "error",
         errorCode: scenario.errorCode,
         resetCounts: false,
+      },
+    });
+  }
+});
+
+test("manual and cron preserve explicit Google OAuth run codes", async () => {
+  for (const trigger of ["manual", "cron"] as const) {
+    const harness = loadExecuteRule({
+      trigger,
+      messageIds: [MESSAGE_ID],
+      failAt: "search",
+      errorCode: "GOOGLE_TOKEN_REFRESH_FAILED",
+    });
+
+    const result = await harness.executeRule(harness.input);
+
+    expect(result).toMatchObject({
+      ok: false,
+      errorCode: "GOOGLE_TOKEN_REFRESH_FAILED",
+    });
+    expect(harness.calls.finalizations[0]).toMatchObject({
+      runId: RUN_ID,
+      userId: USER_ID,
+      finalization: {
+        status: "error",
+        errorCode: "GOOGLE_TOKEN_REFRESH_FAILED",
       },
     });
   }
@@ -699,14 +706,14 @@ test("only the existing two Google reauth codes trigger user notification", asyn
     trigger: "cron",
     messageIds: [MESSAGE_ID],
     failAt: "search",
-    errorCode: "GMAIL_QUERY_INVALID",
+    errorCode: "GOOGLE_TOKEN_REFRESH_FAILED",
   });
 
   const result = await otherError.executeRule(otherError.input);
 
   expect(result).toMatchObject({
     ok: false,
-    errorCode: "GMAIL_QUERY_INVALID",
+    errorCode: "GOOGLE_TOKEN_REFRESH_FAILED",
   });
   expect(otherError.calls.userNotify).toHaveLength(0);
 });
