@@ -4,6 +4,14 @@ import { runInNewContext } from "node:vm";
 import { expect, test } from "@playwright/test";
 import { NextResponse } from "next/server";
 import ts from "typescript";
+import {
+  GOOGLE_OAUTH_STATE_COOKIE_NAME,
+  GOOGLE_OAUTH_STATE_COOKIE_PATH,
+  GOOGLE_OAUTH_STATE_TTL_SECONDS,
+  createGoogleOAuthState,
+  getGoogleOAuthStateCookieOptions,
+  validateGoogleOAuthState,
+} from "../src/lib/google/oauthStateCore";
 
 const ROUTE_PATH = resolve(process.cwd(), "app/api/google/callback/route.ts");
 const USER_ID = "44444444-4444-4444-8444-444444444444";
@@ -25,7 +33,27 @@ function loadRoute(options?: {
   saveError?: Error;
   validationFailureError?: Error;
   state?: string | null;
+  stateCookie?: string | null;
+  stateIssuedAt?: number;
+  code?: string | null;
+  providerError?: string | null;
 }) {
+  const redirectUri = "https://app.example.test/api/google/callback";
+  const signingSecret = "dummy-client-secret";
+  const generatedState = createGoogleOAuthState({
+    userId: USER_ID,
+    redirectUri,
+    signingSecret,
+    ...(options?.stateIssuedAt === undefined
+      ? {}
+      : { now: options.stateIssuedAt }),
+  });
+  const requestState =
+    options?.state === undefined ? generatedState.state : options.state;
+  const stateCookie =
+    options?.stateCookie === undefined
+      ? generatedState.cookieValue
+      : options.stateCookie;
   const source = readFileSync(ROUTE_PATH, "utf8");
   const compiled = ts.transpileModule(source, {
     compilerOptions: {
@@ -44,6 +72,7 @@ function loadRoute(options?: {
     saves: [] as Array<Record<string, unknown>>,
     validationFailures: [] as Array<Record<string, unknown>>,
     jwtFrom: 0,
+    cookieGets: [] as string[],
     logs: [] as unknown[][],
   };
 
@@ -78,7 +107,26 @@ function loadRoute(options?: {
   };
   const localRequire = (specifier: string) => {
     if (specifier === "next/server") return { NextResponse };
+    if (specifier === "next/headers") {
+      return {
+        async cookies() {
+          return {
+            get(name: string) {
+              calls.cookieGets.push(name);
+              return stateCookie === null ? undefined : { value: stateCookie };
+            },
+          };
+        },
+      };
+    }
     if (specifier === "googleapis") return { google: { auth: { OAuth2 } } };
+    if (specifier === "@/lib/google/oauthStateCore") {
+      return {
+        GOOGLE_OAUTH_STATE_COOKIE_NAME,
+        getGoogleOAuthStateCookieOptions,
+        validateGoogleOAuthState,
+      };
+    }
     if (specifier === "@/lib/supabase/server") {
       return {
         async createSupabaseServerClient() {
@@ -173,23 +221,37 @@ function loadRoute(options?: {
     process: {
       env: {
         GOOGLE_CLIENT_ID: "dummy-client-id",
-        GOOGLE_CLIENT_SECRET: "dummy-client-secret",
-        GOOGLE_REDIRECT_URI: "https://app.example.test/api/google/callback",
+        GOOGLE_CLIENT_SECRET: signingSecret,
+        GOOGLE_REDIRECT_URI: redirectUri,
       },
     },
   });
 
+  const searchParams = new URLSearchParams({ user_id: OTHER_USER_ID });
+  const code = options?.code === undefined ? "dummy-code" : options.code;
+  if (code !== null) searchParams.set("code", code);
+  if (requestState !== null) searchParams.set("state", requestState);
+  if (options?.providerError) {
+    searchParams.set("error", options.providerError);
+  }
   const request = new Request(
-    `https://app.example.test/api/google/callback?code=dummy-code&state=${
-      options?.state === undefined ? USER_ID : (options.state ?? "")
-    }&user_id=${OTHER_USER_ID}`,
+    `https://app.example.test/api/google/callback?${searchParams.toString()}`,
   );
-  return { GET: loadedModule.exports.GET, request, calls, events, source };
+  return {
+    GET: loadedModule.exports.GET,
+    request,
+    calls,
+    events,
+    source,
+    state: requestState,
+    stateCookie,
+  };
 }
 
 test("initial callback preflights, validates, and inserts encrypted-store input", async () => {
   const route = loadRoute();
   const response = await route.GET(route.request);
+  const setCookie = response.headers.get("set-cookie") ?? "";
 
   expect(response.headers.get("location")).toBe(
     "https://app.example.test/settings?google=connected",
@@ -208,6 +270,10 @@ test("initial callback preflights, validates, and inserts encrypted-store input"
     accessToken: "verified-access",
     refreshToken: { mode: "update", token: "exchange-refresh" },
   });
+  expect(route.calls.cookieGets).toEqual([GOOGLE_OAUTH_STATE_COOKIE_NAME]);
+  expect(setCookie).toContain(`${GOOGLE_OAUTH_STATE_COOKIE_NAME}=`);
+  expect(setCookie).toContain("Max-Age=0");
+  expect(setCookie).toContain(`Path=${GOOGLE_OAUTH_STATE_COOKIE_PATH}`);
 });
 
 test("reconnect without a new refresh dual-reads and re-encrypts the stored token", async () => {
@@ -312,24 +378,88 @@ test("validation failure updates an existing row through the token store", async
   expect(route.calls.jwtFrom).toBe(0);
 });
 
-test("state mismatch and unauthenticated callbacks never write health", async () => {
-  const invalidState = loadRoute({ state: "not-the-authenticated-user" });
-  const invalidStateResponse = await invalidState.GET(invalidState.request);
-  expect(invalidStateResponse.headers.get("location")).toContain(
+test("missing, mismatched, and expired state stop before provider or database work", async () => {
+  const cases = [
+    loadRoute({ state: null }),
+    loadRoute({ state: "x".repeat(43) }),
+    loadRoute({ stateCookie: null }),
+    loadRoute({
+      stateIssuedAt: Date.now() - GOOGLE_OAUTH_STATE_TTL_SECONDS * 1000 - 1_000,
+    }),
+  ];
+
+  for (const route of cases) {
+    const response = await route.GET(route.request);
+    expect(response.headers.get("location")).toContain("google=state_invalid");
+    expect(route.calls.preflight).toBe(0);
+    expect(route.calls.snapshots).toEqual([]);
+    expect(route.calls.fetch).toBe(0);
+    expect(route.calls.saves).toEqual([]);
+    expect(route.calls.validationFailures).toEqual([]);
+    expect(route.calls.jwtFrom).toBe(0);
+  }
+});
+
+test("state cannot cross users or authenticated browser sessions", async () => {
+  const otherUser = loadRoute({ user: { id: OTHER_USER_ID } });
+  const otherSession = loadRoute({ stateCookie: null });
+
+  for (const route of [otherUser, otherSession]) {
+    const response = await route.GET(route.request);
+    expect(response.headers.get("location")).toContain("google=state_invalid");
+    expect(route.calls.fetch).toBe(0);
+    expect(route.calls.saves).toEqual([]);
+  }
+});
+
+test("consumed state cannot be reused in the browser flow", async () => {
+  const first = loadRoute();
+  const firstResponse = await first.GET(first.request);
+  expect(firstResponse.headers.get("location")).toContain("google=connected");
+  expect(firstResponse.headers.get("set-cookie")).toContain("Max-Age=0");
+
+  const replay = loadRoute({ state: first.state, stateCookie: null });
+  const replayResponse = await replay.GET(replay.request);
+  expect(replayResponse.headers.get("location")).toContain(
     "google=state_invalid",
   );
-  expect(invalidState.calls.validationFailures).toEqual([]);
-  expect(invalidState.calls.fetch).toBe(0);
+  expect(replay.calls.fetch).toBe(0);
+  expect(replay.calls.saves).toEqual([]);
+});
 
-  const unauthenticated = loadRoute({ user: null });
-  const unauthenticatedResponse = await unauthenticated.GET(
-    unauthenticated.request,
+test("provider errors still require valid state before error handling", async () => {
+  const invalid = loadRoute({
+    state: "x".repeat(43),
+    code: null,
+    providerError: "access_denied",
+  });
+  const invalidResponse = await invalid.GET(invalid.request);
+  expect(invalidResponse.headers.get("location")).toContain(
+    "google=state_invalid",
   );
-  expect(unauthenticatedResponse.headers.get("location")).toBe(
+  expect(invalid.calls.fetch).toBe(0);
+  expect(invalid.calls.snapshots).toEqual([]);
+
+  const valid = loadRoute({ code: null, providerError: "access_denied" });
+  const validResponse = await valid.GET(valid.request);
+  expect(validResponse.headers.get("location")).toContain(
+    "google=access_denied",
+  );
+  expect(valid.calls.fetch).toBe(0);
+  expect(valid.calls.snapshots).toEqual([]);
+});
+
+test("unauthenticated callbacks consume state without provider or database work", async () => {
+  const route = loadRoute({ user: null });
+  const response = await route.GET(route.request);
+
+  expect(response.headers.get("location")).toBe(
     "https://app.example.test/login",
   );
-  expect(unauthenticated.calls.validationFailures).toEqual([]);
-  expect(unauthenticated.calls.fetch).toBe(0);
+  expect(response.headers.get("set-cookie")).toContain("Max-Age=0");
+  expect(route.calls.validationFailures).toEqual([]);
+  expect(route.calls.fetch).toBe(0);
+  expect(route.calls.snapshots).toEqual([]);
 });
 
 test("health write failure preserves the token-invalid redirect safely", async () => {
@@ -387,6 +517,28 @@ test("exchange, validation, and save failures use fixed redirects without secret
   }
 });
 
+test("state rejection does not expose state cookie, tokens, or raw errors", async () => {
+  const route = loadRoute({
+    stateCookie: "tampered-cookie-with-private-nonce",
+    exchangeToken: {
+      access_token: "private-exchange-access-token",
+      refresh_token: "private-exchange-refresh-token",
+    },
+  });
+  const response = await route.GET(route.request);
+  const output = `${response.headers.get("location")}${await response
+    .clone()
+    .text()}${JSON.stringify(route.calls.logs)}`;
+
+  expect(response.headers.get("location")).toContain("google=state_invalid");
+  expect(output).not.toContain(route.state ?? "not-present");
+  expect(output).not.toContain("tampered-cookie-with-private-nonce");
+  expect(output).not.toContain("private-exchange-access-token");
+  expect(output).not.toContain("private-exchange-refresh-token");
+  expect(route.calls.fetch).toBe(0);
+  expect(route.calls.saves).toEqual([]);
+});
+
 test("callback has no direct token column read or write", () => {
   const { source } = loadRoute();
   expect(source).not.toContain('.select("refresh_token_enc")');
@@ -396,6 +548,9 @@ test("callback has no direct token column read or write", () => {
   expect(source).not.toContain('.from("google_connections")');
   expect(source).not.toContain(".upsert(");
   expect(source).not.toContain("supabaseAdmin");
+  expect(source).not.toContain("state !== user.id");
+  expect(source).toContain("validateGoogleOAuthState");
+  expect(source).toContain("redirectWithConsumedOAuthState");
   expect(source).toContain("recordGoogleCredentialValidationFailure");
   expect(source).toContain("saveGoogleCallbackConnection");
 });

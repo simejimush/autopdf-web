@@ -4,6 +4,13 @@ import { runInNewContext } from "node:vm";
 import { expect, test } from "@playwright/test";
 import { NextResponse } from "next/server";
 import ts from "typescript";
+import {
+  createGoogleOAuthState,
+  getGoogleOAuthStateCookieOptions,
+  GOOGLE_OAUTH_STATE_COOKIE_NAME,
+  GOOGLE_OAUTH_STATE_COOKIE_PATH,
+  GOOGLE_OAUTH_STATE_TTL_SECONDS,
+} from "../src/lib/google/oauthStateCore";
 
 const ROUTE_PATH = resolve(process.cwd(), "app/api/google/connect/route.ts");
 const USER_ID = "44444444-4444-4444-8444-444444444444";
@@ -49,6 +56,15 @@ function loadRoute(options?: {
         },
       };
     }
+    if (specifier === "@/lib/google/oauthStateCore") {
+      return {
+        createGoogleOAuthState,
+        getGoogleOAuthStateCookieOptions,
+        GOOGLE_OAUTH_STATE_COOKIE_NAME,
+        GOOGLE_OAUTH_STATE_COOKIE_PATH,
+        GOOGLE_OAUTH_STATE_TTL_SECONDS,
+      };
+    }
     throw new Error(`Unexpected dependency: ${specifier}`);
   };
 
@@ -62,6 +78,7 @@ function loadRoute(options?: {
       env: {
         APP_URL: "https://app.example.test",
         GOOGLE_CLIENT_ID: "dummy-client-id",
+        GOOGLE_CLIENT_SECRET: "dummy-client-secret",
         GOOGLE_REDIRECT_URI: "https://app.example.test/api/google/callback",
       },
     },
@@ -84,12 +101,32 @@ test("authenticated connect preflights before returning the OAuth redirect", asy
   const route = loadRoute({ user: { id: USER_ID } });
   const response = await route.GET();
   const location = new URL(response.headers.get("location")!);
+  const setCookie = response.headers.get("set-cookie") ?? "";
 
   expect(route.calls.preflight).toBe(1);
   expect(location.origin).toBe("https://accounts.google.com");
-  expect(location.searchParams.get("state")).toBe(USER_ID);
+  expect(location.searchParams.get("state")).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  expect(location.searchParams.get("state")).not.toBe(USER_ID);
+  expect(location.toString()).not.toContain(USER_ID);
   expect(location.searchParams.get("access_type")).toBe("offline");
   expect(location.searchParams.get("prompt")).toBe("consent");
+  expect(setCookie).toContain(`${GOOGLE_OAUTH_STATE_COOKIE_NAME}=`);
+  expect(setCookie).toContain("HttpOnly");
+  expect(setCookie).toContain("Secure");
+  expect(setCookie).toContain("SameSite=lax");
+  expect(setCookie).toContain(`Path=${GOOGLE_OAUTH_STATE_COOKIE_PATH}`);
+  expect(setCookie).toContain(`Max-Age=${GOOGLE_OAUTH_STATE_TTL_SECONDS}`);
+  expect(setCookie).not.toContain(USER_ID);
+});
+
+test("authenticated connect creates a fresh state for every attempt", async () => {
+  const route = loadRoute({ user: { id: USER_ID } });
+  const first = new URL((await route.GET()).headers.get("location")!);
+  const second = new URL((await route.GET()).headers.get("location")!);
+
+  expect(first.searchParams.get("state")).not.toBe(
+    second.searchParams.get("state"),
+  );
 });
 
 test("preflight failure fails closed without exposing the raw error", async () => {
