@@ -1,13 +1,13 @@
 # AutoPDF Phase 3 migration / Preview plan
 
-この文書は、Phase 3で残るrace / idempotency課題の承認用設計である。migrationファイル、DB適用、env変更、外部サービス操作はこの文書の範囲外とする。
+この文書は、Phase 3で残るrace / idempotency課題の承認用設計である。M1のmigrationファイルと対応コード・テストは作成済みだが、DB適用、env変更、外部サービス操作は未実施である。
 
 ## 1. 現在の判定
 
 - migration不要で安全に完結できる既知のCritical / High修正はfeature branchへ反映済み
 - Google credential、Stripe event順序、同一rule実行、Drive保存予約、Free quota、Stripe Checkoutの完全対策には共有DB状態が必要
 - Production DDLはtracked migrationだけでは再現できないため、全migrationはPreviewで実DDL preflight後に確定する
-- migration承認前の判定は`BLOCKED_PENDING_MIGRATION_APPROVAL`
+- M1実装後・DB適用前の判定は`READY_FOR_GOOGLE_CREDENTIAL_MIGRATION_APPLY_APPROVAL`
 
 ## 2. 共通migration原則
 
@@ -20,6 +20,14 @@
 - rollbackは新規書込みを先に停止してから行い、旧コードが新列を無視できる期間を確保する
 
 ## 3. M1 Google credential version
+
+### 実装状態（2026-07-26）
+
+- migration: `supabase/migrations/20260726090000_add_google_credential_version.sql`
+- application CAS: repository / token store / refresh / callback / disconnectへ実装済み
+- local verification: 対象テスト、TypeScript、ESLint、Prettier、diff check合格
+- 未実施: Supabase local / Preview / Productionへのmigration適用、remote migration、push、Preview実DB並列試験
+- deploy順は必ず「migration適用 → schema検証 → CAS application deploy」とする。列追加前にCAS applicationをdeployしない
 
 ### 問題と影響
 
@@ -40,12 +48,17 @@ refresh、callback、disconnectが同じ`google_connections`行を更新し、�
 - payloadへ`credential_version = expected + 1`を含め、credentialと同じUPDATEで保存
 - 0件は競合、複数件は整合性異常
 - token値や暗号文をWHERE・ログに使用しない
+- versionはJavaScript `number`へ丸めず、正規化済み10進文字列として扱う
+- Postgres `bigint`上限、負数、非整数、先頭0付き、不正shapeを拒否する
+- INSERTはversion 0で初期化し、既存行のcredential mutationだけを`expected + 1`へ更新する
+- `RETURNING id, credential_version`を検証し、更新されたversionが期待値と一致する1行だけを成功とする
 
 ### backfill / compatibility
 
-- 追加時default 0で既存行をbackfill
+- nullable列追加後、既存NULLを0へbackfillし、非負CHECKをvalidateしてからdefault 0 / NOT NULLを保証
 - 旧コードは新列を無視できる
-- deploy 1で列追加、deploy 2でread/CAS、十分な観測後にdefault・not null契約を再確認
+- legacy plaintext tokenのdual-readと暗号化keyring契約は変更しない
+- 既存constraint名が別定義で存在する場合や列型がbigint以外の場合はmigrationをfail-closedにする
 
 ### rollback
 
@@ -60,11 +73,76 @@ refresh、callback、disconnectが同じ`google_connections`行を更新し、�
 - refresh token preserve／rotationを同一CASで確認
 - token・version値がresponseやログへ出ないことを確認
 
+local testでは次を固定済み:
+
+- 同一versionを読んだ2 refreshは1件だけ成功し、loserは`GOOGLE_TOKEN_UPDATE_CONFLICT`
+- callback / reconnect後およびdisconnect後の古いrefreshは0件競合
+- access-only refreshは保存済みrefresh token列を変更せず、rotation時は2 tokenを同一CASで更新
+- owner不一致、0件、複数件、不正RETURNING shape、DB失敗、version不正値・overflowをfail-closed
+- 保存失敗時は未保存credentialからOAuth clientを返さない
+
 ### 監視
 
 - `GOOGLE_TOKEN_UPDATE_CONFLICT`件数
 - credential save失敗率
 - reconnect後のtoken invalid増加
+
+### migration apply設計パッケージ（未実行）
+
+前提:
+
+1. 人間が対象をProductionと異なるPreview Supabase projectと確認する
+2. Preview DBにProductionデータが複製されていないことを確認する
+3. 現行application SHAとschema snapshotをrollback anchorとして保存する
+4. Cron、通知、実ユーザーGoogle処理を停止したPreviewで行う
+
+CLIが既にPreview projectへ安全にlink済みである場合だけ、次を人間承認後に実行する。project linkの新規作成・変更は別承認とする。
+
+```bash
+supabase db push --dry-run
+supabase db push
+```
+
+dry-runの期待結果は`20260726090000_add_google_credential_version.sql`だけがpendingであり、他の未追跡DDLやProduction参照がないこと。applyの期待結果はmigrationが1回成功し、再実行対象に残らないこと。
+
+適用後のschema検証SQL（値・tokenは表示しない）:
+
+```sql
+select column_name, data_type, is_nullable, column_default
+from information_schema.columns
+where table_schema = 'public'
+  and table_name = 'google_connections'
+  and column_name = 'credential_version';
+
+select
+  count(*) filter (where credential_version is null) as null_versions,
+  count(*) filter (where credential_version < 0) as negative_versions
+from public.google_connections;
+
+select conname, contype, convalidated
+from pg_constraint
+where conrelid = 'public.google_connections'::regclass
+  and conname = 'google_connections_credential_version_nonnegative';
+```
+
+期待結果:
+
+- columnは`bigint` / `NO` / default `0`
+- `null_versions = 0`、`negative_versions = 0`
+- 非負CHECKは`contype = c`、`convalidated = true`
+- 事前snapshotと比較して既存`user_id UNIQUE`、RLS、policy、grantに差分なし
+- schema確認後にCAS applicationをdeployし、Preview専用credentialで並列refresh / reconnect / disconnect smokeを行う
+
+### rollback手順
+
+第一rollbackはapplicationだけをCAS導入前のanchor SHAへ戻し、`credential_version`列とconstraintは残置する。旧applicationは追加列を無視できるため、緊急時に列をdropしない。
+
+1. CAS applicationへの新規trafficを停止する
+2. applicationをCAS導入前の既知SHAへ戻す
+3. callback / refresh / disconnectのエラー率とGoogle接続状態を確認する
+4. `credential_version`列は監査・再切替用に残す
+
+列削除は十分な観測後の別migration・別承認とする。必要な場合も、CAS applicationが完全に停止し旧applicationへ戻ったことを確認してから、constraint削除 → column削除の順で行う。Production/Previewでの破壊的rollback SQLはこの承認範囲では実行しない。
 
 ## 4. M2 Google refresh lease
 
