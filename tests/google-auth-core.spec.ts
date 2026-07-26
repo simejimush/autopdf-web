@@ -6,6 +6,7 @@ import {
 } from "../src/lib/google/authCore";
 import {
   createGoogleTokenCredentialHandle,
+  createGoogleCredentialVersion,
   createPlaintextGoogleToken,
   GoogleTokenStoreError,
   type GoogleTokenCredentials,
@@ -15,6 +16,8 @@ import {
 const USER_ID = "44444444-4444-4444-8444-444444444444";
 const NOW_MS = Date.parse("2026-08-01T00:00:00.000Z");
 const REFRESHED_EXPIRY = "2026-08-01T01:00:00.000Z";
+const VERSION_0 = createGoogleCredentialVersion(0);
+const VERSION_1 = createGoogleCredentialVersion(1);
 
 function credentials(input?: {
   accessToken?: string | null;
@@ -34,6 +37,7 @@ function credentials(input?: {
       input?.expiry === undefined ? "2026-08-01T01:00:00.000Z" : input.expiry,
     status: "connected",
     scopes: "gmail.readonly",
+    credentialVersion: VERSION_0,
   });
 }
 
@@ -67,6 +71,7 @@ function harness(options?: {
     async updateRefreshedTokens(input) {
       calls.updates.push(input);
       if (options?.updateError) throw options.updateError;
+      return VERSION_1;
     },
   });
 
@@ -131,6 +136,7 @@ test("invalid injected current time fails before refresh", async () => {
     },
     updateRefreshedTokens: async () => {
       calls.update += 1;
+      return VERSION_1;
     },
   });
 
@@ -175,11 +181,13 @@ test("refresh rotation persists both tokens in one atomic store call", async () 
     accessToken: "rotated-access",
     refreshToken: { mode: "update", token: "rotated-refresh" },
     tokenExpiryAt: REFRESHED_EXPIRY,
+    expectedCredentialVersion: VERSION_0,
   });
   expect(result.getAccessToken()).toBe("rotated-access");
   expect(result.getRefreshToken()).toBe("rotated-refresh");
   expect(result.getStatus()).toBe("connected");
   expect(result.getScopes()).toBe("gmail.readonly");
+  expect(result.getCredentialVersion()).toBe(VERSION_1);
 });
 
 test("refresh without rotation preserves refresh and returned handle is reusable", async () => {

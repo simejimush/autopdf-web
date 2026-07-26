@@ -3,6 +3,7 @@ import "server-only";
 import {
   createGoogleTokenEncryptionWritePreflight,
   createGoogleTokenStore,
+  createGoogleCredentialVersion,
   createPlaintextGoogleToken,
   type GoogleTokenCryptoAdapter,
 } from "@/lib/google/tokenStoreCore";
@@ -60,8 +61,9 @@ export function preflightGoogleTokenEncryptionWrite(): void {
   runEncryptionWritePreflight();
 }
 
-export { createPlaintextGoogleToken };
+export { createGoogleCredentialVersion, createPlaintextGoogleToken };
 export type {
+  GoogleCredentialVersion,
   GoogleRefreshTokenWrite,
   GoogleRefreshedTokenWrite,
   GoogleCallbackConnectionSnapshot,
@@ -85,9 +87,9 @@ export async function saveGoogleCallbackConnection(
 }
 export async function updateRefreshedGoogleAccessToken(
   input: import("@/lib/google/tokenStoreCore").UpdateRefreshedGoogleAccessTokenInput,
-): Promise<void> {
+): Promise<import("@/lib/google/tokenStoreCore").GoogleCredentialVersion> {
   preflightGoogleTokenEncryptionWrite();
-  await tokenStore.updateRefreshedGoogleAccessToken(input);
+  return tokenStore.updateRefreshedGoogleAccessToken(input);
 }
 export const recordGoogleCredentialValidationFailure =
   tokenStore.recordGoogleCredentialValidationFailure;

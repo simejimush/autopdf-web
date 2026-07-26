@@ -58,6 +58,8 @@ function loadRoute(options?: {
   rowExists?: boolean;
   storedRefreshToken?: string | null;
   storedScopes?: string | null;
+  storedStatus?: string | null;
+  storedCredentialVersion?: string;
   exchangeOk?: boolean;
   exchangeStatus?: number;
   exchangeToken?: Record<string, unknown>;
@@ -211,6 +213,11 @@ function loadRoute(options?: {
             exists: () => options?.rowExists ?? false,
             getRefreshToken: () => options?.storedRefreshToken ?? null,
             getScopes: () => options?.storedScopes ?? null,
+            getStatus: () => options?.storedStatus ?? "connected",
+            getCredentialVersion: () =>
+              (options?.rowExists ?? false)
+                ? (options?.storedCredentialVersion ?? "0")
+                : null,
           };
         },
         async saveGoogleCallbackConnection(input: Record<string, unknown>) {
@@ -354,6 +361,8 @@ test("reconnect without a new refresh dual-reads and re-encrypts the stored toke
   });
   expect(route.calls.saves[0]).toMatchObject({
     writeMode: "update",
+    expectedStatus: "connected",
+    expectedCredentialVersion: "0",
     refreshToken: {
       mode: "update",
       token: "legacy-or-decrypted-refresh",
@@ -433,7 +442,12 @@ test("validation failure updates an existing row through the token store", async
     "https://app.example.test/settings?google=token_invalid",
   );
   expect(route.calls.validationFailures).toEqual([
-    { userId: USER_ID, writeMode: "update" },
+    {
+      userId: USER_ID,
+      writeMode: "update",
+      expectedStatus: "connected",
+      expectedCredentialVersion: "0",
+    },
   ]);
   expect(JSON.stringify(route.calls.validationFailures)).not.toContain(
     OTHER_USER_ID,
