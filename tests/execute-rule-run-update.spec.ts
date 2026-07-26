@@ -657,6 +657,11 @@ test("Google reauth notifications remain after finalization and notifier failure
   expect(harness.calls.finalizations).toHaveLength(1);
   expect(harness.calls.slack).toHaveLength(1);
   expect(harness.calls.userNotify).toHaveLength(1);
+  expect(harness.calls.userNotify[0]).toMatchObject({
+    userId: USER_ID,
+    errorCode: "GOOGLE_TOKEN_INVALID",
+  });
+  expect(harness.calls.userNotify[0]).not.toHaveProperty("userEmail");
   expect(harness.calls.health).toEqual([
     {
       userId: USER_ID,
@@ -664,6 +669,46 @@ test("Google reauth notifications remain after finalization and notifier failure
       errorCode: "GOOGLE_TOKEN_INVALID",
     },
   ]);
+  expect(harness.source).not.toContain("getUserEmail");
+  expect(harness.source).not.toContain("auth.admin.getUserById");
+});
+
+test("only the existing two Google reauth codes trigger user notification", async () => {
+  for (const errorCode of [
+    "GOOGLE_TOKEN_INVALID",
+    "GOOGLE_PERMISSION_DENIED",
+  ] as const) {
+    const harness = loadExecuteRule({
+      trigger: "cron",
+      messageIds: [MESSAGE_ID],
+      failAt: "search",
+      errorCode,
+    });
+
+    const result = await harness.executeRule(harness.input);
+
+    expect(result).toMatchObject({ ok: false, errorCode });
+    expect(harness.calls.userNotify).toHaveLength(1);
+    expect(harness.calls.userNotify[0]).toMatchObject({
+      userId: USER_ID,
+      errorCode,
+    });
+  }
+
+  const otherError = loadExecuteRule({
+    trigger: "cron",
+    messageIds: [MESSAGE_ID],
+    failAt: "search",
+    errorCode: "GMAIL_QUERY_INVALID",
+  });
+
+  const result = await otherError.executeRule(otherError.input);
+
+  expect(result).toMatchObject({
+    ok: false,
+    errorCode: "GMAIL_QUERY_INVALID",
+  });
+  expect(otherError.calls.userNotify).toHaveLength(0);
 });
 
 test("processed-email repository failure records run error after Drive save without raw details", async () => {
