@@ -3,7 +3,6 @@ import { sendEmail } from "@/lib/email/sendEmail";
 
 type UserNotificationPayload = {
   userId: string;
-  userEmail: string;
   ruleId: string;
   errorCode: "GOOGLE_TOKEN_INVALID" | "GOOGLE_PERMISSION_DENIED";
   message: string;
@@ -11,13 +10,47 @@ type UserNotificationPayload = {
   occurredAt: string;
 };
 
-type NotifyUserResult = {
-  sent: boolean;
-  skipped: boolean;
-  reason?: "cooldown" | "not_found" | "disabled";
-};
+export type NotifyUserReason =
+  | "cooldown"
+  | "not_found"
+  | "disabled"
+  | "auth_user_not_found"
+  | "auth_email_missing"
+  | "auth_lookup_failed"
+  | "send_failed"
+  | "state_update_failed";
+
+export type NotifyUserResult =
+  | Readonly<{
+      sent: true;
+      skipped: false;
+      reason?: "state_update_failed";
+    }>
+  | Readonly<{
+      sent: false;
+      skipped: true;
+      reason:
+        | "cooldown"
+        | "not_found"
+        | "disabled"
+        | "auth_user_not_found"
+        | "auth_email_missing";
+    }>
+  | Readonly<{
+      sent: false;
+      skipped: false;
+      reason: "auth_lookup_failed" | "send_failed";
+    }>;
 
 const COOLDOWN_HOURS = 24;
+
+function logUserNotificationFailure(reason: NotifyUserReason) {
+  console.error("[monitoring] User notify failed", {
+    code: "USER_NOTIFY_FAILED",
+    reason,
+    location: "notify_user",
+  });
+}
 
 function buildReconnectMailSubject(): string {
   return "【AutoPDF】Google連携の再接続が必要です";
@@ -88,22 +121,101 @@ export async function notifyUser(
     };
   }
 
-  await sendEmail({
-    to: "sencho96@gmail.com",
-    subject: buildReconnectMailSubject(),
-    text: buildReconnectMailText(),
-  });
+  let authResult: Awaited<
+    ReturnType<typeof supabaseAdmin.auth.admin.getUserById>
+  >;
+  try {
+    authResult = await supabaseAdmin.auth.admin.getUserById(payload.userId);
+  } catch {
+    logUserNotificationFailure("auth_lookup_failed");
+    return {
+      sent: false,
+      skipped: false,
+      reason: "auth_lookup_failed",
+    };
+  }
+
+  if (authResult.error?.code === "user_not_found") {
+    logUserNotificationFailure("auth_user_not_found");
+    return {
+      sent: false,
+      skipped: true,
+      reason: "auth_user_not_found",
+    };
+  }
+
+  if (authResult.error) {
+    logUserNotificationFailure("auth_lookup_failed");
+    return {
+      sent: false,
+      skipped: false,
+      reason: "auth_lookup_failed",
+    };
+  }
+
+  const authUser = authResult.data?.user;
+  if (!authUser || authUser.id !== payload.userId) {
+    logUserNotificationFailure("auth_user_not_found");
+    return {
+      sent: false,
+      skipped: true,
+      reason: "auth_user_not_found",
+    };
+  }
+
+  const recipientEmail = authUser.email?.trim();
+  if (!recipientEmail) {
+    logUserNotificationFailure("auth_email_missing");
+    return {
+      sent: false,
+      skipped: true,
+      reason: "auth_email_missing",
+    };
+  }
+
+  try {
+    await sendEmail({
+      to: recipientEmail,
+      subject: buildReconnectMailSubject(),
+      text: buildReconnectMailText(),
+    });
+  } catch {
+    logUserNotificationFailure("send_failed");
+    return {
+      sent: false,
+      skipped: false,
+      reason: "send_failed",
+    };
+  }
 
   const updateNow = now.toISOString();
 
-  await supabaseAdmin
-    .from("google_connections")
-    .update({
-      last_user_notified_at: updateNow,
-      last_user_notified_error_code: payload.errorCode,
-      updated_at: updateNow,
-    })
-    .eq("user_id", payload.userId);
+  try {
+    const { error: updateError } = await supabaseAdmin
+      .from("google_connections")
+      .update({
+        last_user_notified_at: updateNow,
+        last_user_notified_error_code: payload.errorCode,
+        updated_at: updateNow,
+      })
+      .eq("user_id", payload.userId);
+
+    if (updateError) {
+      logUserNotificationFailure("state_update_failed");
+      return {
+        sent: true,
+        skipped: false,
+        reason: "state_update_failed",
+      };
+    }
+  } catch {
+    logUserNotificationFailure("state_update_failed");
+    return {
+      sent: true,
+      skipped: false,
+      reason: "state_update_failed",
+    };
+  }
 
   return {
     sent: true,

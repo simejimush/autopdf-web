@@ -42,16 +42,6 @@ type ExecuteResult = {
   message: string;
 };
 
-async function getUserEmail(userId: string): Promise<string | null> {
-  const { data, error } = await supabaseAdmin.auth.admin.getUserById(userId);
-
-  if (error || !data?.user?.email) {
-    return null;
-  }
-
-  return data.user.email;
-}
-
 const SLACK_NOTIFY_ERROR_CODES = new Set([
   "GOOGLE_TOKEN_INVALID",
   "GOOGLE_PERMISSION_DENIED",
@@ -611,22 +601,17 @@ export async function executeRule(
 
     if (USER_NOTIFY_ERROR_CODES.has(errorCode)) {
       try {
-        const userEmail = await getUserEmail(params.userId);
-
-        if (userEmail) {
-          await notifyUser({
-            userId: params.userId,
-            userEmail,
-            ruleId: params.ruleId,
-            errorCode:
-              errorCode === "GOOGLE_TOKEN_INVALID"
-                ? "GOOGLE_TOKEN_INVALID"
-                : "GOOGLE_PERMISSION_DENIED",
-            message: safeMessage,
-            trigger: params.trigger,
-            occurredAt: new Date().toISOString(),
-          });
-        }
+        await notifyUser({
+          userId: params.userId,
+          ruleId: params.ruleId,
+          errorCode:
+            errorCode === "GOOGLE_TOKEN_INVALID"
+              ? "GOOGLE_TOKEN_INVALID"
+              : "GOOGLE_PERMISSION_DENIED",
+          message: safeMessage,
+          trigger: params.trigger,
+          occurredAt: new Date().toISOString(),
+        });
       } catch (notifyError) {
         console.error("[monitoring] User notify failed", {
           code: "USER_NOTIFY_FAILED",
