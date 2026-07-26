@@ -1,9 +1,47 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { StripeWebhookProfileRepositoryError } from "@/lib/billing/stripeWebhookProfileRepositoryCore";
+import {
+  resolveStripeWebhookProfileOwner,
+  updateStripeWebhookProfile,
+} from "@/lib/billing/stripeWebhookProfileRepository";
 import { disableFreePlanOverflowRules } from "@/lib/rules/freePlanLimit";
 
 export const runtime = "nodejs";
+
+const OWNERSHIP_ERROR_CODES = new Set([
+  "STRIPE_WEBHOOK_INPUT_INVALID",
+  "STRIPE_WEBHOOK_OWNER_NOT_FOUND",
+  "STRIPE_WEBHOOK_OWNER_DUPLICATE",
+  "STRIPE_WEBHOOK_OWNER_CONFLICT",
+]);
+
+function getStripeObjectId(value: unknown) {
+  if (typeof value === "string") return value;
+  if (!value || typeof value !== "object") return null;
+
+  const id = (value as { id?: unknown }).id;
+  return typeof id === "string" ? id : null;
+}
+
+function getMetadataUserId(metadata: Stripe.Metadata | null | undefined) {
+  const value = metadata?.user_id;
+  if (value === undefined) return null;
+  return typeof value === "string" ? value : "";
+}
+
+function failOwnership(): never {
+  throw new StripeWebhookProfileRepositoryError(
+    "STRIPE_WEBHOOK_OWNER_CONFLICT",
+  );
+}
+
+function logWebhookFailure(errorCode: string, eventType: string) {
+  console.error("[stripe-webhook] processing failed", {
+    error_code: errorCode,
+    event_type: eventType,
+  });
+}
 
 function errorResponse(status: number, error_code: string, message: string) {
   return NextResponse.json(
@@ -99,51 +137,45 @@ export async function POST(req: NextRequest) {
     if (event.type === "checkout.session.completed") {
       const session = event.data.object as Stripe.Checkout.Session;
 
-      const metadata = session.metadata ?? {};
-      const userId =
-        typeof metadata.user_id === "string" ? metadata.user_id : null;
+      const metadataUserId = getMetadataUserId(session.metadata);
+      const customerId = getStripeObjectId(session.customer) ?? "";
+      const subscriptionId = getStripeObjectId(session.subscription) ?? "";
+      const owner = await resolveStripeWebhookProfileOwner({
+        customerId,
+        subscriptionId,
+        metadataUserId,
+        requireMetadataUserId: true,
+      });
 
-      if (!userId) {
-        return NextResponse.json({ received: true }, { status: 200 });
+      const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+      const subscriptionCustomerId = getStripeObjectId(subscription.customer);
+      const subscriptionMetadataUserId = getMetadataUserId(
+        subscription.metadata,
+      );
+
+      if (
+        subscription.id !== subscriptionId ||
+        subscriptionCustomerId !== customerId ||
+        (subscriptionMetadataUserId !== null &&
+          subscriptionMetadataUserId !== metadataUserId)
+      ) {
+        failOwnership();
       }
 
-      const customerId =
-        typeof session.customer === "string" ? session.customer : null;
-      const subscriptionId =
-        typeof session.subscription === "string" ? session.subscription : null;
-
-      let billingStatus: string | null = "active";
-      let currentPeriodEnd: string | null = null;
-
-      if (subscriptionId) {
-        const subscription =
-          await stripe.subscriptions.retrieve(subscriptionId);
-        billingStatus = subscription.status;
-        currentPeriodEnd = getCurrentPeriodEndIso(subscription);
-      }
+      const billingStatus = subscription.status;
+      const currentPeriodEnd = getCurrentPeriodEndIso(subscription);
 
       const plan = resolvePlan(billingStatus, currentPeriodEnd);
 
-      const { error } = await supabaseAdmin
-        .from("user_profiles")
-        .update({
-          plan,
-          billing_provider: "stripe",
-          billing_customer_id: customerId,
-          billing_subscription_id: subscriptionId,
-          billing_status: billingStatus,
-          current_period_end: currentPeriodEnd,
-          plan_updated_at: new Date().toISOString(),
-        })
-        .eq("user_id", userId);
+      await updateStripeWebhookProfile({
+        owner,
+        plan,
+        billingStatus,
+        currentPeriodEnd,
+        planUpdatedAt: new Date().toISOString(),
+      });
 
-      if (error) {
-        return errorResponse(
-          500,
-          "DB_UPDATE_FAILED",
-          "ユーザー情報の更新に失敗しました。",
-        );
-      }
+      const userId = owner.userId;
       if (plan === "free") {
         const disableResult = await disableFreePlanOverflowRules(userId);
 
@@ -163,60 +195,30 @@ export async function POST(req: NextRequest) {
     ) {
       const subscription = event.data.object as Stripe.Subscription;
 
-      const customerId =
-        typeof subscription.customer === "string"
-          ? subscription.customer
-          : null;
-
-      if (!customerId) {
-        return NextResponse.json({ received: true }, { status: 200 });
-      }
+      const customerId = getStripeObjectId(subscription.customer) ?? "";
+      const subscriptionId = getStripeObjectId(subscription.id) ?? "";
+      const metadataUserId = getMetadataUserId(subscription.metadata);
+      const owner = await resolveStripeWebhookProfileOwner({
+        customerId,
+        subscriptionId,
+        metadataUserId,
+        requireMetadataUserId: false,
+      });
 
       const billingStatus = subscription.status;
       const currentPeriodEnd = getCurrentPeriodEndIso(subscription);
       const plan = resolvePlan(billingStatus, currentPeriodEnd);
 
-      const { data: profile, error: profileError } = await supabaseAdmin
-        .from("user_profiles")
-        .select("user_id")
-        .eq("billing_customer_id", customerId)
-        .maybeSingle();
+      await updateStripeWebhookProfile({
+        owner,
+        plan,
+        billingStatus,
+        currentPeriodEnd,
+        cancelAtPeriodEnd: isCancelScheduled(subscription),
+        planUpdatedAt: new Date().toISOString(),
+      });
 
-      if (profileError) {
-        return errorResponse(
-          500,
-          "DB_UPDATE_FAILED",
-          "ユーザー情報の取得に失敗しました。",
-        );
-      }
-
-      if (!profile?.user_id) {
-        return NextResponse.json({ received: true }, { status: 200 });
-      }
-
-      const userId = profile.user_id;
-
-      const { error } = await supabaseAdmin
-        .from("user_profiles")
-        .update({
-          plan,
-          billing_provider: "stripe",
-          billing_customer_id: customerId,
-          billing_subscription_id: subscription.id,
-          billing_status: billingStatus,
-          current_period_end: currentPeriodEnd,
-          cancel_at_period_end: isCancelScheduled(subscription),
-          plan_updated_at: new Date().toISOString(),
-        })
-        .eq("user_id", userId);
-
-      if (error) {
-        return errorResponse(
-          500,
-          "DB_UPDATE_FAILED",
-          "ユーザー情報の更新に失敗しました。",
-        );
-      }
+      const userId = owner.userId;
 
       if (plan === "free") {
         const disableResult = await disableFreePlanOverflowRules(userId);
@@ -232,7 +234,26 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ received: true }, { status: 200 });
-  } catch {
+  } catch (error) {
+    if (error instanceof StripeWebhookProfileRepositoryError) {
+      logWebhookFailure(error.code, event.type);
+
+      if (OWNERSHIP_ERROR_CODES.has(error.code)) {
+        return errorResponse(
+          500,
+          "BILLING_OWNERSHIP_INVALID",
+          "課金情報の所有関係を確認できませんでした。",
+        );
+      }
+
+      return errorResponse(
+        500,
+        "DB_UPDATE_FAILED",
+        "ユーザー情報の更新に失敗しました。",
+      );
+    }
+
+    logWebhookFailure("STRIPE_WEBHOOK_PROCESSING_FAILED", event.type);
     return errorResponse(500, "INTERNAL_ERROR", "Webhook処理に失敗しました。");
   }
 }
