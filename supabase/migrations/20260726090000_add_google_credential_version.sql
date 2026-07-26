@@ -30,16 +30,25 @@ set credential_version = 0
 where credential_version is null;
 
 do $$
+declare
+  existing_type "char";
+  existing_expression text;
 begin
-  if not exists (
-    select 1
-    from pg_constraint
-    where conrelid = 'public.google_connections'::regclass
-      and conname = 'google_connections_credential_version_nonnegative'
-  ) then
+  select c.contype, pg_get_expr(c.conbin, c.conrelid)
+    into existing_type, existing_expression
+    from pg_constraint c
+    where c.conrelid = 'public.google_connections'::regclass
+      and c.conname = 'google_connections_credential_version_nonnegative';
+
+  if existing_type is null then
     alter table public.google_connections
       add constraint google_connections_credential_version_nonnegative
       check (credential_version >= 0) not valid;
+  elsif existing_type <> 'c'
+    or regexp_replace(existing_expression, '[()[:space:]]', '', 'g')
+      <> 'credential_version>=0' then
+    raise exception
+      'google_connections credential version constraint has an unexpected definition';
   end if;
 end
 $$;
