@@ -38,6 +38,7 @@ function loadNotifyUser(options?: {
   authError?: unknown;
   authThrow?: Error;
   sendError?: Error;
+  updateData?: unknown;
   updateError?: unknown;
   updateThrow?: Error;
 }) {
@@ -61,7 +62,9 @@ function loadNotifyUser(options?: {
       text: string;
     }>,
     update: [] as Array<Record<string, unknown>>,
-    updateEq: [] as Array<{ column: string; value: string }>,
+    updateEq: [] as Array<{ column: string; value: string | boolean }>,
+    updateIs: [] as Array<{ column: string; value: null }>,
+    updateSelect: [] as string[],
     logs: [] as unknown[][],
   };
 
@@ -109,14 +112,34 @@ function loadNotifyUser(options?: {
         },
         update(payload: Record<string, unknown>) {
           calls.update.push(payload);
-          return {
-            async eq(column: string, value: string) {
-              calls.order.push("connection:update");
+          const builder = {
+            eq(column: string, value: string | boolean) {
               calls.updateEq.push({ column, value });
+              return builder;
+            },
+            is(column: string, value: null) {
+              calls.updateIs.push({ column, value });
+              return builder;
+            },
+            async select(columns: string) {
+              calls.order.push("connection:update");
+              calls.updateSelect.push(columns);
               if (options?.updateThrow) throw options.updateThrow;
-              return { data: null, error: options?.updateError ?? null };
+              return {
+                data:
+                  options?.updateData === undefined
+                    ? [
+                        {
+                          id: "88888888-8888-4888-8888-888888888888",
+                          user_id: USER_ID,
+                        },
+                      ]
+                    : options.updateData,
+                error: options?.updateError ?? null,
+              };
             },
           };
+          return builder;
         },
       };
     },
@@ -297,13 +320,35 @@ test("notification state is written only after provider success", async () => {
   );
   expect(harness.calls.updateEq).toEqual([
     { column: "user_id", value: USER_ID },
+    { column: "reauth_required", value: true },
   ]);
+  expect(harness.calls.updateIs).toEqual([
+    { column: "last_user_notified_at", value: null },
+  ]);
+  expect(harness.calls.updateSelect).toEqual(["id, user_id"]);
 });
 
 test("state update failure is reported safely after a successful send", async () => {
   for (const options of [
     { updateError: { message: "private database error" } },
     { updateThrow: new Error("private database exception") },
+    { updateData: [] },
+    {
+      updateData: [
+        { id: "88888888-8888-4888-8888-888888888888", user_id: USER_ID },
+        { id: "99999999-9999-4999-8999-999999999999", user_id: USER_ID },
+      ],
+    },
+    { updateData: null },
+    { updateData: [{ id: "88888888-8888-4888-8888-888888888888" }] },
+    {
+      updateData: [
+        {
+          id: "88888888-8888-4888-8888-888888888888",
+          user_id: OTHER_USER_ID,
+        },
+      ],
+    },
   ]) {
     const harness = loadNotifyUser(options);
 
@@ -315,6 +360,43 @@ test("state update failure is reported safely after a successful send", async ()
     expect(harness.calls.sendEmail).toHaveLength(1);
     expect(harness.calls.update).toHaveLength(1);
   }
+});
+
+test("an existing cooldown snapshot uses an exact CAS instead of null matching", async () => {
+  const previousNotification = "2020-01-01T00:00:00.000Z";
+  const harness = loadNotifyUser({
+    connection: {
+      ...defaultConnection(),
+      last_user_notified_at: previousNotification,
+    },
+  });
+
+  await expect(harness.notifyUser(harness.payload)).resolves.toEqual({
+    sent: true,
+    skipped: false,
+  });
+
+  expect(harness.calls.updateEq).toEqual([
+    { column: "user_id", value: USER_ID },
+    { column: "reauth_required", value: true },
+    { column: "last_user_notified_at", value: previousNotification },
+  ]);
+  expect(harness.calls.updateIs).toHaveLength(0);
+});
+
+test("a mismatched connection owner fails before Auth lookup or email", async () => {
+  const harness = loadNotifyUser({
+    connection: { ...defaultConnection(), user_id: OTHER_USER_ID },
+  });
+
+  await expect(harness.notifyUser(harness.payload)).resolves.toEqual({
+    sent: false,
+    skipped: true,
+    reason: "not_found",
+  });
+  expect(harness.calls.authGetUserById).toHaveLength(0);
+  expect(harness.calls.sendEmail).toHaveLength(0);
+  expect(harness.calls.update).toHaveLength(0);
 });
 
 test("connection skips do not look up Auth, send, or update notification state", async () => {

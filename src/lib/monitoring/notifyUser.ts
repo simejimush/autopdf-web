@@ -43,6 +43,7 @@ export type NotifyUserResult =
     }>;
 
 const COOLDOWN_HOURS = 24;
+const NOTIFICATION_STATE_SELECT = "id, user_id";
 
 function logUserNotificationFailure(reason: NotifyUserReason) {
   console.error("[monitoring] User notify failed", {
@@ -84,6 +85,13 @@ function isWithinCooldown(lastNotifiedAt: string | null, now: Date): boolean {
   return diffMs < cooldownMs;
 }
 
+function isExpectedUpdatedConnection(value: unknown, userId: string): boolean {
+  if (!value || typeof value !== "object") return false;
+
+  const row = value as Record<string, unknown>;
+  return typeof row.id === "string" && row.user_id === userId;
+}
+
 export async function notifyUser(
   payload: UserNotificationPayload,
 ): Promise<NotifyUserResult> {
@@ -97,7 +105,13 @@ export async function notifyUser(
     .eq("user_id", payload.userId)
     .maybeSingle();
 
-  if (fetchErr || !connection) {
+  if (
+    fetchErr ||
+    !connection ||
+    connection.user_id !== payload.userId ||
+    (connection.last_user_notified_at !== null &&
+      typeof connection.last_user_notified_at !== "string")
+  ) {
     return {
       sent: false,
       skipped: true,
@@ -191,16 +205,31 @@ export async function notifyUser(
   const updateNow = now.toISOString();
 
   try {
-    const { error: updateError } = await supabaseAdmin
+    const updateQuery = supabaseAdmin
       .from("google_connections")
       .update({
         last_user_notified_at: updateNow,
         last_user_notified_error_code: payload.errorCode,
         updated_at: updateNow,
       })
-      .eq("user_id", payload.userId);
+      .eq("user_id", payload.userId)
+      .eq("reauth_required", true);
 
-    if (updateError) {
+    const updateResult =
+      connection.last_user_notified_at === null
+        ? await updateQuery
+            .is("last_user_notified_at", null)
+            .select(NOTIFICATION_STATE_SELECT)
+        : await updateQuery
+            .eq("last_user_notified_at", connection.last_user_notified_at)
+            .select(NOTIFICATION_STATE_SELECT);
+
+    if (
+      updateResult.error ||
+      !Array.isArray(updateResult.data) ||
+      updateResult.data.length !== 1 ||
+      !isExpectedUpdatedConnection(updateResult.data[0], payload.userId)
+    ) {
       logUserNotificationFailure("state_update_failed");
       return {
         sent: true,
