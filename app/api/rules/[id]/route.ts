@@ -4,9 +4,43 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isFreePlanOverflowRule } from "@/lib/rules/freePlanLimit";
 import { resolveEffectivePlan } from "@/lib/billing/resolveEffectivePlan";
 import { normalizeFileNameFormatForPlan } from "@/lib/rules/fileNameFormat";
+import { normalizeRuleSubjectKeywords } from "@/lib/rules/ruleCreationRepositoryCore";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const SUBJECT_KEYWORDS_MAX_ITEMS = 100;
+const SUBJECT_KEYWORDS_MAX_ITEM_LENGTH = 1_000;
+const SUBJECT_KEYWORDS_MAX_NORMALIZED_LENGTH = 10_000;
+
+function normalizeSubjectKeywordsUpdate(
+  value: unknown,
+): { ok: true; value: string | null } | { ok: false } {
+  if (value === null) return { ok: true, value: null };
+
+  const parts = typeof value === "string" ? [value] : value;
+  if (
+    !Array.isArray(parts) ||
+    parts.length > SUBJECT_KEYWORDS_MAX_ITEMS ||
+    parts.some(
+      (part) =>
+        typeof part !== "string" ||
+        part.length > SUBJECT_KEYWORDS_MAX_ITEM_LENGTH,
+    )
+  ) {
+    return { ok: false };
+  }
+
+  const normalized = normalizeRuleSubjectKeywords(parts);
+  if (
+    normalized !== null &&
+    normalized.length > SUBJECT_KEYWORDS_MAX_NORMALIZED_LENGTH
+  ) {
+    return { ok: false };
+  }
+
+  return { ok: true, value: normalized };
+}
 
 function errorResponse(status: number, error_code: string, message: string) {
   return NextResponse.json(
@@ -76,6 +110,25 @@ export async function PATCH(
   const { user, error: authError } = await requireUser();
   if (authError || !user) return authError!;
 
+  const rawBody: unknown = await req.json().catch(() => ({}));
+  const body =
+    rawBody && typeof rawBody === "object" && !Array.isArray(rawBody)
+      ? (rawBody as Record<string, unknown>)
+      : {};
+
+  const hasSubjectKeywordsUpdate = "subject_keywords" in body;
+  const subjectKeywordsUpdate = hasSubjectKeywordsUpdate
+    ? normalizeSubjectKeywordsUpdate(body.subject_keywords)
+    : null;
+
+  if (subjectKeywordsUpdate && !subjectKeywordsUpdate.ok) {
+    return errorResponse(
+      400,
+      "VALIDATION_ERROR",
+      "件名キーワードの形式が不正です。",
+    );
+  }
+
   const { data: profile, error: profileError } = await supabaseAdmin
     .from("user_profiles")
     .select("plan, billing_status, current_period_end")
@@ -92,13 +145,11 @@ export async function PATCH(
 
   const plan = resolveEffectivePlan(profile);
 
-  const body = await req.json().catch(() => ({}));
-
   const update: Record<string, unknown> = {};
   if ("drive_folder_id" in body) update.drive_folder_id = body.drive_folder_id;
   if ("query_label" in body) update.query_label = body.query_label;
-  if ("subject_keywords" in body)
-    update.subject_keywords = body.subject_keywords;
+  if (subjectKeywordsUpdate?.ok)
+    update.subject_keywords = subjectKeywordsUpdate.value;
   if ("gmail_query" in body) update.gmail_query = body.gmail_query;
   if ("gmail_label_id" in body) update.gmail_label_id = body.gmail_label_id;
   if ("is_active" in body) update.is_active = body.is_active;
@@ -158,13 +209,6 @@ export async function PATCH(
     (typeof merged.gmail_label_id === "string" &&
       merged.gmail_label_id.trim().length > 0) ||
     normalizedKeywords.length > 0;
-
-  if (
-    "subject_keywords" in update &&
-    typeof update.subject_keywords === "string"
-  ) {
-    update.subject_keywords = normalizedKeywords;
-  }
 
   if (!("is_active" in body)) {
     if (!hasQuery || !merged.drive_folder_id) {
