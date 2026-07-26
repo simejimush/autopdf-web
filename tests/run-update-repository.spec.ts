@@ -38,11 +38,13 @@ function updatedRow(overrides?: Record<string, unknown>) {
 
 function createHarness(options?: {
   result?: unknown;
+  initialStatus?: "running" | "success" | "error";
   getClientError?: Error;
   queryError?: Error;
   now?: string;
   nowError?: Error;
 }) {
+  let currentStatus = options?.initialStatus;
   const calls = {
     clientLoads: 0,
     now: 0,
@@ -64,19 +66,43 @@ function createHarness(options?: {
                 eq(secondColumn, secondValue) {
                   calls.eq.push({ column: secondColumn, value: secondValue });
                   return {
-                    async select(columns) {
-                      calls.select.push(columns);
-                      if (options?.queryError) {
-                        throw options.queryError;
-                      }
-                      return (
-                        options && "result" in options
-                          ? options.result
-                          : {
-                              data: [updatedRow()],
-                              error: null,
+                    eq(thirdColumn, thirdValue) {
+                      calls.eq.push({ column: thirdColumn, value: thirdValue });
+                      return {
+                        async select(columns) {
+                          calls.select.push(columns);
+                          if (options?.queryError) {
+                            throw options.queryError;
+                          }
+                          if (currentStatus !== undefined) {
+                            if (
+                              column !== "id" ||
+                              value !== RUN_ID ||
+                              secondColumn !== "user_id" ||
+                              secondValue !== USER_ID ||
+                              thirdColumn !== "status" ||
+                              thirdValue !== "running" ||
+                              currentStatus !== "running"
+                            ) {
+                              return { data: [], error: null };
                             }
-                      ) as RawResult;
+
+                            currentStatus = payload.status;
+                            return {
+                              data: [updatedRow({ status: payload.status })],
+                              error: null,
+                            };
+                          }
+                          return (
+                            options && "result" in options
+                              ? options.result
+                              : {
+                                  data: [updatedRow()],
+                                  error: null,
+                                }
+                          ) as RawResult;
+                        },
+                      };
                     },
                   };
                 },
@@ -173,6 +199,7 @@ test("success updates only fixed columns and scopes by run then owner", async ()
     eq: [
       { column: "id", value: RUN_ID },
       { column: "user_id", value: USER_ID },
+      { column: "status", value: "running" },
     ],
     select: [RUN_UPDATE_SELECT],
   });
@@ -208,7 +235,104 @@ test("ordinary failures preserve counts while limit failures reset them", async 
       message: "Safe failure",
       finished_at: FINISHED_AT,
     });
+    expect(calls.eq).toEqual([
+      { column: "id", value: RUN_ID },
+      { column: "user_id", value: USER_ID },
+      { column: "status", value: "running" },
+    ]);
   }
+});
+
+test("only one terminal transition can finalize a running run", async () => {
+  const terminalFinalizations: RunFinalization[] = [
+    SUCCESS,
+    {
+      status: "error",
+      errorCode: "UNKNOWN",
+      resetCounts: false,
+      message: "Safe failure",
+    },
+  ];
+
+  for (const first of terminalFinalizations) {
+    for (const second of terminalFinalizations) {
+      const { repository, calls } = createHarness({
+        initialStatus: "running",
+      });
+
+      await repository.finalizeRunForUser({
+        runId: RUN_ID,
+        userId: USER_ID,
+        finalization: first,
+      });
+      await expectRepositoryError(
+        () =>
+          repository.finalizeRunForUser({
+            runId: RUN_ID,
+            userId: USER_ID,
+            finalization: second,
+          }),
+        "RUN_UPDATE_RESULT_MISSING",
+      );
+
+      expect(calls.update).toHaveLength(2);
+      expect(calls.select).toEqual([RUN_UPDATE_SELECT, RUN_UPDATE_SELECT]);
+      expect(calls.eq).toEqual([
+        { column: "id", value: RUN_ID },
+        { column: "user_id", value: USER_ID },
+        { column: "status", value: "running" },
+        { column: "id", value: RUN_ID },
+        { column: "user_id", value: USER_ID },
+        { column: "status", value: "running" },
+      ]);
+    }
+  }
+});
+
+test("already terminal runs reject finalization without fallback", async () => {
+  for (const initialStatus of ["success", "error"] as const) {
+    const { repository, calls } = createHarness({ initialStatus });
+
+    await expectRepositoryError(
+      () =>
+        repository.finalizeRunForUser({
+          runId: RUN_ID,
+          userId: USER_ID,
+          finalization: SUCCESS,
+        }),
+      "RUN_UPDATE_RESULT_MISSING",
+    );
+
+    expect(calls.update).toHaveLength(1);
+    expect(calls.eq).toEqual([
+      { column: "id", value: RUN_ID },
+      { column: "user_id", value: USER_ID },
+      { column: "status", value: "running" },
+    ]);
+    expect(calls.select).toEqual([RUN_UPDATE_SELECT]);
+  }
+});
+
+test("a different owner cannot finalize the run or trigger a fallback", async () => {
+  const { repository, calls } = createHarness({ initialStatus: "running" });
+
+  await expectRepositoryError(
+    () =>
+      repository.finalizeRunForUser({
+        runId: RUN_ID,
+        userId: OTHER_USER_ID,
+        finalization: SUCCESS,
+      }),
+    "RUN_UPDATE_RESULT_MISSING",
+  );
+
+  expect(calls.update).toHaveLength(1);
+  expect(calls.eq).toEqual([
+    { column: "id", value: RUN_ID },
+    { column: "user_id", value: OTHER_USER_ID },
+    { column: "status", value: "running" },
+  ]);
+  expect(calls.select).toEqual([RUN_UPDATE_SELECT]);
 });
 
 test("invalid IDs, status, counts, messages, and error codes fail before service access", async () => {

@@ -75,9 +75,14 @@ export type RunUpdateSupabaseClient = Readonly<{
           column: "user_id",
           value: string,
         ): Readonly<{
-          select(
-            columns: typeof RUN_UPDATE_SELECT,
-          ): PromiseLike<RunUpdateResult>;
+          eq(
+            column: "status",
+            value: "running",
+          ): Readonly<{
+            select(
+              columns: typeof RUN_UPDATE_SELECT,
+            ): PromiseLike<RunUpdateResult>;
+          }>;
         }>;
       }>;
     }>;
@@ -242,6 +247,7 @@ export function createRunUpdateRepository(
         .update(payload)
         .eq("id", input.runId)
         .eq("user_id", input.userId)
+        .eq("status", "running")
         .select(RUN_UPDATE_SELECT);
     } catch {
       fail("RUN_UPDATE_FAILED");
