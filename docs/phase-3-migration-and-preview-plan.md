@@ -1,13 +1,68 @@
 # AutoPDF Phase 3 migration / Preview plan
 
-この文書は、Phase 3で残るrace / idempotency課題の承認用設計である。M1のmigrationファイルと対応コード・テストは作成済みだが、DB適用、env変更、外部サービス操作は未実施である。
+この文書は、Phase 3で残るrace / idempotency課題と、Preview baseline / DB security rolloutの承認用設計である。migration、静的・契約テスト、手順書はrepositoryへ実装済みだが、DB適用、migration history repair、env変更、外部サービス操作は未実施である。
 
 ## 1. 現在の判定
 
 - migration不要で安全に完結できる既知のCritical / High修正はfeature branchへ反映済み
 - Google credential、Stripe event順序、同一rule実行、Drive保存予約、Free quota、Stripe Checkoutの完全対策には共有DB状態が必要
 - Production DDLはtracked migrationだけでは再現できないため、全migrationはPreviewで実DDL preflight後に確定する
-- M1実装後・DB適用前の判定は`READY_FOR_GOOGLE_CREDENTIAL_MIGRATION_APPLY_APPROVAL`
+- baseline / hardening実装後・DB適用前の判定は`READY_FOR_PREVIEW_BASELINE_MIGRATION_APPLY_APPROVAL`
+
+## 1.1 Production schema inventoryで確認したgrant問題
+
+Productionの既存grant集合には、`authenticated`のtable-level権限が含まれていた。Postgresではtable-level権限を残したままcolumn grant/revokeを追加しても列制限にならないため、次をDB境界で保証できない状態だった。
+
+- `user_profiles`のplan / billing列をauthenticatedから更新不能にすること
+- `google_connections`のtoken列・内部通知列をauthenticatedのSELECT対象外にすること
+
+hardening migrationは、変更前に既存policy / table grant / column grantのfingerprintを検証し、未知形状なら停止する。既知形状だけを明示的に`REVOKE ALL`し、その後に必要なtable / column grantを再付与する。grantだけに依存せず、own-row RLSも同時に固定する。
+
+## 1.2 実装済みbaseline / hardening package
+
+適用順はfilename順に固定する。
+
+1. `20260528090000_create_autopdf_core_baseline.sql`
+2. `20260529090000_create_ai_usage_logs.sql`
+3. `20260530090000_harden_autopdf_core_security.sql`
+4. `20260726090000_add_google_credential_version.sql`
+
+core baselineは、対象5 tableが1つでも存在すればDDL前に停止する空Preview DB専用migrationである。Productionでは絶対に実行しない。Productionの既存schemaやrowをbaselineへ合わせる処理、row dataのコピー、`runs.user_id`のbackfillは行わない。
+
+hardeningはPreview / Production共通だが、6 tableの列・default・NOT NULL、constraint、index、RLS、policy、grant、trigger、functionを変更前に検証する。`credential_version`が既に存在する場合、`runs.user_id IS NULL`が1件でもある場合、または未知driftがある場合はtransaction全体を停止する。
+
+## 1.3 Preview適用手順（人間承認後のみ）
+
+事前条件:
+
+1. 人間が対象project referenceを確認し、Productionと別のPreview projectであることを記録する
+2. Preview DBが空であり、Production user / token / billing / Gmail / Drive rowをコピーしていないことを確認する
+3. Preview専用OAuth / Stripe test / Cron停止 / notification sinkを確認する
+4. 適用直前commit SHAとmigration一覧をrollback anchorとして保存する
+5. `supabase migration list`と`supabase db push --dry-run`で、上記4 migrationだけが同じ順序でpendingであることを確認する
+
+人間の明示承認後だけ`supabase db push`を1回実行する。新規link、link変更、CLI install、remote history repairはこの操作に含めない。dry-runに別migration、既存core table、Production参照が出た場合は適用しない。
+
+適用後はrow値を表示せず、`information_schema.columns`、`pg_constraint`、`pg_indexes`、`pg_policies`、`information_schema.table_privileges`、`information_schema.column_privileges`、`pg_trigger`、`pg_proc`のmetadataだけで検証する。data確認が必要な項目は、`runs.user_id IS NULL`やcredential version不正値のaggregate countだけとし、token、email、billing ID、Gmail本文を取得しない。
+
+## 1.4 Production適用手順（今回の承認範囲外）
+
+Productionではbaselineを実行しない。将来、次をそれぞれ別承認で行う。
+
+1. metadata-only snapshotを再取得し、repositoryに固定した既知shapeと一致することを確認する
+2. baselineおよび既存手動DDLに対応するmigration history repairを行う（実DDLは実行しない）
+3. hardening migrationを適用し、metadata-only post-apply verificationを行う
+4. credential migrationを適用し、schema確認後にCAS applicationをdeployする
+
+history repairはhardening適用承認に含めない。未知policy / grant / trigger / function、NULL owner、constraint/index driftが1件でもあれば`BLOCKED_MIGRATION_IMPLEMENTATION_CONFLICT`として停止する。
+
+## 1.5 Rollback
+
+- Preview baseline適用中の失敗は各migration transactionでrollbackされる。空Preview projectの再作成・reset・deleteは別承認とし、自動実行しない
+- hardening適用後の権限rollbackは、適用前metadata snapshotを元にしたforward migrationを別レビューで作る。Productionで即時の手動grant変更をしない
+- signup / updated_at trigger問題はtrafficを止め、既知snapshotとのdiffを取り、別migrationで戻す
+- credential migration後はCAS applicationを先にrollbackし、列とconstraintは残置する
+- いずれのrollbackでもProduction rowをPreviewへコピーせず、token / billing / user rowをログや手順書へ貼らない
 
 ## 2. 共通migration原則
 
@@ -103,7 +158,7 @@ supabase db push --dry-run
 supabase db push
 ```
 
-dry-runの期待結果は`20260726090000_add_google_credential_version.sql`だけがpendingであり、他の未追跡DDLやProduction参照がないこと。applyの期待結果はmigrationが1回成功し、再実行対象に残らないこと。
+空Preview DBでのdry-run期待結果は、1.2の4 migrationだけが同じ順序でpendingであり、他の未追跡DDLやProduction参照がないこと。baseline / AI usage / hardeningを既に検証済みのPreviewでM1だけを個別適用する場合に限り、`20260726090000_add_google_credential_version.sql`だけがpendingとなる。apply後はいずれも再実行対象に残らないことを確認する。
 
 適用後のschema検証SQL（値・tokenは表示しない）:
 
@@ -541,7 +596,7 @@ Preview限定push前に、値を表示せず次の存在・分離だけを人間
 ## 16. Productionへそのままmergeしない条件
 
 - feature branchには独立した未リリースcommitが複数含まれる
-- Production DDLの完全なtracked baselineがない
+- Productionの既存DDLに対応するmigration history repairが未承認・未実施
 - M1/M2/M3/M4/M5/M6/M7/M9のCritical/High共有状態対策が未承認・未適用
 - Preview環境分離とrollback anchorが未確認
 - Stripe逆順event、同時Checkout、Google refresh rotationのPreview並列試験が未実施

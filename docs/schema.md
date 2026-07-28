@@ -60,6 +60,7 @@ google_connections_user_id_key
 | auto_disabled_at     | timestamptz | 自動停止日時           |
 | subject_keywords     | text        | 件名キーワード         |
 | gmail_query          | text        | Gmail検索クエリ        |
+| query_label          | text        | UI表示用ルール名       |
 | file_name_format     | text        | ファイル名形式         |
 | filename_template    | text        | ファイル名テンプレート |
 | is_active            | boolean     | UI用有効状態           |
@@ -73,6 +74,9 @@ google_connections_user_id_key
 ```
 
 rules_pkey (id)
+
+rules_user_created_idx
+(user_id, created_at DESC)
 
 ```
 
@@ -93,6 +97,7 @@ rules_pkey (id)
 | finished_at     | timestamptz | 実行終了        |
 | processed_count | integer     | 処理メール数    |
 | saved_count     | integer     | 保存PDF数       |
+| skipped_count   | integer     | スキップ数      |
 | drive_folder_id | text        | 保存先          |
 | message         | text        | 実行メッセージ  |
 | error_code      | text        | エラーコード    |
@@ -152,6 +157,9 @@ processed_emails_user_idx
 processed_emails_rule_idx
 (rule_id)
 
+processed_emails_user_saved_idx
+(user_id, saved_at DESC)
+
 ```
 
 用途
@@ -179,7 +187,14 @@ processed_emails_rule_idx
 | marketing_opt_in | boolean     | マーケ同意    |
 | created_at       | timestamptz | 作成日時      |
 | updated_at       | timestamptz | 更新日時      |
-| plan | text | プラン種別（free / pro / pro_plus） ※default: free |
+| plan                    | text        | プラン種別（free / pro / pro_plus） ※default: free |
+| billing_provider        | text        | 課金provider          |
+| billing_customer_id     | text        | Stripe customer ID    |
+| billing_subscription_id | text        | Stripe subscription ID |
+| billing_status          | text        | subscription状態      |
+| current_period_end      | timestamptz | 現在の課金期間終了    |
+| cancel_at_period_end    | boolean     | 期間終了時解約        |
+| plan_updated_at         | timestamptz | 課金情報の最終更新    |
 
 #### planについて
 
@@ -245,19 +260,14 @@ ai_usage_logs_user_created_idx
 ### RLS / Policies
 
 - RLS: enabled
-- Policy: `Users can insert own ai usage logs`
-  - command: `INSERT`
-  - role: `authenticated`
-  - with check: `auth.uid() = user_id`
-- Policy: `Users can read own ai usage logs`
-  - command: `SELECT`
-  - role: `authenticated`
-  - using: `auth.uid() = user_id`
+- authenticated policy: なし
+- authenticated grant: なし
+- service_role grant: `SELECT`, `INSERT`
 
 備考:
 
-- 既存状態再現を優先し、anon grant は追加しない
-- authenticated への table grant 追加は、既存実装影響を見ながら別途検討
+- `20260529090000_create_ai_usage_logs.sql`は手動作成された既存shapeを再現する中間migration
+- `20260530090000_harden_autopdf_core_security.sql`が既知policyを検証後に削除し、server-side repositoryだけへ限定する
 
 ---
 
@@ -307,6 +317,33 @@ processed_emails (重複処理防止)
 - 全テーブル **RLS enabled**
 - user_id によるアクセス制御
 - server API は **service role**
+- `anon` / `PUBLIC` はapplication table権限なし
+- authenticated policyはすべて`TO authenticated`と`(select auth.uid()) = user_id`を併用
+- `user_profiles`のauthenticated `INSERT`は`user_id`だけ、`UPDATE`はプロフィール編集5列だけ
+- `google_connections`のauthenticated `SELECT`は接続状態・監視列だけで、token、期限、通知内部状態を公開しない
+- `rules` / `runs` / `processed_emails`はauthenticated own-row `SELECT`だけ
+- `ai_usage_logs`はauthenticated直接アクセスなし
+
+## Functions / Triggers
+
+- signup: `private.handle_new_user_create_profile()`
+  - `SECURITY DEFINER`, `SET search_path = ''`, owner `postgres`
+  - `PUBLIC` / `anon` / `authenticated`の`EXECUTE`なし
+  - `auth.users`の`AFTER INSERT` triggerからだけ呼び出す
+  - `user_profiles(user_id)`だけを`ON CONFLICT DO NOTHING`で作成し、課金列は指定しない
+- updated_at: `public.set_updated_at()`
+  - `SECURITY INVOKER`, `SET search_path = ''`, owner `postgres`
+  - `PUBLIC` / `anon` / `authenticated`の`EXECUTE`なし
+  - `rules` / `runs` / `user_profiles`に各1本の`BEFORE UPDATE` trigger
+
+## Migration source of truth
+
+1. `20260528090000_create_autopdf_core_baseline.sql`（空のPreview DB専用）
+2. `20260529090000_create_ai_usage_logs.sql`
+3. `20260530090000_harden_autopdf_core_security.sql`
+4. `20260726090000_add_google_credential_version.sql`
+
+Productionでは1を実行しない。既存schemaのmigration history repairを別承認で行った後、3、4だけを適用する。
 
 ## Indexes
 
@@ -321,4 +358,17 @@ processed_emails (重複処理防止)
 
 - google_connections_pkey (id)
 - google_connections_user_id_key (user_id)
+
+### rules
+
+- rules_pkey (id)
+- rules_user_created_idx (user_id, created_at DESC)
+
+### processed_emails
+
+- processed_emails_pkey (id)
+- processed_emails_rule_msg_uniq (rule_id, gmail_message_id)
+- processed_emails_user_idx (user_id)
+- processed_emails_rule_idx (rule_id)
+- processed_emails_user_saved_idx (user_id, saved_at DESC)
 ```
