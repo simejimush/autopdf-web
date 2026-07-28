@@ -39,7 +39,10 @@ test("fixes the AutoPDF migration filename and dependency order", () => {
     "credential_version must not exist before autopdf hardening",
   );
   expect(normalizedSql(CREDENTIAL_NAME)).toContain(
-    "add column if not exists credential_version bigint",
+    "add column credential_version bigint",
+  );
+  expect(normalizedSql(CREDENTIAL_NAME)).not.toContain(
+    "add column if not exists credential_version",
   );
 });
 
@@ -94,6 +97,55 @@ test("creates the repository-compatible baseline schema and safe initial grants"
   expect(sql).toContain("skipped_count integer not null default 0");
   expect(sql).toContain("plan_updated_at timestamptz null");
   expect(sql).toContain("constraint processed_emails_rule_msg_uniq unique");
+});
+
+test("creates ai_usage_logs transactionally only from a completely absent shape", () => {
+  const sql = normalizedSql(AI_USAGE_NAME);
+  const firstDdl = sql.indexOf("create extension if not exists pgcrypto");
+
+  expectTransactionalWithTimeouts(sql);
+  expect(firstDdl).toBeGreaterThan(0);
+  expect(sql.indexOf("do $ai_usage_logs_preflight$")).toBeLessThan(firstDdl);
+  expect(sql.indexOf("requires a completely absent shape")).toBeLessThan(
+    firstDdl,
+  );
+  for (const relation of [
+    "ai_usage_logs",
+    "ai_usage_logs_pkey",
+    "ai_usage_logs_feature_created_idx",
+    "ai_usage_logs_run_idx",
+    "ai_usage_logs_user_created_idx",
+  ]) {
+    expect(sql.indexOf(`'${relation}'`)).toBeLessThan(firstDdl);
+  }
+  expect(sql.indexOf("refuses existing policies")).toBeLessThan(firstDdl);
+  expect(sql.indexOf("refuses existing grants")).toBeLessThan(firstDdl);
+  expect(sql).not.toContain("create table if not exists public.ai_usage_logs");
+  expect(sql).not.toMatch(/create index if not exists ai_usage_logs_/);
+});
+
+test("keeps the intermediate ai_usage_logs contract deterministic and fail-closed", () => {
+  const sql = normalizedSql(AI_USAGE_NAME);
+
+  expect(sql).toContain("create table public.ai_usage_logs");
+  expect(sql).toContain("constraint ai_usage_logs_pkey primary key (id)");
+  expect(sql.match(/create index ai_usage_logs_/g)).toHaveLength(3);
+  expect(sql).toContain(
+    "alter table public.ai_usage_logs enable row level security",
+  );
+  expect(sql).toContain('create policy "users can insert own ai usage logs"');
+  expect(sql).toContain('create policy "users can read own ai usage logs"');
+  expect(sql).toContain("to authenticated");
+  expect(sql).toContain("with check (auth.uid() = user_id)");
+  expect(sql).toContain("using (auth.uid() = user_id)");
+  expect(sql).toMatch(
+    /revoke all on table public\.ai_usage_logs\s+from public, anon, authenticated, service_role;/,
+  );
+  expect(sql).not.toMatch(
+    /\bdrop\s+(table|column|constraint|function|schema)\b/,
+  );
+  expect(sql).not.toMatch(/\b(delete|truncate)\b/);
+  expect(sql).not.toMatch(/\b(insert|update)\s+public\.ai_usage_logs\b/);
 });
 
 test("fails hardening before mutations on unknown schema or null run owners", () => {
