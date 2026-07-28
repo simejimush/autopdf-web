@@ -422,6 +422,36 @@ begin
   if bad_policies is not null then
     raise exception 'Unknown AutoPDF policy fingerprints: %', array_to_string(bad_policies, ', ');
   end if;
+  if exists (
+    select 1
+    from pg_catalog.pg_policies
+    where schemaname = 'public'
+      and tablename = any (array[
+        'google_connections', 'rules', 'runs', 'processed_emails',
+        'user_profiles', 'ai_usage_logs'
+      ]::text[])
+    group by tablename, cmd
+    having count(*) > 1
+  ) then
+    raise exception 'Duplicate AutoPDF policy command fingerprint';
+  end if;
+  if exists (
+    select 1
+    from pg_catalog.pg_policies
+    where schemaname = 'public'
+      and (
+        (tablename = 'runs' and cmd not in ('SELECT', 'INSERT', 'UPDATE'))
+        or (tablename = 'processed_emails' and cmd not in ('SELECT', 'INSERT'))
+        or (tablename = 'user_profiles' and cmd not in ('SELECT', 'INSERT', 'UPDATE'))
+        or (tablename = 'ai_usage_logs' and cmd not in ('SELECT', 'INSERT'))
+        or (tablename not in (
+          'google_connections', 'rules', 'runs', 'processed_emails',
+          'user_profiles', 'ai_usage_logs'
+        ))
+      )
+  ) then
+    raise exception 'Unexpected AutoPDF policy command set';
+  end if;
   if policy_count > 24 then
     raise exception 'Unexpected AutoPDF policy count: %', policy_count;
   end if;
@@ -508,6 +538,9 @@ begin
       or trigger_row.function_name = 'moddatetime'
     ) then
       raise exception 'Unknown updated_at trigger function: %.%', trigger_row.function_schema, trigger_row.function_name;
+    elsif trigger_row.function_name = 'moddatetime'
+      and trigger_row.definition !~* 'moddatetime\(''updated_at''\)' then
+      raise exception 'Unknown moddatetime trigger argument: %.%', trigger_row.table_schema, trigger_row.table_name;
     end if;
   end loop;
 
@@ -529,6 +562,7 @@ begin
       function_body !~* 'insert[[:space:]]+into[[:space:]]+public.user_profiles'
       or function_body !~* 'new.id'
       or function_body ~* '\m(update|delete|truncate)\M'
+      or function_body ~* '\mplan\M|\mbilling_[a-z_]+'
     ) then
       raise exception 'Unknown public signup function fingerprint';
     end if;
@@ -537,7 +571,9 @@ begin
   if to_regprocedure('public.set_updated_at()') is not null then
     function_body := pg_catalog.pg_get_functiondef('public.set_updated_at()'::regprocedure);
     if function_body !~* 'new.updated_at[[:space:]]*:=[[:space:]]*(pg_catalog.)?now\(\)'
-      or function_body ~* 'security[[:space:]]+definer' then
+      or function_body !~* 'return[[:space:]]+new'
+      or function_body ~* 'security[[:space:]]+definer'
+      or function_body ~* '\m(insert|update|delete|truncate)\M' then
       raise exception 'Unknown public.set_updated_at fingerprint';
     end if;
   end if;

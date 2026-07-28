@@ -117,6 +117,12 @@ test("fails hardening before mutations on unknown schema or null run owners", ()
   expect(sql.indexOf("unknown autopdf policy fingerprints")).toBeLessThan(
     firstMutation,
   );
+  expect(
+    sql.indexOf("duplicate autopdf policy command fingerprint"),
+  ).toBeLessThan(firstMutation);
+  expect(sql.indexOf("unexpected autopdf policy command set")).toBeLessThan(
+    firstMutation,
+  );
   expect(sql.indexOf("unknown autopdf table grants")).toBeLessThan(
     firstMutation,
   );
@@ -126,6 +132,9 @@ test("fails hardening before mutations on unknown schema or null run owners", ()
   expect(
     sql.indexOf("unknown public signup function fingerprint"),
   ).toBeLessThan(firstMutation);
+  expect(sql.indexOf("unknown moddatetime trigger argument")).toBeLessThan(
+    firstMutation,
+  );
   expect(
     sql.indexOf("exists (select 1 from public.runs where user_id is null)"),
   ).toBeLessThan(firstMutation);
