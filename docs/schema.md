@@ -345,6 +345,14 @@ processed_emails (重複処理防止)
 
 Productionでは1を実行しない。既存schemaのmigration history repairを別承認で行った後、3、4だけを適用する。
 
+## Migration safety invariants
+
+- AI usage migrationは空Preview baseline chain専用で、明示transaction、`lock_timeout`、`statement_timeout`、DDL前preflightを持つ。`public.ai_usage_logs`または同名PK/indexが既に存在すれば、部分shapeや未知driftとしてDDL前に停止する。
+- AI usage migration直後の既知shapeは、14 columns、PK、3 indexes、RLS enabled、authenticated own-row SELECT/INSERT policies、application roleのtable grantなしである。次のhardening migrationがpolicyを削除し、`service_role`の`SELECT, INSERT`だけを付与する。
+- credential migrationはDDL前に`credential_version`の状態を分類する。不在なら追加できる。完全一致の`bigint NOT NULL DEFAULT 0`かつvalidated nonnegative CHECKで、NULL/負値rowおよび未知constraintがなければ、適用済み相当としてDDLなしで完了する。
+- nullable、default違い、型違い、constraint名衝突、異なる/未validated CHECK、NULL/負値rowは未知shapeとして停止する。不在columnの追加と0 backfillは同一transaction内で行い、token列、owner、`user_id`、CAS application契約は変更しない。
+- Preview / Production DBへの適用とmigration history repairは、このschema文書の更新には含まれない。Productionではcore baselineを実行しない。
+
 ## Indexes
 
 ### runs

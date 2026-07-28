@@ -31,6 +31,16 @@ core baselineは、対象5 tableが1つでも存在すればDDL前に停止す�
 
 hardeningはPreview / Production共通だが、6 tableの列・default・NOT NULL、constraint、index、RLS、policy、grant、trigger、functionを変更前に検証する。`credential_version`が既に存在する場合、`runs.user_id IS NULL`が1件でもある場合、または未知driftがある場合はtransaction全体を停止する。
 
+### 1.2.1 migration safety contract
+
+- `20260529090000_create_ai_usage_logs.sql`は明示的なtransaction、`lock_timeout`、`statement_timeout`を持つ。最初のDDLより前にpreflightを実行し、`ai_usage_logs` tableまたは同名PK/indexが1つでも存在する場合は、完全一致かどうかにかかわらず停止する。空Preview baseline chain専用とし、部分schemaや未知driftを`IF NOT EXISTS`で黙認しない。
+- AI usage migrationは作成直後にRLSを有効化し、hardening前の既知policyを作成する。Supabase projectごとのdefault privilege差を除くため、`PUBLIC`、`anon`、`authenticated`、`service_role`のtable権限を明示的にrevokeする。次のhardening migrationが既知policyを検証・削除し、最終的な`service_role SELECT, INSERT`だけを付与する。
+- `20260726090000_add_google_credential_version.sql`も明示transactionと両timeoutを持つ。DDL前preflightでcolumn不在または完全一致だけを許可する。完全一致は`bigint NOT NULL DEFAULT 0`、validated nonnegative CHECK、NULL/負値rowなし、未知constraintなしを意味し、この場合はDDLを実行しない。
+- `credential_version`が不在の場合だけ、column追加、既存rowの0 backfill、CHECK追加・validate、NOT NULL化を同一transaction内で行う。nullable、default違い、型違い、constraint名衝突、未validated/異なるCHECK、NULL/負値rowなどの部分shapeはDDL前にfail-closedとする。
+- この文書更新時点ではPreview / Production DBへのmigration適用、history repair、schema/data変更は未実施である。Productionへcore baselineを適用してはならない。
+
+Previewへの次回read-only確認へ進む前に、4 migrationの順序、working tree、commit SHA、静的migration test、全Playwright、TypeScript、対象ESLint、Prettier、diffを再確認する。実DB適用は、そのread-only確認と別の明示承認後に限る。
+
 ## 1.3 Preview適用手順（人間承認後のみ）
 
 事前条件:
