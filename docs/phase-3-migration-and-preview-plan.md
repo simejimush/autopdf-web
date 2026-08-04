@@ -529,7 +529,9 @@ cooldown read、email送信、state updateが非atomicで、並列処理から�
 - Free rule作成上限の厳密化にはuser単位counterまたはtransactional claimが必要
 - free downgrade時のrule無効化はactual更新行identityを検証するrepository化が候補
 
-## 13. 推奨migration適用順
+## 13. 将来のshared-state migration依存順
+
+以下は将来課題を実装する場合の依存順であり、scoped Phase 3のProduction rolloutで一括適用するmigration一覧ではない。各項目は別phase、別レビュー、別承認で扱う。
 
 1. M1 Google credential version
 2. M2 Google refresh lease
@@ -603,12 +605,57 @@ Preview限定push前に、値を表示せず次の存在・分離だけを人間
 - response/logにtoken、secret、email、Stripe ID、Gmail本文がない
 - 全テスト、TypeScript、対象ESLint、Prettier、diff check
 
-## 16. Productionへそのままmergeしない条件
+## 16. Scoped integration判定（2026-08-04）
 
-- feature branchには独立した未リリースcommitが複数含まれる
-- Productionの既存DDLに対応するmigration history repairが未承認・未実施
-- M1/M2/M3/M4/M5/M6/M7/M9のCritical/High共有状態対策が未承認・未適用
-- Preview環境分離とrollback anchorが未確認
-- Stripe逆順event、同時Checkout、Google refresh rotationのPreview並列試験が未実施
+mainへのcode mergeとProductionへのmigration、env、credential、deployment適用は別の承認ゲートとする。scoped integration branchにはGoogle token encryption Phase 3に必要な変更だけを含め、無関係なrule subject修正、Stripe webhook ownership hardening、旧branch全体のPreview記録commitは含めない。
 
-Preview検証合格後も、Production投入はmigration単位・機能単位のrelease planを別途承認する。
+### A. MUST_FIX_BEFORE_MAIN_MERGE
+
+- branch scope分離のみ。scoped integration branchの構成と、除外対象が混入していないことの検証を完了してからmain mergeを承認する
+
+### B. MAY_MERGE_BUT_MUST_FIX_BEFORE_PRODUCTION
+
+- Production migration historyと実schemaの整合確認。core baselineは空Preview DB専用であり、Productionへ適用しない
+- Production専用token keyring、write interlock、暗号化self-testを含むenv契約の確認
+- Cronの`Authorization: Bearer`切替、Vercel Cron設定との整合、`CRON_SECRET` rotationを停止状態で実施
+
+### C. ACCEPTED_LIMITATION_FOR_INITIAL_ROLLOUT
+
+- M2 Google refresh lease
+- M4 rule execution lease
+- M5 Drive保存前のprocessed email予約
+- M6 atomic quota reservation
+- M8 notification outbox
+- M9 stale run recovery
+
+これらは逐次Preview smokeの合格範囲を超える並行実行・障害回復上の制約である。初期rolloutでは下記の運用制約と監視を必須とし、別phaseで解消する。
+
+### D. OUT_OF_SCOPE_SEPARATE_PHASE
+
+- M3 Stripe event ordering
+- M7 Checkout idempotency
+- OAuth state DB ledgerによる厳密なsingle-use
+- Cronの`select("*")`解消
+
+## 17. Preview smoke実績（2026-08-04）
+
+- Productionとは別のSupabase Preview project、Google Cloud project、OAuth client、Vercel Preview envを使用し、Productionは変更していない
+- Google OAuth接続に成功し、connectionは`status=connected`、`credential_version=0`、`reauth_required=false`。token fieldsは暗号化済み
+- profileのdisplay name更新に成功し、Supabaseへの反映を確認した
+- 初回manual Runは成功し、`processed_count=1`、`saved_count=1`、`skipped_count=0`。Drive PDFは1件、`processed_emails`は1件
+- 同一メール・同一ruleの逐次2回目も成功し、`processed_count=0`、`saved_count=0`、`skipped_count=1`
+- 2回目後もDrive PDFは1件、`processed_emails`は1件のままで、重複保存・重複DB rowはない
+- success runはいずれも`error_code=NULL`で、runs、processed_emails、Drive保存結果の整合を確認した
+
+このsmokeは逐次実行の成功と冪等性を確認したものであり、同一ruleの並行実行、同時token refresh、process停止後のrecoveryを保証しない。
+
+## 18. 条件付きProduction rollout制約
+
+- Cron停止状態から開始し、Bearer credentialとVercel Cron設定の切替完了後にだけ有効化する
+- manual Runの並行実行を避け、二重クリック、複数tab、同一ruleへの並行API呼出しを行わない
+- credential conflict、Drive/processed email duplicate、stale `running`を監視する
+- 異常時にCronを停止し、manual RunとOAuth token writeを停止できる運用手順を用意する
+- migration、env、credential rotation、deployment、smoke、rollbackは順番に別承認する
+- rollbackはapplicationを既知のanchor SHAへ戻し、expand済みの非破壊的DB列・tableは原則残置する。破壊的rollback SQLは別承認とする
+
+scoped branchの検証合格後はmain mergeを承認可能とするが、Production deploymentは上記B項目とrollout手順の承認・完了まで実施しない。
