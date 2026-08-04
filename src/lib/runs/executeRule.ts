@@ -56,6 +56,27 @@ const USER_NOTIFY_ERROR_CODES = new Set<string>([
   "GOOGLE_PERMISSION_DENIED",
 ]);
 
+const SAFE_RUN_ERROR_STAGES = new Set([
+  "drive_create_auth",
+  "drive_lookup_complete",
+  "drive_existing_match",
+  "drive_media_prepare",
+  "drive_create_request",
+]);
+
+function getSafeRunErrorStage(error: unknown) {
+  if (!error || typeof error !== "object") return "execute_rule";
+
+  try {
+    const stage = "stage" in error ? error.stage : undefined;
+    return typeof stage === "string" && SAFE_RUN_ERROR_STAGES.has(stage)
+      ? stage
+      : "execute_rule";
+  } catch {
+    return "execute_rule";
+  }
+}
+
 const ALLOWED_ATTACHMENT_EXTENSIONS = new Set([".pdf", ".csv", ".xlsx"]);
 
 const ALLOWED_ATTACHMENT_MIME_TYPES = new Set([
@@ -573,7 +594,7 @@ export async function executeRule(
     console.error("[executeRule] failed", {
       code: errorCode,
       errorName: error instanceof Error ? error.name : "UnknownError",
-      location: "execute_rule",
+      stage: getSafeRunErrorStage(error),
     });
     const userFacing = getRunErrorMessage(errorCode);
 

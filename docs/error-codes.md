@@ -20,7 +20,7 @@
 
 ## A. Runtime正式コード
 
-`src/lib/runs/normalizeRunErrorCode.ts`の`KNOWN_RUN_ERROR_CODES`をsource of truthとする。以下の20件だけが、現在のruntimeで完全一致により保持され、`runs.error_code`へ正式に記録され得るコードである。全件について`getRunErrorMessage()`が固定の安全文言または`UNKNOWN` fallbackを返す。
+`src/lib/runs/normalizeRunErrorCode.ts`の`KNOWN_RUN_ERROR_CODES`をsource of truthとする。以下の21件だけが、現在のruntimeで完全一致により保持され、`runs.error_code`へ正式に記録され得るコードである。全件について`getRunErrorMessage()`が固定の安全文言または`UNKNOWN` fallbackを返す。
 
 ### Google token暗号化
 
@@ -47,6 +47,10 @@
 - `GOOGLE_TOKEN_INVALID`
 - `GOOGLE_PERMISSION_DENIED`
 - `GOOGLE_TOKEN_REFRESH_FAILED`
+
+### Google Drive
+
+- `DRIVE_UPLOAD_FAILED`
 
 ### Run実行
 
@@ -158,7 +162,6 @@ Google token暗号化・保存層のうちRuntime正式コードへ採用済み�
 ### Google Drive
 
 - `DRIVE_FOLDER_INVALID`
-- `DRIVE_UPLOAD_FAILED`
 - `DRIVE_PERMISSION_DENIED`
 
 ### DB / Supabase

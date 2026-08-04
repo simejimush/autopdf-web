@@ -70,6 +70,13 @@ export function getRunErrorMessage(
         action: "検索条件を見直してから再実行してください。",
       };
 
+    case "DRIVE_UPLOAD_FAILED":
+      return {
+        title: "Google Driveへの保存に失敗しました",
+        message: "ファイルをGoogle Driveへ安全に保存できませんでした。",
+        action: "時間をおいて再実行してください。",
+      };
+
     case "DRIVE_FOLDER_INVALID":
       return {
         title: "保存先フォルダを確認してください",
