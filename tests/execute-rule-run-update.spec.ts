@@ -64,6 +64,7 @@ function loadExecuteRule(options?: {
   }>;
   failAt?: "rule" | "search" | "pdf" | "drive";
   errorCode?: string;
+  errorStage?: string;
   processedInsertError?: boolean;
   finalizeError?: Error;
   slackError?: Error;
@@ -98,6 +99,7 @@ function loadExecuteRule(options?: {
     userNotify: [] as unknown[],
     attachmentUploads: 0,
     limitChecks: [] as string[],
+    consoleErrors: [] as unknown[][],
   };
   const errorCode = options?.errorCode ?? "UNKNOWN";
   const supabaseAdmin = {
@@ -258,7 +260,11 @@ function loadExecuteRule(options?: {
     if (specifier === "@/lib/google/drive") {
       return {
         async uploadPdfToDrive() {
-          if (options?.failAt === "drive") throw codedError(errorCode);
+          if (options?.failAt === "drive") {
+            throw Object.assign(codedError(errorCode), {
+              ...(options?.errorStage ? { stage: options.errorStage } : {}),
+            });
+          }
           calls.order.push("drive:pdf");
           return { fileId: "file-id", webViewLink: "https://safe.invalid" };
         },
@@ -342,9 +348,15 @@ function loadExecuteRule(options?: {
     exports: loadedModule.exports,
     module: loadedModule,
     require: localRequire,
-    console: { log() {}, error() {} },
+    console: {
+      log() {},
+      error(...args: unknown[]) {
+        calls.consoleErrors.push(args);
+      },
+    },
     Uint8Array,
     Date,
+    Error,
     Set,
   });
 
@@ -678,6 +690,76 @@ test("known Google, DB, and unexpected failures share safe owned finalization", 
       },
     });
   }
+});
+
+test("Drive diagnostics log only an allowlisted stage and Slack failure stays secondary", async () => {
+  const rawDriveMarker = "raw DRIVE_UPLOAD_FAILED detail";
+  const rawSlackMarker = "raw Slack provider detail";
+  const harness = loadExecuteRule({
+    messageIds: [MESSAGE_ID],
+    failAt: "drive",
+    errorCode: "DRIVE_UPLOAD_FAILED",
+    errorStage: "drive_media_prepare",
+    slackError: new Error(rawSlackMarker),
+  });
+
+  const result = await harness.executeRule(harness.input);
+
+  expect(result).toMatchObject({
+    ok: false,
+    processedCount: 0,
+    savedCount: 0,
+    skippedCount: 0,
+    errorCode: "DRIVE_UPLOAD_FAILED",
+  });
+  expect(result.message).not.toContain(rawDriveMarker);
+  expect(harness.calls.finalizations).toHaveLength(1);
+  expect(harness.calls.finalizations[0]).toMatchObject({
+    runId: RUN_ID,
+    userId: USER_ID,
+    finalization: {
+      status: "error",
+      errorCode: "DRIVE_UPLOAD_FAILED",
+      resetCounts: false,
+    },
+  });
+  expect(harness.calls.slack).toHaveLength(1);
+
+  const executeLog = harness.calls.consoleErrors.find(
+    ([message]) => message === "[executeRule] failed",
+  );
+  expect(executeLog).toEqual([
+    "[executeRule] failed",
+    {
+      code: "DRIVE_UPLOAD_FAILED",
+      errorName: "Error",
+      stage: "drive_media_prepare",
+    },
+  ]);
+
+  const serializedLogs = JSON.stringify(harness.calls.consoleErrors);
+  expect(serializedLogs).not.toContain(rawDriveMarker);
+  expect(serializedLogs).not.toContain(rawSlackMarker);
+});
+
+test("untrusted error stages fall back to execute_rule", async () => {
+  const harness = loadExecuteRule({
+    messageIds: [MESSAGE_ID],
+    failAt: "drive",
+    errorCode: "DRIVE_UPLOAD_FAILED",
+    errorStage: "private-folder-id",
+  });
+
+  await harness.executeRule(harness.input);
+
+  const executeLog = harness.calls.consoleErrors.find(
+    ([message]) => message === "[executeRule] failed",
+  );
+  expect(executeLog?.[1]).toMatchObject({
+    code: "DRIVE_UPLOAD_FAILED",
+    stage: "execute_rule",
+  });
+  expect(JSON.stringify(executeLog)).not.toContain("private-folder-id");
 });
 
 test("manual and cron preserve explicit Google OAuth run codes", async () => {
