@@ -223,8 +223,10 @@ foreign keys. Authenticated insert/select own-row policies exist. Only
 - Existing table and column grants are cataloged by the anonymous fixture;
   reconciliation revokes broad grants and restores the repository's
   least-privilege hardening contract.
-- Function definitions, owners, security mode, search-path settings, and ACLs
-  are included in the fail-closed Production and fresh-chain fingerprints.
+- Function owners, language, security mode, return type, allowed body semantics,
+  search-path settings, ACL principals, and extension provenance are checked
+  fail-closed. Raw function source is not hashed because dump whitespace and
+  dollar-quote formatting are not stable metadata.
 - Table and column privileges, including principals and grantability, are also
   fingerprinted; an unknown grantee stops reconciliation before DDL.
 
@@ -245,6 +247,10 @@ foreign keys. Authenticated insert/select own-row policies exist. Only
 | Duplicate rule triggers and Production policy names                                            | E                                   | Preserve names and objects; narrow access only                         |
 | `ai_usage_logs.numeric(10,6)` versus repository `numeric`                                      | E                                   | Preserve; runtime writes remain compatible                             |
 | Any catalog fingerprint, object name, owner, RLS, or data preflight mismatch at execution time | F — UNKNOWN_STOP                    | Abort before DDL and re-inventory                                      |
+
+Replay accepts only the cataloged reconciled column fingerprints, with or
+without the separately applied `credential_version` migration. Additional,
+missing, or reshaped columns stop before reconciliation DDL.
 
 Read-only aggregate preflights found zero NULL run owners, negative counters,
 ownership/rule orphans, and duplicate processed-email keys. All current rule
@@ -305,6 +311,22 @@ intentionally contains no destructive reverse migration.
 `tests/fixtures/production-core-schema.sql` is an anonymous structural fixture.
 The migration contract suite statically verifies fail-closed fingerprints,
 ordering, no destructive SQL, preservation, grants, credential separation, and
-postconditions. A real PostgreSQL apply/replay/failure-rollback test remains a
-mandatory pre-apply gate when a disposable PostgreSQL 17 environment is
-available; it must not be substituted with Production execution.
+postconditions.
+
+The migration and fixture were also verified on disposable PostgreSQL 17.6:
+
+- Production-like fixture apply, reconciliation apply, and replay succeeded.
+- Replay preserved the complete schema dump hash and all anonymous row hashes.
+- Orphan, negative counter, duplicate key, unknown constraint, trigger, policy,
+  grant principal, and column-drift cases all failed with no metadata or data
+  change.
+- A conflicting table lock failed after the configured five-second lock
+  timeout, rolled back, and left no idle transaction.
+- The fresh repository migration chain and the post-reconciliation credential
+  migration both succeeded.
+- Local ledger simulation left only the credential migration pending after the
+  four history-equivalent versions were recorded.
+
+Production execution must still repeat the fingerprint and aggregate
+preflights immediately before DDL; local verification is not a substitute for
+that gate.

@@ -299,7 +299,9 @@ insert into auth.users (id) values
   ('10000000-0000-4000-8000-000000000002');
 insert into public.user_profiles (user_id, display_name) values
   ('10000000-0000-4000-8000-000000000001', 'Fixture One'),
-  ('10000000-0000-4000-8000-000000000002', 'Fixture Two');
+  ('10000000-0000-4000-8000-000000000002', 'Fixture Two')
+on conflict (user_id) do update
+set display_name = excluded.display_name;
 insert into public.google_connections (user_id, status) values
   ('10000000-0000-4000-8000-000000000001', 'connected');
 insert into public.rules (

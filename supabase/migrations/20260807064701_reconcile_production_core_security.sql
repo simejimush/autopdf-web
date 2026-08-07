@@ -41,8 +41,14 @@ declare
   indexes_hash text;
   policies_hash text;
   triggers_hash text;
-  functions_hash text;
   grants_hash text;
+  function_source text;
+  function_owner text;
+  function_language text;
+  function_return_type text;
+  function_security_definer boolean;
+  function_config text[];
+  signup_function regprocedure;
   credential_attnum smallint;
   credential_type text;
   credential_not_null boolean;
@@ -135,26 +141,6 @@ begin
     and ((n.nspname = 'public' and c.relname = any (target_tables))
       or (n.nspname = 'auth' and c.relname = 'users'));
 
-  select pg_catalog.md5(pg_catalog.string_agg(
-           format('%s.%s(%s):%s:%s:%s:%s:%s', n.nspname, p.proname,
-             pg_catalog.pg_get_function_identity_arguments(p.oid),
-             pg_catalog.pg_get_userbyid(p.proowner), p.prosecdef,
-             coalesce(pg_catalog.array_to_string(p.proconfig, ','), ''),
-             coalesce(pg_catalog.array_to_string(p.proacl, ','), ''),
-             pg_catalog.pg_get_functiondef(p.oid)),
-           '|' order by n.nspname, p.proname,
-             pg_catalog.pg_get_function_identity_arguments(p.oid)))
-    into functions_hash
-  from pg_catalog.pg_proc p
-  join pg_catalog.pg_namespace n on n.oid = p.pronamespace
-  where (n.nspname, p.proname) in (
-    ('public', 'handle_new_user_create_profile'),
-    ('private', 'handle_new_user_create_profile'),
-    ('public', 'set_updated_at'),
-    ('public', 'update_runs_updated_at'),
-    ('public', 'moddatetime')
-  );
-
   with grants as (
     select 'table'::text as kind, table_schema, table_name,
            ''::text as column_name, grantee, privilege_type, is_grantable
@@ -181,7 +167,6 @@ begin
     and indexes_hash = 'd8e362a16b3ffbbc83875466e018e1b7'
     and policies_hash = 'ced70ec501e6ab1f5a18c5d76544e65f'
     and triggers_hash = '1c9a5348a4a425a82b25502008a6bc90'
-    and functions_hash = '3d7f9c414c2bf6620a13317e6e20799b'
     and grants_hash = '96f8298e5ea506cb9b5704668171d627'
   then
     perform pg_catalog.set_config('autopdf.reconciliation_shape', 'legacy', true);
@@ -190,7 +175,6 @@ begin
     and indexes_hash = '318ff7fe95549e85ca43d48978fcad3e'
     and policies_hash = 'af84373b43e48e0e8bc37a1fbbd7f9c7'
     and triggers_hash = 'ea43b3b4c701e1b930d8d2339f9e5181'
-    and functions_hash = '995183f88f36736e92c963ee4ddd6a98'
     and grants_hash = '5606b97859f237247b9f8ff59406c8b5'
   then
     -- Read-only fingerprint of the repository migration chain in Preview.
@@ -198,6 +182,15 @@ begin
   else
     -- Replay and fresh-chain paths must already have every reconciliation
     -- postcondition. A later block performs the complete assertion again.
+    if columns_hash not in (
+        '516febf044addbb583fa455bf7297200',
+        '6840235007827fb50fa25d30c6b4a23a',
+        'a5103a6e78330392062e4237db29457f'
+      )
+    then
+      raise exception 'Unexpected AutoPDF reconciled column fingerprint';
+    end if;
+
     if to_regprocedure('private.handle_new_user_create_profile()') is null
       or to_regprocedure('public.handle_new_user_create_profile()') is not null
       or exists (
@@ -347,6 +340,128 @@ begin
     end if;
 
     perform pg_catalog.set_config('autopdf.reconciliation_shape', 'replay', true);
+  end if;
+
+  -- Function source text is not fingerprinted byte-for-byte because harmless
+  -- dollar-quote and whitespace differences are not stable across dumps.
+  -- Validate the security-relevant semantics before replacing or preserving
+  -- any function instead.
+  if to_regprocedure('public.handle_new_user_create_profile()') is not null
+    and to_regprocedure('private.handle_new_user_create_profile()') is not null
+  then
+    raise exception 'Duplicate signup functions block AutoPDF reconciliation';
+  end if;
+  signup_function := coalesce(
+    to_regprocedure('public.handle_new_user_create_profile()'),
+    to_regprocedure('private.handle_new_user_create_profile()')
+  );
+  if signup_function is null then
+    raise exception 'Missing signup profile function';
+  end if;
+
+  select p.prosrc,
+         pg_catalog.pg_get_userbyid(p.proowner), l.lanname,
+         pg_catalog.format_type(p.prorettype, null), p.prosecdef, p.proconfig
+    into function_source, function_owner, function_language,
+         function_return_type, function_security_definer, function_config
+  from pg_catalog.pg_proc p
+  join pg_catalog.pg_language l on l.oid = p.prolang
+  where p.oid = signup_function;
+  if function_owner <> 'postgres'
+    or function_language <> 'plpgsql'
+    or function_return_type <> 'trigger'
+    or not function_security_definer
+    or lower(regexp_replace(function_source, '[[:space:]]', '', 'g'))
+      <> 'begininsertintopublic.user_profiles(user_id)values(new.id)onconflict(user_id)donothing;returnnew;end;'
+    or (signup_function = to_regprocedure('public.handle_new_user_create_profile()')
+        and function_config is not null)
+    or (signup_function = to_regprocedure('private.handle_new_user_create_profile()')
+        and coalesce(function_config, array[]::text[])
+          <> array['search_path=""']::text[])
+  then
+    raise exception 'Unexpected signup profile function semantics';
+  end if;
+
+  select p.prosrc,
+         pg_catalog.pg_get_userbyid(p.proowner), l.lanname,
+         pg_catalog.format_type(p.prorettype, null), p.prosecdef, p.proconfig
+    into function_source, function_owner, function_language,
+         function_return_type, function_security_definer, function_config
+  from pg_catalog.pg_proc p
+  join pg_catalog.pg_language l on l.oid = p.prolang
+  where p.oid = to_regprocedure('public.set_updated_at()');
+  if not found
+    or function_owner <> 'postgres'
+    or function_language <> 'plpgsql'
+    or function_return_type <> 'trigger'
+    or function_security_definer
+    or lower(regexp_replace(function_source, '[[:space:]]', '', 'g')) not in (
+      'beginnew.updated_at=now();returnnew;end;',
+      'beginnew.updated_at:=now();returnnew;end;',
+      'beginnew.updated_at=pg_catalog.now();returnnew;end;',
+      'beginnew.updated_at:=pg_catalog.now();returnnew;end;'
+    )
+  then
+    raise exception 'Unexpected set_updated_at function semantics';
+  end if;
+
+  if to_regprocedure('public.update_runs_updated_at()') is not null then
+    select p.prosrc, pg_catalog.pg_get_userbyid(p.proowner), l.lanname,
+           pg_catalog.format_type(p.prorettype, null), p.prosecdef
+      into function_source, function_owner, function_language,
+           function_return_type, function_security_definer
+    from pg_catalog.pg_proc p
+    join pg_catalog.pg_language l on l.oid = p.prolang
+    where p.oid = 'public.update_runs_updated_at()'::regprocedure;
+    if function_owner <> 'postgres'
+      or function_language <> 'plpgsql'
+      or function_return_type <> 'trigger'
+      or function_security_definer
+      or lower(regexp_replace(function_source, '[[:space:]]', '', 'g')) not in (
+        'beginnew.updated_at=now();returnnew;end;',
+        'beginnew.updated_at:=now();returnnew;end;',
+        'beginnew.updated_at=pg_catalog.now();returnnew;end;',
+        'beginnew.updated_at:=pg_catalog.now();returnnew;end;'
+      )
+    then
+      raise exception 'Unexpected runs updated_at function semantics';
+    end if;
+  end if;
+
+  if to_regprocedure('public.moddatetime()') is not null
+    and not exists (
+      select 1
+      from pg_catalog.pg_depend d
+      join pg_catalog.pg_extension e on e.oid = d.refobjid
+      where d.classid = 'pg_catalog.pg_proc'::regclass
+        and d.objid = to_regprocedure('public.moddatetime()')
+        and d.refclassid = 'pg_catalog.pg_extension'::regclass
+        and d.deptype = 'e' and e.extname = 'moddatetime'
+    )
+  then
+    raise exception 'Unexpected moddatetime function provenance';
+  end if;
+
+  select array_agg(distinct coalesce(r.rolname, 'PUBLIC') order by
+                     coalesce(r.rolname, 'PUBLIC'))
+    into unexpected
+  from pg_catalog.pg_proc p
+  cross join lateral pg_catalog.aclexplode(
+    coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))
+  ) acl
+  left join pg_catalog.pg_roles r on r.oid = acl.grantee
+  where p.oid in (
+      signup_function,
+      'public.set_updated_at()'::regprocedure,
+      to_regprocedure('public.update_runs_updated_at()'),
+      to_regprocedure('public.moddatetime()')
+    )
+    and coalesce(r.rolname, 'PUBLIC') not in (
+      'postgres', 'PUBLIC', 'anon', 'authenticated', 'service_role'
+    );
+  if unexpected is not null then
+    raise exception 'Unknown AutoPDF function grant principals: %',
+      pg_catalog.array_to_string(unexpected, ', ');
   end if;
 
   if exists (select 1 from public.runs where user_id is null)
@@ -730,7 +845,7 @@ begin
   );
   if update_definition ~* 'security[[:space:]]+definer'
     or update_definition !~* 'set[[:space:]]+search_path[[:space:]]+to[[:space:]]+'''''
-    or update_definition !~* 'new.updated_at[[:space:]]*:=[[:space:]]*pg_catalog.now\(\)'
+    or update_definition !~* 'new.updated_at[[:space:]]*:?=[[:space:]]*pg_catalog.now\(\)'
   then
     raise exception 'Unexpected updated_at function postcondition';
   end if;
@@ -749,24 +864,24 @@ begin
       or permissive <> 'PERMISSIVE'
       or cmd not in ('SELECT', 'INSERT', 'UPDATE', 'DELETE')
       or (cmd in ('SELECT', 'DELETE') and
-          regexp_replace(coalesce(qual, ''), '[()[:space:]]', '', 'g')
+          lower(regexp_replace(coalesce(qual, ''), '[()[:space:]]', '', 'g'))
             not in (
               'auth.uid=user_id', 'selectauth.uid=user_id',
               'selectauth.uidasuid=user_id'
             ))
       or (cmd = 'INSERT' and
-          regexp_replace(coalesce(with_check, ''), '[()[:space:]]', '', 'g')
+          lower(regexp_replace(coalesce(with_check, ''), '[()[:space:]]', '', 'g'))
             not in (
               'auth.uid=user_id', 'selectauth.uid=user_id',
               'selectauth.uidasuid=user_id'
             ))
       or (cmd = 'UPDATE' and (
-          regexp_replace(coalesce(qual, ''), '[()[:space:]]', '', 'g')
+          lower(regexp_replace(coalesce(qual, ''), '[()[:space:]]', '', 'g'))
             not in (
               'auth.uid=user_id', 'selectauth.uid=user_id',
               'selectauth.uidasuid=user_id'
             )
-          or regexp_replace(coalesce(with_check, ''), '[()[:space:]]', '', 'g')
+          or lower(regexp_replace(coalesce(with_check, ''), '[()[:space:]]', '', 'g'))
             not in (
               'auth.uid=user_id', 'selectauth.uid=user_id',
               'selectauth.uidasuid=user_id'
