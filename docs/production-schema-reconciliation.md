@@ -227,6 +227,12 @@ foreign keys. Authenticated insert/select own-row policies exist. Only
   search-path settings, ACL principals, and extension provenance are checked
   fail-closed. Raw function source is not hashed because dump whitespace and
   dollar-quote formatting are not stable metadata.
+- The only Supabase-managed ACL exception is the non-grantable owner EXECUTE
+  entry for `supabase_admin` on the exact zero-argument
+  `public.moddatetime()` extension function. Its owner, C language, trigger
+  return type, SECURITY INVOKER mode, signature, and extension membership must
+  all match. The role is not allowlisted for any other function, and PUBLIC or
+  application-role EXECUTE on `moddatetime` remains a preflight failure.
 - Table and column privileges, including principals and grantability, are also
   fingerprinted; an unknown grantee stops reconciliation before DDL.
 

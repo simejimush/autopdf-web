@@ -48,6 +48,7 @@ declare
   function_return_type text;
   function_security_definer boolean;
   function_config text[];
+  function_identity_arguments text;
   signup_function regprocedure;
   credential_attnum smallint;
   credential_type text;
@@ -428,8 +429,40 @@ begin
     end if;
   end if;
 
-  if to_regprocedure('public.moddatetime()') is not null
-    and not exists (
+  if exists (
+    select 1
+    from pg_catalog.pg_proc p
+    join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname = 'moddatetime'
+  ) then
+    select pg_catalog.pg_get_userbyid(p.proowner), l.lanname,
+           pg_catalog.format_type(p.prorettype, null), p.prosecdef,
+           pg_catalog.pg_get_function_identity_arguments(p.oid)
+      into function_owner, function_language, function_return_type,
+           function_security_definer, function_identity_arguments
+    from pg_catalog.pg_proc p
+    join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+    join pg_catalog.pg_language l on l.oid = p.prolang
+    where n.nspname = 'public' and p.proname = 'moddatetime';
+
+    if not found
+      or to_regprocedure('public.moddatetime()') is null
+      or function_identity_arguments <> ''
+      or function_owner not in ('postgres', 'supabase_admin')
+      or function_language <> 'c'
+      or function_return_type <> 'trigger'
+      or function_security_definer
+      or (
+        select count(*)
+        from pg_catalog.pg_proc p
+        join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'moddatetime'
+      ) <> 1
+    then
+      raise exception 'Unexpected moddatetime function identity or security';
+    end if;
+
+    if not exists (
       select 1
       from pg_catalog.pg_depend d
       join pg_catalog.pg_extension e on e.oid = d.refobjid
@@ -437,9 +470,9 @@ begin
         and d.objid = to_regprocedure('public.moddatetime()')
         and d.refclassid = 'pg_catalog.pg_extension'::regclass
         and d.deptype = 'e' and e.extname = 'moddatetime'
-    )
-  then
-    raise exception 'Unexpected moddatetime function provenance';
+    ) then
+      raise exception 'Unexpected moddatetime function provenance';
+    end if;
   end if;
 
   select array_agg(distinct coalesce(r.rolname, 'PUBLIC') order by
@@ -456,8 +489,21 @@ begin
       to_regprocedure('public.update_runs_updated_at()'),
       to_regprocedure('public.moddatetime()')
     )
-    and coalesce(r.rolname, 'PUBLIC') not in (
-      'postgres', 'PUBLIC', 'anon', 'authenticated', 'service_role'
+    and not (
+      (
+        p.oid <> to_regprocedure('public.moddatetime()')
+        and coalesce(r.rolname, 'PUBLIC') in (
+          'postgres', 'PUBLIC', 'anon', 'authenticated', 'service_role'
+        )
+      )
+      or (
+        p.oid = to_regprocedure('public.moddatetime()')
+        and coalesce(r.rolname, 'PUBLIC') =
+          pg_catalog.pg_get_userbyid(p.proowner)
+        and coalesce(r.rolname, 'PUBLIC') in ('postgres', 'supabase_admin')
+        and acl.privilege_type = 'EXECUTE'
+        and not acl.is_grantable
+      )
     );
   if unexpected is not null then
     raise exception 'Unknown AutoPDF function grant principals: %',
