@@ -7,6 +7,8 @@ const BASELINE_NAME = "20260528090000_create_autopdf_core_baseline.sql";
 const AI_USAGE_NAME = "20260529090000_create_ai_usage_logs.sql";
 const HARDENING_NAME = "20260530090000_harden_autopdf_core_security.sql";
 const CREDENTIAL_NAME = "20260726090000_add_google_credential_version.sql";
+const RECONCILIATION_NAME =
+  "20260807064701_reconcile_production_core_security.sql";
 
 function readMigration(name: string): string {
   return readFileSync(resolve(MIGRATIONS_DIR, name), "utf8");
@@ -33,6 +35,7 @@ test("fixes the AutoPDF migration filename and dependency order", () => {
     AI_USAGE_NAME,
     HARDENING_NAME,
     CREDENTIAL_NAME,
+    RECONCILIATION_NAME,
   ]);
   expect(normalizedSql(BASELINE_NAME)).not.toContain("credential_version");
   expect(normalizedSql(HARDENING_NAME)).toContain(
