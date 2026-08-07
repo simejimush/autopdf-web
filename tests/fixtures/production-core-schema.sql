@@ -4,6 +4,7 @@
 create role anon nologin;
 create role authenticated nologin;
 create role service_role nologin bypassrls;
+create role supabase_admin nologin;
 
 create schema auth;
 create table auth.users (
@@ -18,6 +19,9 @@ as $$ select null::uuid $$;
 
 create extension if not exists pgcrypto;
 create extension if not exists moddatetime with schema public;
+alter function public.moddatetime() owner to supabase_admin;
+revoke all on function public.moddatetime()
+  from public, anon, authenticated, service_role;
 
 create table public.google_connections (
   id uuid not null default gen_random_uuid(),
