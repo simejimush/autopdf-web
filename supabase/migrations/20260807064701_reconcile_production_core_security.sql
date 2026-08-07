@@ -49,6 +49,7 @@ declare
   function_security_definer boolean;
   function_config text[];
   function_identity_arguments text;
+  moddatetime_acl_valid boolean;
   signup_function regprocedure;
   credential_attnum smallint;
   credential_type text;
@@ -473,6 +474,65 @@ begin
     ) then
       raise exception 'Unexpected moddatetime function provenance';
     end if;
+
+    -- Supabase owns the extension function. Production has the exact legacy
+    -- EXECUTE ACL matching PostgreSQL/Supabase defaults; preserve it because
+    -- the migration role does not own this function. The postgres entry is
+    -- also required when that role recreates the rules trigger. A repository
+    -- fresh-chain extension owned by postgres has PostgreSQL's two-entry
+    -- owner/PUBLIC default ACL instead.
+    select coalesce(
+      (
+        function_owner = 'supabase_admin'
+        and count(*) = 6
+        and count(*) filter (
+          where coalesce(grantee.rolname, 'PUBLIC') = 'PUBLIC'
+        ) = 1
+        and count(*) filter (
+          where coalesce(grantee.rolname, 'PUBLIC') = 'anon'
+        ) = 1
+        and count(*) filter (
+          where coalesce(grantee.rolname, 'PUBLIC') = 'authenticated'
+        ) = 1
+        and count(*) filter (
+          where coalesce(grantee.rolname, 'PUBLIC') = 'postgres'
+        ) = 1
+        and count(*) filter (
+          where coalesce(grantee.rolname, 'PUBLIC') = 'service_role'
+        ) = 1
+        and count(*) filter (
+          where coalesce(grantee.rolname, 'PUBLIC') = 'supabase_admin'
+        ) = 1
+        and bool_and(grantor.rolname = 'supabase_admin')
+      )
+      or (
+        function_owner = 'postgres'
+        and count(*) = 2
+        and count(*) filter (
+          where coalesce(grantee.rolname, 'PUBLIC') = 'PUBLIC'
+        ) = 1
+        and count(*) filter (
+          where coalesce(grantee.rolname, 'PUBLIC') = 'postgres'
+        ) = 1
+        and bool_and(grantor.rolname = 'postgres')
+      ),
+      false
+    )
+    and bool_and(
+      acl.privilege_type = 'EXECUTE' and not acl.is_grantable
+    )
+      into moddatetime_acl_valid
+    from pg_catalog.pg_proc p
+    cross join lateral pg_catalog.aclexplode(
+      coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))
+    ) acl
+    left join pg_catalog.pg_roles grantee on grantee.oid = acl.grantee
+    join pg_catalog.pg_roles grantor on grantor.oid = acl.grantor
+    where p.oid = to_regprocedure('public.moddatetime()');
+
+    if not moddatetime_acl_valid then
+      raise exception 'Unexpected moddatetime function ACL';
+    end if;
   end if;
 
   select array_agg(distinct coalesce(r.rolname, 'PUBLIC') order by
@@ -486,23 +546,11 @@ begin
   where p.oid in (
       signup_function,
       'public.set_updated_at()'::regprocedure,
-      to_regprocedure('public.update_runs_updated_at()'),
-      to_regprocedure('public.moddatetime()')
+      to_regprocedure('public.update_runs_updated_at()')
     )
     and not (
-      (
-        p.oid <> to_regprocedure('public.moddatetime()')
-        and coalesce(r.rolname, 'PUBLIC') in (
-          'postgres', 'PUBLIC', 'anon', 'authenticated', 'service_role'
-        )
-      )
-      or (
-        p.oid = to_regprocedure('public.moddatetime()')
-        and coalesce(r.rolname, 'PUBLIC') =
-          pg_catalog.pg_get_userbyid(p.proowner)
-        and coalesce(r.rolname, 'PUBLIC') in ('postgres', 'supabase_admin')
-        and acl.privilege_type = 'EXECUTE'
-        and not acl.is_grantable
+      coalesce(r.rolname, 'PUBLIC') in (
+        'postgres', 'PUBLIC', 'anon', 'authenticated', 'service_role'
       )
     );
   if unexpected is not null then
@@ -762,10 +810,6 @@ begin
     revoke all on function public.update_runs_updated_at()
       from public, anon, authenticated;
   end if;
-  if to_regprocedure('public.moddatetime()') is not null then
-    revoke all on function public.moddatetime()
-      from public, anon, authenticated;
-  end if;
 end
 $secure_preserved_trigger_functions$;
 
@@ -868,6 +912,8 @@ declare
   signup_definition text;
   update_definition text;
   missing_policy text[];
+  moddatetime_acl_valid boolean;
+  moddatetime_owner text;
 begin
   if to_regprocedure('public.handle_new_user_create_profile()') is not null
     or to_regprocedure('private.handle_new_user_create_profile()') is null
@@ -894,6 +940,66 @@ begin
     or update_definition !~* 'new.updated_at[[:space:]]*:?=[[:space:]]*pg_catalog.now\(\)'
   then
     raise exception 'Unexpected updated_at function postcondition';
+  end if;
+
+  if to_regprocedure('public.moddatetime()') is not null then
+    select pg_catalog.pg_get_userbyid(p.proowner)
+      into moddatetime_owner
+    from pg_catalog.pg_proc p
+    where p.oid = to_regprocedure('public.moddatetime()');
+
+    select coalesce(
+      (
+        moddatetime_owner = 'supabase_admin'
+        and count(*) = 6
+        and count(*) filter (
+          where coalesce(grantee.rolname, 'PUBLIC') = 'PUBLIC'
+        ) = 1
+        and count(*) filter (
+          where coalesce(grantee.rolname, 'PUBLIC') = 'anon'
+        ) = 1
+        and count(*) filter (
+          where coalesce(grantee.rolname, 'PUBLIC') = 'authenticated'
+        ) = 1
+        and count(*) filter (
+          where coalesce(grantee.rolname, 'PUBLIC') = 'postgres'
+        ) = 1
+        and count(*) filter (
+          where coalesce(grantee.rolname, 'PUBLIC') = 'service_role'
+        ) = 1
+        and count(*) filter (
+          where coalesce(grantee.rolname, 'PUBLIC') = 'supabase_admin'
+        ) = 1
+        and bool_and(grantor.rolname = 'supabase_admin')
+      )
+      or (
+        moddatetime_owner = 'postgres'
+        and count(*) = 2
+        and count(*) filter (
+          where coalesce(grantee.rolname, 'PUBLIC') = 'PUBLIC'
+        ) = 1
+        and count(*) filter (
+          where coalesce(grantee.rolname, 'PUBLIC') = 'postgres'
+        ) = 1
+        and bool_and(grantor.rolname = 'postgres')
+      ),
+      false
+    )
+    and bool_and(
+      acl.privilege_type = 'EXECUTE' and not acl.is_grantable
+    )
+      into moddatetime_acl_valid
+    from pg_catalog.pg_proc p
+    cross join lateral pg_catalog.aclexplode(
+      coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))
+    ) acl
+    left join pg_catalog.pg_roles grantee on grantee.oid = acl.grantee
+    join pg_catalog.pg_roles grantor on grantor.oid = acl.grantor
+    where p.oid = to_regprocedure('public.moddatetime()');
+
+    if not moddatetime_acl_valid then
+      raise exception 'Unexpected moddatetime ACL postcondition';
+    end if;
   end if;
 
   select array_agg(format('%s.%s', tablename, policyname)

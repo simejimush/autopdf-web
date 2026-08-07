@@ -1,10 +1,22 @@
 -- Anonymous structural fixture for the 2026-08-07 AutoPDF Production catalog.
 -- All identifiers and row values below are local-only synthetic values.
 
-create role anon nologin;
-create role authenticated nologin;
-create role service_role nologin bypassrls;
-create role supabase_admin nologin;
+do $fixture_roles$
+begin
+  if not exists (select 1 from pg_roles where rolname = 'anon') then
+    create role anon nologin;
+  end if;
+  if not exists (select 1 from pg_roles where rolname = 'authenticated') then
+    create role authenticated nologin;
+  end if;
+  if not exists (select 1 from pg_roles where rolname = 'service_role') then
+    create role service_role nologin bypassrls;
+  end if;
+  if not exists (select 1 from pg_roles where rolname = 'supabase_admin') then
+    execute 'create role supabase_admin login superuser';
+  end if;
+end
+$fixture_roles$;
 
 create schema auth;
 create table auth.users (
@@ -20,8 +32,12 @@ as $$ select null::uuid $$;
 create extension if not exists pgcrypto;
 create extension if not exists moddatetime with schema public;
 alter function public.moddatetime() owner to supabase_admin;
+set role supabase_admin;
 revoke all on function public.moddatetime()
-  from public, anon, authenticated, service_role;
+  from public, anon, authenticated, postgres, service_role, supabase_admin;
+grant execute on function public.moddatetime()
+  to public, anon, authenticated, postgres, service_role, supabase_admin;
+reset role;
 
 create table public.google_connections (
   id uuid not null default gen_random_uuid(),
