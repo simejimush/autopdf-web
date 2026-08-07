@@ -1,0 +1,7 @@
+interface:
+  display_name: "AutoPDF Safe Development"
+  short_description: "AutoPDFの変更範囲を守る安全な自律開発ワークフロー"
+  default_prompt: "Use $autopdf-safe-development to implement this AutoPDF change safely and autonomously."
+
+policy:
+  allow_implicit_invocation: true
