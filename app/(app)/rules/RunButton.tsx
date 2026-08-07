@@ -4,8 +4,63 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/lib/ui/Button";
+import {
+  formatManualRunErrorToast,
+  formatManualRunToast,
+  type ManualRunToastInput,
+} from "@/lib/ui/manualRunToast";
+
 function cx(...xs: Array<string | undefined | false>) {
   return xs.filter(Boolean).join(" ");
+}
+
+type ManualRunHistoryItem = {
+  id?: unknown;
+  status?: unknown;
+  processed_count?: unknown;
+  saved_count?: unknown;
+  skipped_count?: unknown;
+  error_code?: unknown;
+};
+
+function toNullableString(value: unknown) {
+  return typeof value === "string" ? value : null;
+}
+
+function toNullableNumber(value: unknown) {
+  return typeof value === "number" ? value : null;
+}
+
+async function loadManualRunToastInput(
+  ruleId: string,
+  runId: string,
+): Promise<ManualRunToastInput | null> {
+  try {
+    const res = await fetch(
+      `/api/runs/latest?ruleId=${encodeURIComponent(ruleId)}`,
+      { cache: "no-store" },
+    );
+
+    if (!res.ok) return null;
+
+    const data = await res.json().catch(() => null);
+    const items = Array.isArray(data?.items)
+      ? (data.items as ManualRunHistoryItem[])
+      : [];
+    const run = items.find((item) => item.id === runId);
+
+    if (!run) return null;
+
+    return {
+      status: toNullableString(run.status),
+      processedCount: toNullableNumber(run.processed_count),
+      savedCount: toNullableNumber(run.saved_count),
+      skippedCount: toNullableNumber(run.skipped_count),
+      errorCode: toNullableString(run.error_code),
+    };
+  } catch {
+    return null;
+  }
 }
 
 export default function RunButton({
@@ -44,15 +99,43 @@ export default function RunButton({
               method: "POST",
             });
 
-            const data = await res.json();
+            const data = await res.json().catch(() => null);
 
             if (!res.ok) {
-              toast.error(data.error ?? "Run failed");
+              const errorCode =
+                toNullableString(data?.error_code) ??
+                toNullableString(data?.errorCode) ??
+                toNullableString(data?.code);
+              toast.error(formatManualRunErrorToast(errorCode));
               return;
             }
 
-            toast.success(data.message ?? "Run finished");
+            const runId = toNullableString(data?.runId);
+            const runInput = runId
+              ? await loadManualRunToastInput(ruleId, runId)
+              : null;
+
+            const result = runInput
+              ? formatManualRunToast(runInput)
+              : data?.ok === false
+                ? {
+                    type: "error" as const,
+                    message: formatManualRunErrorToast(),
+                  }
+                : {
+                    type: "success" as const,
+                    message: "実行が完了しました",
+                  };
+
+            if (result.type === "error") {
+              toast.error(result.message);
+            } else {
+              toast.success(result.message);
+            }
+
             router.refresh();
+          } catch {
+            toast.error(formatManualRunErrorToast());
           } finally {
             setLoading(false);
           }
