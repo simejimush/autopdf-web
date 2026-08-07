@@ -51,18 +51,16 @@ test("pins both the Production inventory and the repository fresh-chain shape", 
   expect(migration).toContain(
     "unexpected moddatetime function identity or security",
   );
+  expect(migration).toContain("unexpected moddatetime function acl");
   expect(migration).toContain("unknown autopdf function grant principals");
 });
 
-test("allows only the trusted Supabase owner ACL on public.moddatetime()", () => {
+test("recognizes only the exact trusted legacy ACL on public.moddatetime()", () => {
   const migration = sql(MIGRATION);
   const fixture = sql(FIXTURE);
   const aclCheck = migration.slice(
-    migration.indexOf("select array_agg(distinct coalesce(r.rolname"),
-    migration.indexOf(
-      "if unexpected is not null then",
-      migration.indexOf("select array_agg(distinct coalesce(r.rolname"),
-    ),
+    migration.indexOf("-- supabase owns the extension function"),
+    migration.indexOf("if not moddatetime_acl_valid then"),
   );
 
   expect(migration).toContain(
@@ -76,26 +74,33 @@ test("allows only the trusted Supabase owner ACL on public.moddatetime()", () =>
   expect(migration).toContain("function_return_type <> 'trigger'");
   expect(migration).toContain("or function_security_definer");
   expect(migration).toContain("and e.extname = 'moddatetime'");
-  expect(migration).toContain(
-    "coalesce(r.rolname, 'public') =\n          pg_catalog.pg_get_userbyid(p.proowner)",
-  );
-  expect(migration).toContain(
-    "coalesce(r.rolname, 'public') in ('postgres', 'supabase_admin')",
-  );
-  expect(migration).toContain("and acl.privilege_type = 'execute'");
-  expect(migration).toContain("and not acl.is_grantable");
+  expect(aclCheck).toContain("function_owner = 'supabase_admin'");
+  expect(aclCheck).toContain("and count(*) = 6");
+  for (const principal of [
+    "public",
+    "anon",
+    "authenticated",
+    "postgres",
+    "service_role",
+    "supabase_admin",
+  ]) {
+    expect(aclCheck).toContain(`= '${principal}'`);
+  }
+  expect(aclCheck).toContain("bool_and(grantor.rolname = 'supabase_admin')");
   expect(aclCheck).toContain(
-    "p.oid <> to_regprocedure('public.moddatetime()')",
+    "acl.privilege_type = 'execute' and not acl.is_grantable",
   );
-  expect(aclCheck).toContain("p.oid = to_regprocedure('public.moddatetime()')");
-  expect(aclCheck.match(/'supabase_admin'/g)).toHaveLength(1);
+  expect(migration).toContain("unexpected moddatetime acl postcondition");
+  expect(migration).not.toContain(
+    "revoke all on function public.moddatetime()",
+  );
 
-  expect(fixture).toContain("create role supabase_admin nologin");
+  expect(fixture).toContain("create role supabase_admin login superuser");
   expect(fixture).toContain(
     "alter function public.moddatetime() owner to supabase_admin",
   );
   expect(fixture).toContain(
-    "revoke all on function public.moddatetime()\n  from public, anon, authenticated, service_role",
+    "to public, anon, authenticated, postgres, service_role, supabase_admin",
   );
 });
 

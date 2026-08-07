@@ -227,12 +227,17 @@ foreign keys. Authenticated insert/select own-row policies exist. Only
   search-path settings, ACL principals, and extension provenance are checked
   fail-closed. Raw function source is not hashed because dump whitespace and
   dollar-quote formatting are not stable metadata.
-- The only Supabase-managed ACL exception is the non-grantable owner EXECUTE
-  entry for `supabase_admin` on the exact zero-argument
-  `public.moddatetime()` extension function. Its owner, C language, trigger
-  return type, SECURITY INVOKER mode, signature, and extension membership must
-  all match. The role is not allowlisted for any other function, and PUBLIC or
-  application-role EXECUTE on `moddatetime` remains a preflight failure.
+- The only Supabase-managed ACL exception is the exact legacy EXECUTE ACL on
+  the zero-argument `public.moddatetime()` extension function. It must contain
+  exactly one non-grantable entry, granted by `supabase_admin`, for each of
+  `PUBLIC`, `anon`, `authenticated`, `postgres`, `service_role`, and the owner
+  `supabase_admin`. Its C language, trigger return type, SECURITY INVOKER mode,
+  signature, owner, and extension membership must also match. The migration
+  preserves this ACL because its Production execution role does not own the
+  extension function. The explicit `postgres` entry preserves maintenance-role
+  trigger recreation even if inherited application-role grants are later
+  narrowed. Any extra principal, different grantor, grant option, or reuse of
+  `supabase_admin` on another function fails before DDL.
 - Table and column privileges, including principals and grantability, are also
   fingerprinted; an unknown grantee stops reconciliation before DDL.
 
