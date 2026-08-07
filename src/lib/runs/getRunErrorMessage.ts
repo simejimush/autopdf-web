@@ -22,7 +22,10 @@ export function getRunErrorMessage(
         action: "ログイン中のアカウントを確認してください。",
       };
 
+    case "GOOGLE_CONNECTION_NOT_FOUND":
+    case "GOOGLE_REFRESH_TOKEN_MISSING":
     case "GOOGLE_TOKEN_INVALID":
+    case "GOOGLE_TOKEN_REFRESH_FAILED":
       return {
         title: "Googleの認証が切れています",
         message: "GmailまたはGoogle Driveへの接続に必要な認証情報が無効です。",
@@ -42,6 +45,7 @@ export function getRunErrorMessage(
 
     case "GOOGLE_TOKEN_INPUT_INVALID":
     case "GOOGLE_TOKEN_ENCRYPT_FAILED":
+    case "GOOGLE_TOKEN_WRITE_DISABLED":
     case "GOOGLE_TOKEN_STORE_FAILED":
     case "GOOGLE_TOKEN_UPDATE_CONFLICT":
     case "GOOGLE_TOKEN_ROW_NOT_FOUND":
@@ -64,6 +68,13 @@ export function getRunErrorMessage(
         title: "Gmail検索条件に問題があります",
         message: "検索条件の書き方が正しくない可能性があります。",
         action: "検索条件を見直してから再実行してください。",
+      };
+
+    case "DRIVE_UPLOAD_FAILED":
+      return {
+        title: "Google Driveへの保存に失敗しました",
+        message: "ファイルをGoogle Driveへ安全に保存できませんでした。",
+        action: "時間をおいて再実行してください。",
       };
 
     case "DRIVE_FOLDER_INVALID":
@@ -95,11 +106,19 @@ export function getRunErrorMessage(
         action: "改善しない場合は管理者確認が必要です。",
       };
 
+    case "DB_INSERT_FAILED":
     case "DB_CONSTRAINT":
       return {
         title: "データ保存中に問題が発生しました",
         message: "保存処理が正常に完了しませんでした。",
         action: "時間をおいて再実行してください。",
+      };
+
+    case "FREE_MONTHLY_LIMIT_EXCEEDED":
+      return {
+        title: "今月の保存上限に達しました",
+        message: "Freeプランの今月のPDF保存上限に達しています。",
+        action: "翌月まで待つか、プランの変更をご検討ください。",
       };
 
     default:

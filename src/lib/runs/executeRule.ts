@@ -9,6 +9,11 @@ import {
 import { uploadFileToDrive, uploadPdfToDrive } from "@/lib/google/drive";
 import { getRunErrorMessage } from "@/lib/runs/getRunErrorMessage";
 import { normalizeRunErrorCode } from "@/lib/runs/normalizeRunErrorCode";
+import { finalizeRunForUser } from "@/lib/runs/runUpdateRepository";
+import {
+  getProcessedEmailState,
+  recordProcessedEmail,
+} from "@/lib/runs/processedEmailRepository";
 import { updateGoogleConnectionHealth } from "@/lib/monitoring/updateGoogleConnectionHealth";
 import { notifySlack } from "@/lib/monitoring/notifySlack";
 import { notifyUser } from "@/lib/monitoring/notifyUser";
@@ -37,16 +42,6 @@ type ExecuteResult = {
   message: string;
 };
 
-async function getUserEmail(userId: string): Promise<string | null> {
-  const { data, error } = await supabaseAdmin.auth.admin.getUserById(userId);
-
-  if (error || !data?.user?.email) {
-    return null;
-  }
-
-  return data.user.email;
-}
-
 const SLACK_NOTIFY_ERROR_CODES = new Set([
   "GOOGLE_TOKEN_INVALID",
   "GOOGLE_PERMISSION_DENIED",
@@ -61,6 +56,27 @@ const USER_NOTIFY_ERROR_CODES = new Set<string>([
   "GOOGLE_PERMISSION_DENIED",
 ]);
 
+const SAFE_RUN_ERROR_STAGES = new Set([
+  "drive_create_auth",
+  "drive_lookup_complete",
+  "drive_existing_match",
+  "drive_media_prepare",
+  "drive_create_request",
+]);
+
+function getSafeRunErrorStage(error: unknown) {
+  if (!error || typeof error !== "object") return "execute_rule";
+
+  try {
+    const stage = "stage" in error ? error.stage : undefined;
+    return typeof stage === "string" && SAFE_RUN_ERROR_STAGES.has(stage)
+      ? stage
+      : "execute_rule";
+  } catch {
+    return "execute_rule";
+  }
+}
+
 const ALLOWED_ATTACHMENT_EXTENSIONS = new Set([".pdf", ".csv", ".xlsx"]);
 
 const ALLOWED_ATTACHMENT_MIME_TYPES = new Set([
@@ -70,6 +86,34 @@ const ALLOWED_ATTACHMENT_MIME_TYPES = new Set([
   "application/vnd.ms-excel",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 ]);
+
+const FREE_MONTHLY_LIMIT_MESSAGE =
+  "Freeプランの今月のPDF保存上限（10件）に達しています。翌月まで待つか、Proプランへの変更をご検討ください。";
+
+async function finalizeFreeMonthlyLimit(params: {
+  runId: string;
+  userId: string;
+}): Promise<ExecuteResult> {
+  await finalizeRunForUser({
+    runId: params.runId,
+    userId: params.userId,
+    finalization: {
+      status: "error",
+      errorCode: "FREE_MONTHLY_LIMIT_EXCEEDED",
+      resetCounts: true,
+      message: FREE_MONTHLY_LIMIT_MESSAGE,
+    },
+  });
+
+  return {
+    ok: false,
+    processedCount: 0,
+    savedCount: 0,
+    skippedCount: 0,
+    errorCode: "FREE_MONTHLY_LIMIT_EXCEEDED",
+    message: FREE_MONTHLY_LIMIT_MESSAGE,
+  };
+}
 
 function sanitizeFilename(value?: string | null, fallback = "file") {
   const cleaned = (value ?? fallback)
@@ -267,11 +311,12 @@ export async function executeRule(
   try {
     const { data: rule } = await supabaseAdmin
       .from("rules")
-      .select("id, gmail_query, drive_folder_id, file_name_format")
+      .select("id, user_id, gmail_query, drive_folder_id, file_name_format")
       .eq("id", params.ruleId)
+      .eq("user_id", params.userId)
       .single();
 
-    if (!rule) {
+    if (!rule || rule.id !== params.ruleId || rule.user_id !== params.userId) {
       throw new Error("rule not found");
     }
 
@@ -303,18 +348,17 @@ export async function executeRule(
     if (!messageIds.length) {
       const message = "No emails found";
 
-      await supabaseAdmin
-        .from("runs")
-        .update({
+      await finalizeRunForUser({
+        runId: params.runId,
+        userId: params.userId,
+        finalization: {
           status: "success",
-          processed_count: 0,
-          saved_count: 0,
-          skipped_count: 0,
+          processedCount: 0,
+          savedCount: 0,
+          skippedCount: 0,
           message,
-          finished_at: new Date().toISOString(),
-        })
-        .eq("id", params.runId)
-        .eq("user_id", params.userId);
+        },
+      });
 
       await updateGoogleConnectionHealth({
         userId: params.userId,
@@ -333,29 +377,26 @@ export async function executeRule(
 
     const messageId = messageIds[0];
 
-    const { data: existingProcessed } = await supabaseAdmin
-      .from("processed_emails")
-      .select("id")
-      .eq("user_id", params.userId)
-      .eq("rule_id", params.ruleId)
-      .eq("gmail_message_id", messageId)
-      .maybeSingle();
+    const processedEmailState = await getProcessedEmailState({
+      userId: params.userId,
+      ruleId: rule.id,
+      gmailMessageId: messageId,
+    });
 
-    if (existingProcessed) {
+    if (processedEmailState.exists) {
       const message = "Skipped 1 already processed email";
 
-      await supabaseAdmin
-        .from("runs")
-        .update({
+      await finalizeRunForUser({
+        runId: params.runId,
+        userId: params.userId,
+        finalization: {
           status: "success",
-          processed_count: 0,
-          saved_count: 0,
-          skipped_count: 1,
+          processedCount: 0,
+          savedCount: 0,
+          skippedCount: 1,
           message,
-          finished_at: new Date().toISOString(),
-        })
-        .eq("id", params.runId)
-        .eq("user_id", params.userId);
+        },
+      });
 
       await updateGoogleConnectionHealth({
         userId: params.userId,
@@ -375,31 +416,10 @@ export async function executeRule(
     const monthlyLimit = await checkFreeMonthlyPdfSaveLimit(params.userId);
 
     if (!monthlyLimit.ok) {
-      const message =
-        "Freeプランの今月のPDF保存上限（10件）に達しています。翌月まで待つか、Proプランへの変更をご検討ください。";
-
-      await supabaseAdmin
-        .from("runs")
-        .update({
-          status: "error",
-          error_code: "FREE_MONTHLY_LIMIT_EXCEEDED",
-          processed_count: 0,
-          saved_count: 0,
-          skipped_count: 0,
-          message,
-          finished_at: new Date().toISOString(),
-        })
-        .eq("id", params.runId)
-        .eq("user_id", params.userId);
-
-      return {
-        ok: false,
-        processedCount: 0,
-        savedCount: 0,
-        skippedCount: 0,
-        errorCode: "FREE_MONTHLY_LIMIT_EXCEEDED",
-        message,
-      };
+      return finalizeFreeMonthlyLimit({
+        runId: params.runId,
+        userId: params.userId,
+      });
     }
 
     const message = await getGmailMessage({
@@ -424,7 +444,9 @@ export async function executeRule(
     const safeSubject = sanitizeFilename(message.subject, "email").slice(0, 80);
     const safeSender = getSenderNameForFilename(message.from);
     const shortMessageId = getShortMessageId(messageId);
-    const normalizedStoredFormat = normalizeFileNameFormat(rule.file_name_format);
+    const normalizedStoredFormat = normalizeFileNameFormat(
+      rule.file_name_format,
+    );
     const filenameFormat = normalizeFileNameFormatForPlan(
       normalizedStoredFormat,
       effectivePlan,
@@ -463,6 +485,15 @@ export async function executeRule(
       shortMessageId,
       filenameFormat,
     });
+
+    const uploadLimit = await checkFreeMonthlyPdfSaveLimit(params.userId);
+
+    if (!uploadLimit.ok) {
+      return finalizeFreeMonthlyLimit({
+        runId: params.runId,
+        userId: params.userId,
+      });
+    }
 
     const driveResult = await uploadPdfToDrive({
       userId: params.userId,
@@ -506,39 +537,26 @@ export async function executeRule(
 
     const savedCount = 1 + savedAttachmentCount;
 
-    const { error: processedInsertError } = await supabaseAdmin
-      .from("processed_emails")
-      .insert({
-        user_id: params.userId,
-        rule_id: rule.id,
-        gmail_message_id: messageId,
-        drive_file_id:
-          typeof driveResult === "object" &&
-          driveResult &&
-          "fileId" in driveResult
-            ? driveResult.fileId
-            : null,
-        drive_web_view_link:
-          typeof driveResult === "object" &&
-          driveResult &&
-          "webViewLink" in driveResult
-            ? driveResult.webViewLink
-            : null,
-        drive_file_name: filename,
-        saved_at: new Date().toISOString(),
+    try {
+      await recordProcessedEmail({
+        userId: params.userId,
+        ruleId: rule.id,
+        gmailMessageId: messageId,
+        drive: {
+          fileId: driveResult.fileId,
+          webViewLink: driveResult.webViewLink,
+          fileName: filename,
+        },
       });
-
-    if (processedInsertError) {
+    } catch {
       console.error("[executeRule] processed_emails insert failed:", {
         code: "PROCESSED_EMAIL_INSERT_FAILED",
-        dbCode:
-          typeof processedInsertError.code === "string"
-            ? processedInsertError.code
-            : undefined,
         location: "insert_processed_email",
       });
 
-      throw new Error("DB_INSERT_FAILED");
+      throw Object.assign(new Error("Processed email storage failed"), {
+        code: "DB_INSERT_FAILED",
+      });
     }
 
     const successMessage =
@@ -546,17 +564,17 @@ export async function executeRule(
         ? `Saved ${savedCount} files to Drive`
         : "Saved 1 PDF to Drive";
 
-    await supabaseAdmin
-      .from("runs")
-      .update({
+    await finalizeRunForUser({
+      runId: params.runId,
+      userId: params.userId,
+      finalization: {
         status: "success",
-        processed_count: 1,
-        saved_count: savedCount,
-        skipped_count: skippedAttachmentCount,
+        processedCount: 1,
+        savedCount,
+        skippedCount: skippedAttachmentCount,
         message: successMessage,
-        finished_at: new Date().toISOString(),
-      })
-      .eq("id", params.runId);
+      },
+    });
 
     await updateGoogleConnectionHealth({
       userId: params.userId,
@@ -576,7 +594,7 @@ export async function executeRule(
     console.error("[executeRule] failed", {
       code: errorCode,
       errorName: error instanceof Error ? error.name : "UnknownError",
-      location: "execute_rule",
+      stage: getSafeRunErrorStage(error),
     });
     const userFacing = getRunErrorMessage(errorCode);
 
@@ -586,15 +604,16 @@ export async function executeRule(
       ? `${userFacing.title}。${detail}`
       : userFacing.title;
 
-    await supabaseAdmin
-      .from("runs")
-      .update({
+    await finalizeRunForUser({
+      runId: params.runId,
+      userId: params.userId,
+      finalization: {
         status: "error",
-        error_code: errorCode,
+        errorCode,
+        resetCounts: false,
         message: safeMessage,
-        finished_at: new Date().toISOString(),
-      })
-      .eq("id", params.runId);
+      },
+    });
 
     if (SLACK_NOTIFY_ERROR_CODES.has(errorCode)) {
       try {
@@ -624,22 +643,17 @@ export async function executeRule(
 
     if (USER_NOTIFY_ERROR_CODES.has(errorCode)) {
       try {
-        const userEmail = await getUserEmail(params.userId);
-
-        if (userEmail) {
-          await notifyUser({
-            userId: params.userId,
-            userEmail,
-            ruleId: params.ruleId,
-            errorCode:
-              errorCode === "GOOGLE_TOKEN_INVALID"
-                ? "GOOGLE_TOKEN_INVALID"
-                : "GOOGLE_PERMISSION_DENIED",
-            message: safeMessage,
-            trigger: params.trigger,
-            occurredAt: new Date().toISOString(),
-          });
-        }
+        await notifyUser({
+          userId: params.userId,
+          ruleId: params.ruleId,
+          errorCode:
+            errorCode === "GOOGLE_TOKEN_INVALID"
+              ? "GOOGLE_TOKEN_INVALID"
+              : "GOOGLE_PERMISSION_DENIED",
+          message: safeMessage,
+          trigger: params.trigger,
+          occurredAt: new Date().toISOString(),
+        });
       } catch (notifyError) {
         console.error("[monitoring] User notify failed", {
           code: "USER_NOTIFY_FAILED",

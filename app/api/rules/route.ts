@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { resolveEffectivePlan } from "@/lib/billing/resolveEffectivePlan";
 import { normalizeFileNameFormatForPlan } from "@/lib/rules/fileNameFormat";
+import { createRuleForUser } from "@/lib/rules/ruleCreationRepository";
+import { normalizeRuleSubjectKeywords } from "@/lib/rules/ruleCreationRepositoryCore";
 
 const RULE_LIMIT_FREE = 3;
 
@@ -126,21 +128,22 @@ export async function POST(req: Request) {
     );
   }
 
-  const body = await req.json().catch(() => ({}));
+  const rawBody: unknown = await req.json().catch(() => ({}));
+  const body =
+    rawBody && typeof rawBody === "object"
+      ? (rawBody as Record<string, unknown>)
+      : {};
 
-  const drive_folder_id = String((body as any)?.drive_folder_id ?? "").trim();
-  const gmail_query = (body as any)?.gmail_query
-    ? String((body as any).gmail_query).trim()
-    : null;
-  const query_label = (body as any)?.query_label
-    ? String((body as any).query_label).trim()
-    : null;
-  const run_timing = (body as any)?.run_timing
-    ? String((body as any).run_timing).trim()
+  const drive_folder_id = String(body.drive_folder_id ?? "").trim();
+  const gmail_query = body.gmail_query ? String(body.gmail_query).trim() : null;
+  const query_label = body.query_label ? String(body.query_label).trim() : null;
+  const run_timing = body.run_timing
+    ? String(body.run_timing).trim()
     : "manual";
+  const subject_keywords = normalizeRuleSubjectKeywords(body.subject_keywords);
 
   const file_name_format = normalizeFileNameFormatForPlan(
-    (body as any)?.file_name_format,
+    body.file_name_format,
     plan,
   );
 
@@ -152,26 +155,21 @@ export async function POST(req: Request) {
     );
   }
 
-  const insertRow = {
-    user_id: user.id,
-    drive_folder_id,
-    gmail_query,
-    query_label,
-    subject_keywords: null,
-    file_name_format,
-    is_active: gmail_query ? Boolean((body as any)?.is_active) : false,
-    run_timing,
-  };
-
-  const { data, error } = await supabase
-    .from("rules")
-    .insert([insertRow])
-    .select(
-      "id, is_active, run_timing, drive_folder_id, gmail_query, query_label, file_name_format, updated_at",
-    )
-    .single();
-
-  if (error || !data) {
+  let data;
+  try {
+    data = await createRuleForUser({
+      userId: user.id,
+      values: {
+        driveFolderId: drive_folder_id,
+        gmailQuery: gmail_query,
+        queryLabel: query_label,
+        subjectKeywords: subject_keywords,
+        fileNameFormat: file_name_format,
+        isActive: gmail_query ? Boolean(body.is_active) : false,
+        runTiming: run_timing,
+      },
+    });
+  } catch {
     return errorResponse(
       500,
       "DB_INSERT_FAILED",

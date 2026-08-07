@@ -1,8 +1,13 @@
 // autopdf-web/src/lib/google/auth.ts
 import { google } from "googleapis";
-import { supabaseAdmin } from "@/lib/supabase/admin";
-import { decryptGoogleToken } from "@/lib/security/googleTokenCrypto";
-import { getGoogleTokenDecryptKey } from "@/lib/security/googleTokenKeyring";
+import { createGoogleAuthCore } from "@/lib/google/authCore";
+import {
+  createPlaintextGoogleToken,
+  loadGoogleTokenCredentials,
+  preflightGoogleTokenEncryptionWrite,
+  updateRefreshedGoogleAccessToken,
+} from "@/lib/google/tokenStore";
+import { GoogleTokenStoreError } from "@/lib/google/tokenStoreCore";
 
 type GoogleOAuthErrorCode =
   | "GOOGLE_CONNECTION_NOT_FOUND"
@@ -45,93 +50,95 @@ function getGoogleRefreshErrorCode(error: unknown): GoogleOAuthErrorCode {
 }
 
 export async function getOAuthClientForUser(userId: string) {
-  const { data, error } = await supabaseAdmin
-    .from("google_connections")
-    .select("access_token_enc, refresh_token_enc, updated_at")
-    .eq("user_id", userId)
-    .eq("status", "connected")
-    .order("updated_at", { ascending: false })
-    .limit(1);
+  let storedCredentials;
+  try {
+    storedCredentials = await loadGoogleTokenCredentials(userId);
+  } catch (error) {
+    if (
+      error instanceof GoogleTokenStoreError &&
+      error.code === "GOOGLE_TOKEN_ROW_NOT_FOUND"
+    ) {
+      throw new GoogleOAuthError("GOOGLE_CONNECTION_NOT_FOUND");
+    }
+    throw error;
+  }
 
-  if (error) throw error;
+  if (
+    !storedCredentials.exists() ||
+    storedCredentials.getStatus() !== "connected"
+  ) {
+    throw new GoogleOAuthError("GOOGLE_CONNECTION_NOT_FOUND");
+  }
 
-  const conn = data?.[0];
-  if (!conn) throw new GoogleOAuthError("GOOGLE_CONNECTION_NOT_FOUND");
-
-  const refreshToken = decryptGoogleToken({
-    token: String(conn.refresh_token_enc ?? "").trim(),
-    userId,
-    tokenType: "refresh",
-    resolveKey: getGoogleTokenDecryptKey,
-  });
-  const accessToken = decryptGoogleToken({
-    token: String(conn.access_token_enc ?? "").trim(),
-    userId,
-    tokenType: "access",
-    resolveKey: getGoogleTokenDecryptKey,
-  });
-
-  if (!refreshToken) {
+  if (!storedCredentials.getRefreshToken()) {
     throw new GoogleOAuthError("GOOGLE_REFRESH_TOKEN_MISSING");
   }
 
   const clientId = process.env.GOOGLE_CLIENT_ID ?? "";
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET ?? "";
   if (!clientId || !clientSecret) {
-    throw new Error(
-      "Missing GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET in runtime env",
-    );
+    throw new GoogleOAuthError("GOOGLE_TOKEN_REFRESH_FAILED");
   }
 
-  const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
+  const authCore = createGoogleAuthCore({
+    now: Date.now,
+    preflightEncryptionWrite: preflightGoogleTokenEncryptionWrite,
+    async refreshTokens(input) {
+      const refreshClient = new google.auth.OAuth2(clientId, clientSecret);
+      let refreshTokenFromEvent: string | undefined;
+      refreshClient.on("tokens", (tokens) => {
+        const candidate = tokens.refresh_token?.trim();
+        if (candidate) refreshTokenFromEvent = candidate;
+      });
+      refreshClient.setCredentials({
+        refresh_token: input.refreshToken,
+        ...(input.accessToken ? { access_token: input.accessToken } : {}),
+        expiry_date: 0,
+      });
 
-  // refresh_token は必須。access_token はあればセット。
-  oauth2Client.setCredentials({
-    refresh_token: refreshToken,
-    ...(accessToken ? { access_token: accessToken } : {}),
+      try {
+        const accessTokenResult = await refreshClient.getAccessToken();
+        const accessToken = accessTokenResult?.token?.trim() ?? "";
+        const expiryDate = refreshClient.credentials.expiry_date;
+
+        if (!accessToken || typeof expiryDate !== "number") {
+          throw new GoogleOAuthError("GOOGLE_TOKEN_REFRESH_FAILED");
+        }
+
+        const rotatedRefreshToken =
+          refreshTokenFromEvent ??
+          refreshClient.credentials.refresh_token?.trim() ??
+          "";
+
+        return {
+          accessToken: createPlaintextGoogleToken(accessToken),
+          ...(rotatedRefreshToken && rotatedRefreshToken !== input.refreshToken
+            ? {
+                refreshToken: createPlaintextGoogleToken(rotatedRefreshToken),
+              }
+            : {}),
+          tokenExpiryAt: new Date(expiryDate).toISOString(),
+        };
+      } catch (error) {
+        throw error instanceof GoogleOAuthError
+          ? error
+          : new GoogleOAuthError(getGoogleRefreshErrorCode(error));
+      }
+    },
+    updateRefreshedTokens: updateRefreshedGoogleAccessToken,
   });
 
-  // refresh を実行し、返ってきた access token を credentials に確実に反映
-  try {
-    const at = await oauth2Client.getAccessToken();
-    const newAccessToken = at?.token?.trim() ?? "";
-
-    if (!newAccessToken) {
-      throw new GoogleOAuthError("GOOGLE_TOKEN_REFRESH_FAILED");
-    }
-
-    oauth2Client.setCredentials({
-      refresh_token: refreshToken,
-      access_token: newAccessToken,
-    });
-
-    // DBにも保存（差分がある場合のみ）
-    if (newAccessToken !== accessToken) {
-      await supabaseAdmin
-        .from("google_connections")
-        .update({
-          access_token_enc: newAccessToken,
-          last_verified_at: new Date().toISOString(),
-        })
-        .eq("user_id", userId);
-    }
-
-    console.log("[google.auth] refresh succeeded", {
-      location: "oauth_access_token_refresh",
-    });
-  } catch (error) {
-    const safeError =
-      error instanceof GoogleOAuthError
-        ? error
-        : new GoogleOAuthError(getGoogleRefreshErrorCode(error));
-
-    console.error("[google.auth] refresh failed", {
-      code: safeError.code,
-      errorName: error instanceof Error ? error.name : "UnknownError",
-      location: "oauth_access_token_refresh",
-    });
-    throw safeError;
-  }
+  const credentials = await authCore.prepareCredentials(
+    userId,
+    storedCredentials,
+  );
+  const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
+  const tokenExpiryAt = credentials.getTokenExpiryAt();
+  oauth2Client.setCredentials({
+    access_token: credentials.getAccessToken() ?? undefined,
+    refresh_token: credentials.getRefreshToken() ?? undefined,
+    expiry_date: tokenExpiryAt ? Date.parse(tokenExpiryAt) : undefined,
+  });
 
   return oauth2Client;
 }

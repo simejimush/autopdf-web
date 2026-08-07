@@ -1,19 +1,40 @@
 //app\api\google\callback\route.ts
 
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { google } from "googleapis";
+import {
+  getGoogleOAuthStateCookieOptions,
+  GOOGLE_OAUTH_STATE_COOKIE_NAME,
+  validateGoogleOAuthState,
+} from "@/lib/google/oauthStateCore";
+import {
+  createPlaintextGoogleToken,
+  loadGoogleCallbackConnectionSnapshot,
+  preflightGoogleTokenEncryptionWrite,
+  recordGoogleCredentialValidationFailure,
+  saveGoogleCallbackConnection,
+} from "@/lib/google/tokenStore";
+
+function redirectWithConsumedOAuthState(path: string, requestUrl: URL) {
+  const response = NextResponse.redirect(new URL(path, requestUrl.origin));
+  response.cookies.set(
+    GOOGLE_OAUTH_STATE_COOKIE_NAME,
+    "",
+    getGoogleOAuthStateCookieOptions({
+      secure: requestUrl.protocol === "https:",
+      consumed: true,
+    }),
+  );
+  return response;
+}
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
-
-  if (!code) {
-    return NextResponse.redirect(
-      new URL("/settings?google=missing", url.origin),
-    );
-  }
+  const providerError = url.searchParams.get("error");
 
   const supabase = await createSupabaseServerClient();
   const {
@@ -22,14 +43,7 @@ export async function GET(req: Request) {
   } = await supabase.auth.getUser();
 
   if (userErr || !user) {
-    return NextResponse.redirect(new URL("/login", url.origin));
-  }
-
-  // 最低限の state 検証
-  if (!state || state !== user.id) {
-    return NextResponse.redirect(
-      new URL("/settings?google=state_invalid", url.origin),
-    );
+    return redirectWithConsumedOAuthState("/login", url);
   }
 
   const clientId = process.env.GOOGLE_CLIENT_ID ?? "";
@@ -42,9 +56,65 @@ export async function GET(req: Request) {
       hasClientSecret: !!clientSecret,
       hasRedirectUri: !!redirectUri,
     });
-    return NextResponse.redirect(
-      new URL("/settings?google=env_missing", url.origin),
+    return redirectWithConsumedOAuthState("/settings?google=env_missing", url);
+  }
+
+  const cookieStore = await cookies();
+  const codeVerifier = validateGoogleOAuthState({
+    state,
+    cookieValue: cookieStore.get(GOOGLE_OAUTH_STATE_COOKIE_NAME)?.value ?? null,
+    userId: user.id,
+    redirectUri,
+    signingSecret: clientSecret,
+  });
+
+  if (!codeVerifier) {
+    return redirectWithConsumedOAuthState(
+      "/settings?google=state_invalid",
+      url,
     );
+  }
+
+  if (providerError) {
+    const reason =
+      providerError === "access_denied" ? providerError : "oauth_error";
+    return redirectWithConsumedOAuthState(
+      `/settings?google=${encodeURIComponent(reason)}`,
+      url,
+    );
+  }
+
+  if (!code) {
+    return redirectWithConsumedOAuthState("/settings?google=missing", url);
+  }
+
+  try {
+    preflightGoogleTokenEncryptionWrite();
+  } catch {
+    console.error("[google.callback] token write preflight failed", {
+      code: "GOOGLE_TOKEN_WRITE_PREFLIGHT_FAILED",
+      location: "oauth_callback_preflight",
+    });
+    return redirectWithConsumedOAuthState("/settings?google=env_missing", url);
+  }
+
+  let callbackSnapshot;
+  try {
+    callbackSnapshot = await loadGoogleCallbackConnectionSnapshot(user.id);
+  } catch {
+    console.error("[google.callback] failed to load existing connection", {
+      code: "GOOGLE_CONNECTION_LOAD_FAILED",
+      location: "load_existing_google_connection",
+    });
+    return redirectWithConsumedOAuthState("/settings?google=load_failed", url);
+  }
+  const callbackCredentialVersion = callbackSnapshot.getCredentialVersion();
+  if (callbackSnapshot.exists() && callbackCredentialVersion === null) {
+    console.error("[google.callback] invalid connection version", {
+      code: "GOOGLE_CONNECTION_LOAD_FAILED",
+      location: "load_existing_google_connection",
+    });
+    return redirectWithConsumedOAuthState("/settings?google=load_failed", url);
   }
 
   try {
@@ -57,6 +127,7 @@ export async function GET(req: Request) {
         client_secret: clientSecret,
         redirect_uri: redirectUri,
         grant_type: "authorization_code",
+        code_verifier: codeVerifier,
       }),
     });
 
@@ -69,11 +140,13 @@ export async function GET(req: Request) {
         location: "oauth_token_exchange",
       });
 
-      const reason =
-        typeof token?.error === "string" ? token.error : "token_failed";
+      const reason = ["access_denied", "invalid_grant"].includes(token?.error)
+        ? token.error
+        : "token_failed";
 
-      return NextResponse.redirect(
-        new URL(`/settings?google=${encodeURIComponent(reason)}`, url.origin),
+      return redirectWithConsumedOAuthState(
+        `/settings?google=${encodeURIComponent(reason)}`,
+        url,
       );
     }
 
@@ -84,31 +157,27 @@ export async function GET(req: Request) {
       ? new Date(Date.now() + expiresIn * 1000).toISOString()
       : null;
 
-    // 既存接続を取得して refresh_token を維持する
-    const { data: existingConnection, error: existingErr } = await supabase
-      .from("google_connections")
-      .select("refresh_token_enc")
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    if (existingErr) {
-      console.error("[google.callback] failed to load existing connection", {
-        code: "GOOGLE_CONNECTION_LOAD_FAILED",
-        dbCode:
-          typeof existingErr.code === "string" ? existingErr.code : undefined,
-        location: "load_existing_google_connection",
-      });
-      return NextResponse.redirect(
-        new URL("/settings?google=load_failed", url.origin),
-      );
-    }
-
-    const refreshTokenToSave =
-      token.refresh_token ?? existingConnection?.refresh_token_enc ?? null;
-
+    const refreshTokenFromExchange = token?.refresh_token;
     const now = new Date().toISOString();
+    let verifiedAccessToken;
+    let refreshTokenToSave = callbackSnapshot.getRefreshToken();
+    let validatedRefreshToken = refreshTokenToSave;
+    let verifiedExpiryAt = tokenExpiryAt;
 
     try {
+      if (
+        refreshTokenFromExchange !== undefined &&
+        refreshTokenFromExchange !== null
+      ) {
+        if (typeof refreshTokenFromExchange !== "string") {
+          throw new Error("invalid_refresh_token");
+        }
+        refreshTokenToSave = createPlaintextGoogleToken(
+          refreshTokenFromExchange,
+        );
+        validatedRefreshToken = refreshTokenToSave;
+      }
+
       if (!refreshTokenToSave) {
         throw new Error("missing_refresh_token");
       }
@@ -119,106 +188,110 @@ export async function GET(req: Request) {
         redirectUri,
       );
 
+      oauth2Client.on("tokens", (tokens) => {
+        const candidate = tokens.refresh_token?.trim();
+        if (candidate) {
+          validatedRefreshToken = createPlaintextGoogleToken(candidate);
+        }
+      });
+
       oauth2Client.setCredentials({
         refresh_token: refreshTokenToSave,
       });
 
       const accessTokenResult = await oauth2Client.getAccessToken();
-      const verifiedAccessToken = accessTokenResult?.token?.trim() ?? "";
+      const accessToken = accessTokenResult?.token?.trim() ?? "";
 
-      if (!verifiedAccessToken) {
+      if (!accessToken) {
         throw new Error("missing_access_token");
       }
 
-      if (!token.access_token) {
-        token.access_token = verifiedAccessToken;
+      verifiedAccessToken = createPlaintextGoogleToken(accessToken);
+      if (typeof oauth2Client.credentials.expiry_date === "number") {
+        verifiedExpiryAt = new Date(
+          oauth2Client.credentials.expiry_date,
+        ).toISOString();
       }
-    } catch (verifyErr) {
+    } catch {
       console.error("[google.callback] token validation failed", {
-        userId: user.id,
         reason: "oauth_access_token_check_failed",
-        errorName: verifyErr instanceof Error ? verifyErr.name : "unknown",
       });
 
-      const { error: markErr } = await supabase
-        .from("google_connections")
-        .upsert(
-          {
-            user_id: user.id,
-            status: "error",
-            reauth_required: true,
-            last_error_code: "GOOGLE_TOKEN_INVALID",
-            last_error_at: now,
-            updated_at: now,
-          },
-          { onConflict: "user_id" },
-        );
-
-      if (markErr) {
+      try {
+        await recordGoogleCredentialValidationFailure({
+          userId: user.id,
+          writeMode: callbackSnapshot.exists() ? "update" : "insert",
+          ...(callbackSnapshot.exists()
+            ? {
+                expectedStatus: callbackSnapshot.getStatus(),
+                expectedCredentialVersion: callbackCredentialVersion!,
+              }
+            : {}),
+        });
+      } catch {
         console.error("[google.callback] failed to mark token invalid", {
           code: "GOOGLE_CONNECTION_HEALTH_UPDATE_FAILED",
-          dbCode:
-            typeof markErr.code === "string" ? markErr.code : undefined,
           location: "mark_google_token_invalid",
         });
       }
 
-      return NextResponse.redirect(
-        new URL("/settings?google=token_invalid", url.origin),
+      return redirectWithConsumedOAuthState(
+        "/settings?google=token_invalid",
+        url,
       );
     }
 
-    const payload: Record<string, unknown> = {
-      user_id: user.id,
-      status: "connected",
-      access_token_enc: token.access_token ?? null,
-      refresh_token_enc: refreshTokenToSave,
-      token_expiry_at: tokenExpiryAt,
-      last_verified_at: now,
-      scopes: token.scope ?? null,
-      reauth_required: false,
-      last_error_code: null,
-      last_error_at: null,
-      last_user_notified_at: null,
-      last_user_notified_error_code: null,
-      updated_at: now,
-    };
+    if (!validatedRefreshToken) {
+      return redirectWithConsumedOAuthState(
+        "/settings?google=token_invalid",
+        url,
+      );
+    }
 
-    // ここ重要:
-    // google_connections テーブルに接続エラー系カラムがあるなら、
-    // 再接続成功時に必ずクリアする
-    // 例:
-    // payload.last_error_code = null;
-    // payload.last_error_message = null;
-    // payload.needs_reconnect = false;
-
-    const { error: saveErr } = await supabase
-      .from("google_connections")
-      .upsert(payload, { onConflict: "user_id" });
-
-    if (saveErr) {
+    try {
+      await saveGoogleCallbackConnection({
+        userId: user.id,
+        writeMode: callbackSnapshot.exists() ? "update" : "insert",
+        accessToken: verifiedAccessToken,
+        refreshToken: { mode: "update", token: validatedRefreshToken },
+        ...(callbackSnapshot.exists()
+          ? {
+              expectedStatus: callbackSnapshot.getStatus(),
+              expectedCredentialVersion: callbackCredentialVersion!,
+            }
+          : {}),
+        state: {
+          tokenExpiryAt: verifiedExpiryAt,
+          scopes:
+            typeof token?.scope === "string"
+              ? token.scope
+              : callbackSnapshot.getScopes(),
+          lastVerifiedAt: now,
+          lastUserNotifiedAt: null,
+          lastUserNotifiedErrorCode: null,
+          updatedAt: now,
+        },
+      });
+    } catch {
       console.error("[google.callback] failed to save connection", {
         code: "GOOGLE_CONNECTION_SAVE_FAILED",
-        dbCode:
-          typeof saveErr.code === "string" ? saveErr.code : undefined,
         location: "save_google_connection",
       });
-      return NextResponse.redirect(
-        new URL("/settings?google=save_failed", url.origin),
+      return redirectWithConsumedOAuthState(
+        "/settings?google=save_failed",
+        url,
       );
     }
 
-    return NextResponse.redirect(
-      new URL("/settings?google=connected", url.origin),
-    );
-  } catch (error) {
+    return redirectWithConsumedOAuthState("/settings?google=connected", url);
+  } catch {
     console.error("[google.callback] unexpected error", {
       code: "GOOGLE_CALLBACK_FAILED",
-      errorName: error instanceof Error ? error.name : "UnknownError",
       location: "oauth_callback",
     });
-    return NextResponse.redirect(
-      new URL("/settings?google=callback_exception", url.origin),
+    return redirectWithConsumedOAuthState(
+      "/settings?google=callback_exception",
+      url,
     );
   }
 }

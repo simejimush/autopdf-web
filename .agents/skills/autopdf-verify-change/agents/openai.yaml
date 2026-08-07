@@ -1,0 +1,7 @@
+﻿interface:
+  display_name: "AutoPDF Change Verification"
+  short_description: "AutoPDFの変更範囲から必要十分な検証を選択して実行"
+  default_prompt: "Use $autopdf-verify-change to select and run the right checks for this AutoPDF change."
+
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,7 @@
+﻿interface:
+  display_name: "AutoPDF Vercel Preview Verification"
+  short_description: "AutoPDFのPreviewデプロイを本番と分離して安全確認"
+  default_prompt: "Use $autopdf-verify-vercel-preview after push approval to verify the AutoPDF Preview deployment."
+
+policy:
+  allow_implicit_invocation: true

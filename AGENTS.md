@@ -221,3 +221,21 @@
 ## 4. 安全な変更を優先
 
 「動く可能性」より「壊れない確実性」を優先する
+
+---
+
+# Codex workflow Skills
+
+`AGENTS.md`、`docs/quality-rules.md`、`docs/dev-rules.md` はAutoPDF固有ルールの正本とする。Skillsはルールを置き換えず、繰り返す作業手順だけを定型化する。矛盾時は本ファイルと必須docsを優先する。
+
+- 実装・修正・test追加・開発文書変更: `$autopdf-safe-development`
+- 変更範囲に応じた検証選択: `$autopdf-verify-change`
+- 明示的なpush承認後のVercel Preview確認: `$autopdf-verify-vercel-preview`
+
+通常のrepository内変更は、承認不要範囲なら調査、最小修正、再検証、1目的commitまで自律実行する。push、Production、外部write、DB write、migration apply、依存関係変更、secret/env変更、ファイル削除、権限追加は、現在の依頼による明示承認がない限り実行しない。
+
+## Code Review Rules
+
+- 認証、`user_id`、所有権確認、RLSを弱め、他ユーザーのデータへ到達し得る変更を重大問題として指摘する。
+- token、secret、個人情報、raw provider errorをログ、API、UIへ露出する変更を重大問題として指摘する。
+- 重要処理で`runs`または`error_code`契約を失う変更、および通知の二次障害が本処理を失敗させる変更を指摘する。
