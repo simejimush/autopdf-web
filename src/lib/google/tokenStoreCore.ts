@@ -8,6 +8,7 @@ declare const plaintextGoogleTokenBrand: unique symbol;
 declare const encryptedGoogleTokenBrand: unique symbol;
 declare const googleUserIdBrand: unique symbol;
 declare const googleCredentialVersionBrand: unique symbol;
+declare const googleRefreshLeaseIdHashBrand: unique symbol;
 
 export type PlaintextGoogleToken = string & {
   readonly [plaintextGoogleTokenBrand]: true;
@@ -25,12 +26,22 @@ export type GoogleCredentialVersion = string & {
   readonly [googleCredentialVersionBrand]: true;
 };
 
+export type GoogleRefreshLeaseIdHash = string & {
+  readonly [googleRefreshLeaseIdHashBrand]: true;
+};
+
+export type GoogleRefreshLeaseHandle = Readonly<{
+  getIdHash(): GoogleRefreshLeaseIdHash;
+  toJSON(): never;
+}>;
+
 export type GoogleTokenStoreErrorCode =
   | "GOOGLE_TOKEN_INPUT_INVALID"
   | "GOOGLE_TOKEN_ENCRYPT_FAILED"
   | "GOOGLE_TOKEN_WRITE_DISABLED"
   | "GOOGLE_TOKEN_STORE_FAILED"
   | "GOOGLE_TOKEN_UPDATE_CONFLICT"
+  | "GOOGLE_TOKEN_REFRESH_IN_PROGRESS"
   | "GOOGLE_TOKEN_ROW_NOT_FOUND"
   | "GOOGLE_TOKEN_ROW_DUPLICATE";
 
@@ -40,6 +51,7 @@ const SAFE_ERROR_MESSAGES: Record<GoogleTokenStoreErrorCode, string> = {
   GOOGLE_TOKEN_WRITE_DISABLED: "Google token encryption writes are disabled",
   GOOGLE_TOKEN_STORE_FAILED: "Google token storage failed",
   GOOGLE_TOKEN_UPDATE_CONFLICT: "Google token storage update conflicted",
+  GOOGLE_TOKEN_REFRESH_IN_PROGRESS: "Google token refresh is in progress",
   GOOGLE_TOKEN_ROW_NOT_FOUND: "Google token row was not found",
   GOOGLE_TOKEN_ROW_DUPLICATE: "Multiple Google token rows were found",
 };
@@ -47,6 +59,7 @@ const SAFE_ERROR_MESSAGES: Record<GoogleTokenStoreErrorCode, string> = {
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CREDENTIAL_VERSION_PATTERN = /^(0|[1-9][0-9]*)$/;
+const REFRESH_LEASE_ID_HASH_PATTERN = /^[0-9a-f]{64}$/;
 const MAX_POSTGRES_BIGINT = BigInt("9223372036854775807");
 
 export const GOOGLE_TOKEN_CREDENTIAL_COLUMNS = Object.freeze([
@@ -98,6 +111,8 @@ export type GoogleConnectionWritePayload = Readonly<{
   last_user_notified_error_code?: string | null;
   updated_at?: string;
   credential_version?: GoogleCredentialVersion;
+  refresh_lease_id_hash?: GoogleRefreshLeaseIdHash | null;
+  refresh_lease_expires_at?: string | null;
 }>;
 
 type RepositorySelectResult =
@@ -130,6 +145,15 @@ export type GoogleTokenRepository = Readonly<{
       expectedStatus: string | null;
       expectedCredentialVersion: GoogleCredentialVersion;
       payload: GoogleConnectionWritePayload;
+      expectedRefreshLeaseIdHash?: GoogleRefreshLeaseIdHash;
+    }>,
+  ): Promise<RepositoryWriteResult>;
+  claimGoogleCredentialRefreshLease(
+    input: Readonly<{
+      userId: GoogleUserId;
+      expectedStatus: string | null;
+      expectedCredentialVersion: GoogleCredentialVersion;
+      leaseIdHash: GoogleRefreshLeaseIdHash;
     }>,
   ): Promise<RepositoryWriteResult>;
 }>;
@@ -177,6 +201,7 @@ export type SaveGoogleCallbackConnectionInput = Readonly<{
   state: GoogleCallbackConnectionState;
   expectedStatus?: string | null;
   expectedCredentialVersion?: GoogleCredentialVersion;
+  refreshLeaseIdHash?: GoogleRefreshLeaseIdHash;
 }>;
 
 export type UpdateRefreshedGoogleAccessTokenInput = Readonly<{
@@ -187,6 +212,7 @@ export type UpdateRefreshedGoogleAccessTokenInput = Readonly<{
   lastVerifiedAt: string;
   updatedAt: string;
   expectedCredentialVersion: GoogleCredentialVersion;
+  refreshLeaseIdHash: GoogleRefreshLeaseIdHash;
 }>;
 
 export type RecordGoogleCredentialValidationFailureInput = Readonly<{
@@ -194,6 +220,28 @@ export type RecordGoogleCredentialValidationFailureInput = Readonly<{
   writeMode: "insert" | "update";
   expectedStatus?: string | null;
   expectedCredentialVersion?: GoogleCredentialVersion;
+  refreshLeaseIdHash?: GoogleRefreshLeaseIdHash;
+}>;
+
+export type ClaimGoogleCredentialRefreshLeaseInput = Readonly<{
+  userId: string;
+  expectedStatus: string | null;
+  expectedCredentialVersion: GoogleCredentialVersion;
+  leaseIdHash: GoogleRefreshLeaseIdHash;
+}>;
+
+export type ReleaseGoogleCredentialRefreshLeaseInput = Readonly<{
+  userId: string;
+  expectedStatus: string | null;
+  expectedCredentialVersion: GoogleCredentialVersion;
+  leaseIdHash: GoogleRefreshLeaseIdHash;
+}>;
+
+export type DisconnectGoogleConnectionInput = Readonly<{
+  userId: string;
+  expectedStatus: string | null;
+  expectedCredentialVersion: GoogleCredentialVersion;
+  refreshLeaseIdHash: GoogleRefreshLeaseIdHash;
 }>;
 
 export type GoogleTokenCredentialHandle = Readonly<{
@@ -396,6 +444,16 @@ export function createGoogleCredentialVersion(
   }
 
   return normalized as GoogleCredentialVersion;
+}
+
+export function createGoogleRefreshLeaseIdHash(
+  value: string,
+): GoogleRefreshLeaseIdHash {
+  if (!REFRESH_LEASE_ID_HASH_PATTERN.test(value)) {
+    fail("GOOGLE_TOKEN_INPUT_INVALID");
+  }
+
+  return value as GoogleRefreshLeaseIdHash;
 }
 
 function nextCredentialVersion(
@@ -671,7 +729,8 @@ export function createGoogleTokenStore(
     if (
       input.writeMode === "update" &&
       (input.expectedCredentialVersion === undefined ||
-        input.expectedStatus === undefined)
+        input.expectedStatus === undefined ||
+        input.refreshLeaseIdHash === undefined)
     ) {
       fail("GOOGLE_TOKEN_INPUT_INVALID");
     }
@@ -716,6 +775,9 @@ export function createGoogleTokenStore(
       last_user_notified_error_code: input.state.lastUserNotifiedErrorCode,
       updated_at: input.state.updatedAt,
       credential_version: nextVersion,
+      ...(input.writeMode === "update"
+        ? { refresh_lease_id_hash: null, refresh_lease_expires_at: null }
+        : {}),
     });
 
     const result =
@@ -725,6 +787,7 @@ export function createGoogleTokenStore(
             userId,
             expectedStatus: input.expectedStatus!,
             expectedCredentialVersion: input.expectedCredentialVersion!,
+            expectedRefreshLeaseIdHash: input.refreshLeaseIdHash!,
             payload,
           });
 
@@ -759,11 +822,14 @@ export function createGoogleTokenStore(
       last_verified_at: input.lastVerifiedAt,
       updated_at: input.updatedAt,
       credential_version: nextVersion,
+      refresh_lease_id_hash: null,
+      refresh_lease_expires_at: null,
     });
     const result = await repository.updateConnectionByCredentialVersion({
       userId,
       expectedStatus: "connected",
       expectedCredentialVersion: input.expectedCredentialVersion,
+      expectedRefreshLeaseIdHash: input.refreshLeaseIdHash,
       payload,
     });
 
@@ -781,7 +847,8 @@ export function createGoogleTokenStore(
     if (
       input.writeMode === "update" &&
       (input.expectedCredentialVersion === undefined ||
-        input.expectedStatus === undefined)
+        input.expectedStatus === undefined ||
+        input.refreshLeaseIdHash === undefined)
     ) {
       fail("GOOGLE_TOKEN_INPUT_INVALID");
     }
@@ -797,6 +864,9 @@ export function createGoogleTokenStore(
       last_error_at: timestamp,
       updated_at: timestamp,
       credential_version: nextVersion,
+      ...(input.writeMode === "update"
+        ? { refresh_lease_id_hash: null, refresh_lease_expires_at: null }
+        : {}),
     });
     const result =
       input.writeMode === "insert"
@@ -805,24 +875,19 @@ export function createGoogleTokenStore(
             userId,
             expectedStatus: input.expectedStatus!,
             expectedCredentialVersion: input.expectedCredentialVersion!,
+            expectedRefreshLeaseIdHash: input.refreshLeaseIdHash!,
             payload,
           });
 
     assertSingleWrite(result, nextVersion);
   }
 
-  async function disconnectGoogleConnection(rawUserId: string): Promise<void> {
-    const userId = validateUserId(rawUserId);
-    const snapshot = await loadGoogleCallbackConnectionSnapshot(rawUserId);
-    if (!snapshot.exists() || snapshot.getCredentialVersion() === null) {
-      fail("GOOGLE_TOKEN_ROW_NOT_FOUND");
-    }
+  async function disconnectGoogleConnection(
+    input: DisconnectGoogleConnectionInput,
+  ): Promise<void> {
+    const userId = validateUserId(input.userId);
     const timestamp = now();
-    const expectedCredentialVersion = snapshot.getCredentialVersion();
-    if (expectedCredentialVersion === null) {
-      fail("GOOGLE_TOKEN_STORE_FAILED");
-    }
-    const nextVersion = nextCredentialVersion(expectedCredentialVersion);
+    const nextVersion = nextCredentialVersion(input.expectedCredentialVersion);
     const payload: GoogleConnectionWritePayload = Object.freeze({
       access_token_enc: null,
       refresh_token_enc: null,
@@ -835,15 +900,48 @@ export function createGoogleTokenStore(
       last_error_at: null,
       updated_at: timestamp,
       credential_version: nextVersion,
+      refresh_lease_id_hash: null,
+      refresh_lease_expires_at: null,
     });
     const result = await repository.updateConnectionByCredentialVersion({
       userId,
-      expectedStatus: snapshot.getStatus(),
-      expectedCredentialVersion,
+      expectedStatus: input.expectedStatus,
+      expectedCredentialVersion: input.expectedCredentialVersion,
+      expectedRefreshLeaseIdHash: input.refreshLeaseIdHash,
       payload,
     });
 
     assertSingleWrite(result, nextVersion);
+  }
+
+  async function claimGoogleCredentialRefreshLease(
+    input: ClaimGoogleCredentialRefreshLeaseInput,
+  ): Promise<void> {
+    const userId = validateUserId(input.userId);
+    const result = await repository.claimGoogleCredentialRefreshLease({
+      userId,
+      expectedStatus: input.expectedStatus,
+      expectedCredentialVersion: input.expectedCredentialVersion,
+      leaseIdHash: input.leaseIdHash,
+    });
+    assertSingleWrite(result, input.expectedCredentialVersion);
+  }
+
+  async function releaseGoogleCredentialRefreshLease(
+    input: ReleaseGoogleCredentialRefreshLeaseInput,
+  ): Promise<void> {
+    const userId = validateUserId(input.userId);
+    const result = await repository.updateConnectionByCredentialVersion({
+      userId,
+      expectedStatus: input.expectedStatus,
+      expectedCredentialVersion: input.expectedCredentialVersion,
+      expectedRefreshLeaseIdHash: input.leaseIdHash,
+      payload: {
+        refresh_lease_id_hash: null,
+        refresh_lease_expires_at: null,
+      },
+    });
+    assertSingleWrite(result, input.expectedCredentialVersion);
   }
 
   return Object.freeze({
@@ -854,5 +952,7 @@ export function createGoogleTokenStore(
     updateRefreshedGoogleAccessToken,
     recordGoogleCredentialValidationFailure,
     disconnectGoogleConnection,
+    claimGoogleCredentialRefreshLease,
+    releaseGoogleCredentialRefreshLease,
   });
 }

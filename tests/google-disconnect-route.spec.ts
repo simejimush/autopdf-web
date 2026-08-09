@@ -4,6 +4,7 @@ import { runInNewContext } from "node:vm";
 import { expect, test } from "@playwright/test";
 import { NextResponse } from "next/server";
 import ts from "typescript";
+import { GoogleTokenStoreError } from "../src/lib/google/tokenStoreCore";
 
 const ROUTE_PATH = resolve(process.cwd(), "app/api/google/disconnect/route.ts");
 const USER_ID = "44444444-4444-4444-8444-444444444444";
@@ -57,6 +58,9 @@ function loadRoute(options?: {
         },
       };
     }
+    if (specifier === "@/lib/google/tokenStoreCore") {
+      return { GoogleTokenStoreError };
+    }
     throw new Error(`Unexpected dependency: ${specifier}`);
   };
 
@@ -105,6 +109,21 @@ test("disconnect failure is fixed and does not expose raw DB details", async () 
     "https://app.example.test/settings?google=disconnect_failed",
   );
   expect(await response.clone().text()).not.toContain(secret);
+  expect(route.calls.disconnect).toEqual([USER_ID]);
+});
+
+test("active refresh returns a dedicated safe retry signal", async () => {
+  const route = loadRoute({
+    user: { id: USER_ID },
+    disconnectError: new GoogleTokenStoreError(
+      "GOOGLE_TOKEN_REFRESH_IN_PROGRESS",
+    ),
+  });
+  const response = await route.POST();
+
+  expect(response.headers.get("location")).toBe(
+    "https://app.example.test/settings?google=refresh_in_progress",
+  );
   expect(route.calls.disconnect).toEqual([USER_ID]);
 });
 

@@ -7,6 +7,7 @@ import {
 import {
   createGoogleTokenCredentialHandle,
   createGoogleCredentialVersion,
+  createGoogleRefreshLeaseIdHash,
   createPlaintextGoogleToken,
   GoogleTokenStoreError,
   type GoogleTokenCredentials,
@@ -18,6 +19,13 @@ const NOW_MS = Date.parse("2026-08-01T00:00:00.000Z");
 const REFRESHED_EXPIRY = "2026-08-01T01:00:00.000Z";
 const VERSION_0 = createGoogleCredentialVersion(0);
 const VERSION_1 = createGoogleCredentialVersion(1);
+const LEASE_HASH = createGoogleRefreshLeaseIdHash("a".repeat(64));
+const LEASE = Object.freeze({
+  getIdHash: () => LEASE_HASH,
+  toJSON: (): never => {
+    throw new Error("lease serialization forbidden");
+  },
+});
 
 function credentials(input?: {
   accessToken?: string | null;
@@ -48,6 +56,8 @@ function harness(options?: {
   updateError?: Error;
 }) {
   const calls = {
+    claims: 0,
+    releases: 0,
     preflight: 0,
     refresh: 0,
     updates: [] as UpdateRefreshedGoogleAccessTokenInput[],
@@ -57,6 +67,13 @@ function harness(options?: {
     preflightEncryptionWrite() {
       calls.preflight += 1;
       if (options?.preflightError) throw options.preflightError;
+    },
+    async claimRefreshLease() {
+      calls.claims += 1;
+      return LEASE;
+    },
+    async releaseRefreshLease() {
+      calls.releases += 1;
     },
     async refreshTokens() {
       calls.refresh += 1;
@@ -85,7 +102,13 @@ test("usable access token returns the same safe handle without side effects", as
   const result = await core.prepareCredentials(USER_ID, original);
 
   expect(result).toBe(original);
-  expect(calls).toEqual({ preflight: 0, refresh: 0, updates: [] });
+  expect(calls).toEqual({
+    claims: 0,
+    releases: 0,
+    preflight: 0,
+    refresh: 0,
+    updates: [],
+  });
 });
 
 test("missing, invalid, and eagerly expiring access credentials refresh", async () => {
@@ -119,7 +142,13 @@ test("missing refresh token and invalid user fail before external work", async (
     await expect(core.prepareCredentials(userId, input)).rejects.toMatchObject({
       code: "GOOGLE_TOKEN_INPUT_INVALID",
     });
-    expect(calls).toEqual({ preflight: 0, refresh: 0, updates: [] });
+    expect(calls).toEqual({
+      claims: 0,
+      releases: 0,
+      preflight: 0,
+      refresh: 0,
+      updates: [],
+    });
   }
 });
 
@@ -130,6 +159,8 @@ test("invalid injected current time fails before refresh", async () => {
     preflightEncryptionWrite: () => {
       calls.preflight += 1;
     },
+    claimRefreshLease: async () => LEASE,
+    releaseRefreshLease: async () => undefined,
     refreshTokens: async () => {
       calls.refresh += 1;
       throw new Error("unexpected refresh");
@@ -248,4 +279,33 @@ test("auth Core fixed errors never include credential values", async () => {
   expect(captured).toBeInstanceOf(GoogleTokenStoreError);
   expect((captured as Error).message).not.toContain(secretAccess);
   expect((captured as Error).message).not.toContain(secretRefresh);
+});
+
+test("refreshCredentialsOnce forces exactly one refresh even with a usable access token", async () => {
+  const { core, calls } = harness();
+
+  const result = await core.refreshCredentialsOnce(USER_ID, credentials());
+
+  expect(result.refreshTokenRotated).toBe(false);
+  expect(result.credentials.getCredentialVersion()).toBe(VERSION_1);
+  expect(calls.preflight).toBe(1);
+  expect(calls.refresh).toBe(1);
+  expect(calls.updates).toHaveLength(1);
+  expect(calls.updates[0].expectedCredentialVersion).toBe(VERSION_0);
+});
+
+test("refreshCredentialsOnce reports refresh rotation without exposing token values", async () => {
+  const { core, calls } = harness({
+    refreshed: {
+      accessToken: createPlaintextGoogleToken("rotated-access"),
+      refreshToken: createPlaintextGoogleToken("rotated-refresh"),
+      tokenExpiryAt: REFRESHED_EXPIRY,
+    },
+  });
+
+  const result = await core.refreshCredentialsOnce(USER_ID, credentials());
+
+  expect(result.refreshTokenRotated).toBe(true);
+  expect(calls.refresh).toBe(1);
+  expect(calls.updates).toHaveLength(1);
 });

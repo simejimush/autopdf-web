@@ -1,10 +1,14 @@
 import "server-only";
 
+import { createHash, randomBytes } from "node:crypto";
+
 import {
   createGoogleTokenEncryptionWritePreflight,
   createGoogleTokenStore,
   createGoogleCredentialVersion,
+  createGoogleRefreshLeaseIdHash,
   createPlaintextGoogleToken,
+  GoogleTokenStoreError,
   type GoogleTokenCryptoAdapter,
 } from "@/lib/google/tokenStoreCore";
 import {
@@ -19,6 +23,9 @@ import {
   getCurrentGoogleTokenKey,
   getGoogleTokenDecryptKey,
 } from "@/lib/security/googleTokenKeyring";
+
+export const GOOGLE_REFRESH_LEASE_TTL_SECONDS = 90;
+export const GOOGLE_REFRESH_LEASE_SECRET_BYTES = 32;
 
 const repository = createGoogleTokenRepository(async () => {
   const { supabaseAdmin } = await import("@/lib/supabase/admin");
@@ -72,7 +79,74 @@ export type {
   RecordGoogleCredentialValidationFailureInput,
   SaveGoogleCallbackConnectionInput,
   UpdateRefreshedGoogleAccessTokenInput,
+  GoogleRefreshLeaseIdHash,
+  GoogleRefreshLeaseHandle,
 } from "@/lib/google/tokenStoreCore";
+
+function createRefreshLeaseHandle(): import("@/lib/google/tokenStoreCore").GoogleRefreshLeaseHandle {
+  const rawLeaseSecret = randomBytes(GOOGLE_REFRESH_LEASE_SECRET_BYTES);
+  const handle = Object.create(Object.prototype) as Record<
+    PropertyKey,
+    unknown
+  >;
+  Object.defineProperties(handle, {
+    getIdHash: {
+      value: () =>
+        createGoogleRefreshLeaseIdHash(
+          createHash("sha256").update(rawLeaseSecret).digest("hex"),
+        ),
+      enumerable: false,
+    },
+    toJSON: {
+      value: (): never => {
+        throw new Error("Google refresh lease cannot be serialized");
+      },
+      enumerable: false,
+    },
+    toString: {
+      value: () => "[GoogleRefreshLeaseHandle]",
+      enumerable: false,
+    },
+  });
+  return Object.freeze(
+    handle,
+  ) as import("@/lib/google/tokenStoreCore").GoogleRefreshLeaseHandle;
+}
+
+export async function claimGoogleCredentialRefreshLease(
+  input: Readonly<{
+    userId: string;
+    expectedStatus?: string | null;
+    expectedCredentialVersion: import("@/lib/google/tokenStoreCore").GoogleCredentialVersion;
+  }>,
+): Promise<import("@/lib/google/tokenStoreCore").GoogleRefreshLeaseHandle> {
+  const lease = createRefreshLeaseHandle();
+  await tokenStore.claimGoogleCredentialRefreshLease({
+    userId: input.userId,
+    expectedStatus:
+      input.expectedStatus === undefined ? "connected" : input.expectedStatus,
+    expectedCredentialVersion: input.expectedCredentialVersion,
+    leaseIdHash: lease.getIdHash(),
+  });
+  return lease;
+}
+
+export async function releaseGoogleCredentialRefreshLease(
+  input: Readonly<{
+    userId: string;
+    expectedStatus?: string | null;
+    expectedCredentialVersion: import("@/lib/google/tokenStoreCore").GoogleCredentialVersion;
+    lease: import("@/lib/google/tokenStoreCore").GoogleRefreshLeaseHandle;
+  }>,
+): Promise<void> {
+  await tokenStore.releaseGoogleCredentialRefreshLease({
+    userId: input.userId,
+    expectedCredentialVersion: input.expectedCredentialVersion,
+    leaseIdHash: input.lease.getIdHash(),
+    expectedStatus:
+      input.expectedStatus === undefined ? "connected" : input.expectedStatus,
+  });
+}
 
 export const loadGoogleTokenCredentials = tokenStore.loadGoogleTokenCredentials;
 export const loadGoogleRefreshTokenForCallback =
@@ -93,4 +167,38 @@ export async function updateRefreshedGoogleAccessToken(
 }
 export const recordGoogleCredentialValidationFailure =
   tokenStore.recordGoogleCredentialValidationFailure;
-export const disconnectGoogleConnection = tokenStore.disconnectGoogleConnection;
+
+export async function disconnectGoogleConnection(
+  userId: string,
+): Promise<void> {
+  const snapshot =
+    await tokenStore.loadGoogleCallbackConnectionSnapshot(userId);
+  const expectedCredentialVersion = snapshot.getCredentialVersion();
+  if (!snapshot.exists() || expectedCredentialVersion === null) {
+    throw new GoogleTokenStoreError("GOOGLE_TOKEN_ROW_NOT_FOUND");
+  }
+
+  let lease: import("@/lib/google/tokenStoreCore").GoogleRefreshLeaseHandle;
+  try {
+    lease = await claimGoogleCredentialRefreshLease({
+      userId,
+      expectedStatus: snapshot.getStatus(),
+      expectedCredentialVersion,
+    });
+  } catch (error) {
+    if (
+      error instanceof GoogleTokenStoreError &&
+      error.code === "GOOGLE_TOKEN_UPDATE_CONFLICT"
+    ) {
+      throw new GoogleTokenStoreError("GOOGLE_TOKEN_REFRESH_IN_PROGRESS");
+    }
+    throw error;
+  }
+
+  await tokenStore.disconnectGoogleConnection({
+    userId,
+    expectedStatus: snapshot.getStatus(),
+    expectedCredentialVersion,
+    refreshLeaseIdHash: lease.getIdHash(),
+  });
+}

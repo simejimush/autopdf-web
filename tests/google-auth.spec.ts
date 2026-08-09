@@ -7,6 +7,7 @@ import { createGoogleAuthCore } from "../src/lib/google/authCore";
 import {
   createGoogleTokenCredentialHandle,
   createGoogleCredentialVersion,
+  createGoogleRefreshLeaseIdHash,
   GoogleTokenStoreError,
   type GoogleTokenCredentials,
   type UpdateRefreshedGoogleAccessTokenInput,
@@ -16,6 +17,13 @@ const AUTH_PATH = resolve(process.cwd(), "src/lib/google/auth.ts");
 const USER_ID = "44444444-4444-4444-8444-444444444444";
 const VERSION_0 = createGoogleCredentialVersion(0);
 const VERSION_1 = createGoogleCredentialVersion(1);
+const LEASE_HASH = createGoogleRefreshLeaseIdHash("a".repeat(64));
+const LEASE = Object.freeze({
+  getIdHash: () => LEASE_HASH,
+  toJSON: (): never => {
+    throw new Error("lease serialization forbidden");
+  },
+});
 
 function credentials(options?: {
   accessToken?: string | null;
@@ -63,16 +71,20 @@ function loadAuth(options?: {
     loads: [] as string[],
     preflight: 0,
     refresh: 0,
+    claims: 0,
+    releases: 0,
     updates: [] as UpdateRefreshedGoogleAccessTokenInput[],
     clients: [] as Array<{ credentials: Record<string, unknown> }>,
+    clientOptions: [] as unknown[],
   };
 
   class OAuth2 {
     credentials: Record<string, unknown> = {};
     private tokensListener?: (tokens: Record<string, unknown>) => void;
 
-    constructor() {
+    constructor(options?: unknown) {
       calls.clients.push(this);
+      calls.clientOptions.push(options);
     }
 
     setCredentials(value: Record<string, unknown>) {
@@ -130,6 +142,13 @@ function loadAuth(options?: {
           calls.preflight += 1;
           if (options?.preflightError) throw options.preflightError;
         },
+        async claimGoogleCredentialRefreshLease() {
+          calls.claims += 1;
+          return LEASE;
+        },
+        async releaseGoogleCredentialRefreshLease() {
+          calls.releases += 1;
+        },
         async updateRefreshedGoogleAccessToken(
           input: UpdateRefreshedGoogleAccessTokenInput,
         ) {
@@ -185,6 +204,7 @@ test("expired credentials refresh and persist access-only exactly once", async (
   expect(auth.calls.preflight).toBe(1);
   expect(auth.calls.refresh).toBe(1);
   expect(auth.calls.updates).toHaveLength(1);
+  expect(auth.calls.claims).toBe(1);
   expect(auth.calls.updates[0]).toMatchObject({
     userId: USER_ID,
     accessToken: "refreshed-access",
@@ -194,6 +214,12 @@ test("expired credentials refresh and persist access-only exactly once", async (
   expect(client.credentials).toMatchObject({
     access_token: "refreshed-access",
     refresh_token: "stored-refresh",
+  });
+  expect(auth.calls.clientOptions[0]).toMatchObject({
+    transporterOptions: {
+      timeout: 30_000,
+      retryConfig: { retry: 0, noResponseRetries: 0 },
+    },
   });
 });
 

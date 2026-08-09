@@ -2,6 +2,7 @@ import {
   createGoogleTokenCredentialHandle,
   GoogleTokenStoreError,
   type GoogleCredentialVersion,
+  type GoogleRefreshLeaseHandle,
   type GoogleTokenCredentials,
   type PlaintextGoogleToken,
   type UpdateRefreshedGoogleAccessTokenInput,
@@ -17,9 +18,27 @@ export type GoogleTokenRefreshResult = Readonly<{
   tokenExpiryAt: string;
 }>;
 
+export type GoogleTokenRefreshOperationResult = Readonly<{
+  credentials: GoogleTokenCredentials;
+  refreshTokenRotated: boolean;
+}>;
+
 export type GoogleAuthCoreDependencies = Readonly<{
   now: () => number;
   preflightEncryptionWrite: () => void;
+  claimRefreshLease(
+    input: Readonly<{
+      userId: string;
+      expectedCredentialVersion: GoogleCredentialVersion;
+    }>,
+  ): Promise<GoogleRefreshLeaseHandle>;
+  releaseRefreshLease(
+    input: Readonly<{
+      userId: string;
+      expectedCredentialVersion: GoogleCredentialVersion;
+      lease: GoogleRefreshLeaseHandle;
+    }>,
+  ): Promise<void>;
   refreshTokens(
     input: Readonly<{
       accessToken: PlaintextGoogleToken | null;
@@ -41,38 +60,32 @@ function normalizeRefreshedExpiry(value: string): string {
 }
 
 export function createGoogleAuthCore(dependencies: GoogleAuthCoreDependencies) {
-  async function prepareCredentials(
+  async function refreshCredentials(
     userId: string,
     credentials: GoogleTokenCredentials,
-  ): Promise<GoogleTokenCredentials> {
-    if (!UUID_PATTERN.test(userId)) {
-      throw new GoogleTokenStoreError("GOOGLE_TOKEN_INPUT_INVALID");
-    }
-
-    const currentTimestamp = dependencies.now();
-    if (!Number.isFinite(currentTimestamp)) {
-      throw new GoogleTokenStoreError("GOOGLE_TOKEN_INPUT_INVALID");
-    }
-
+    currentTimestamp: number,
+  ): Promise<GoogleTokenRefreshOperationResult> {
     const accessToken = credentials.getAccessToken();
-    const expiry = credentials.getTokenExpiryAt();
-    const expiryTimestamp = expiry === null ? Number.NaN : Date.parse(expiry);
-    const accessTokenIsUsable =
-      accessToken !== null &&
-      Number.isFinite(expiryTimestamp) &&
-      expiryTimestamp - currentTimestamp >
-        GOOGLE_AUTH_EAGER_REFRESH_THRESHOLD_MS;
-
-    if (accessTokenIsUsable) {
-      return credentials;
-    }
-
     const refreshToken = credentials.getRefreshToken();
     if (refreshToken === null) {
       throw new GoogleTokenStoreError("GOOGLE_TOKEN_INPUT_INVALID");
     }
 
-    dependencies.preflightEncryptionWrite();
+    const expectedCredentialVersion = credentials.getCredentialVersion();
+    const lease = await dependencies.claimRefreshLease({
+      userId,
+      expectedCredentialVersion,
+    });
+    try {
+      dependencies.preflightEncryptionWrite();
+    } catch (error) {
+      await dependencies.releaseRefreshLease({
+        userId,
+        expectedCredentialVersion,
+        lease,
+      });
+      throw error;
+    }
     const refreshed = await dependencies.refreshTokens({
       accessToken,
       refreshToken,
@@ -89,18 +102,66 @@ export function createGoogleAuthCore(dependencies: GoogleAuthCoreDependencies) {
       tokenExpiryAt,
       lastVerifiedAt: timestamp,
       updatedAt: timestamp,
-      expectedCredentialVersion: credentials.getCredentialVersion(),
+      expectedCredentialVersion,
+      refreshLeaseIdHash: lease.getIdHash(),
     });
 
-    return createGoogleTokenCredentialHandle({
-      accessToken: refreshed.accessToken,
-      refreshToken: refreshed.refreshToken ?? refreshToken,
-      tokenExpiryAt,
-      status: credentials.getStatus(),
-      scopes: credentials.getScopes(),
-      credentialVersion: savedCredentialVersion,
+    return Object.freeze({
+      credentials: createGoogleTokenCredentialHandle({
+        accessToken: refreshed.accessToken,
+        refreshToken: refreshed.refreshToken ?? refreshToken,
+        tokenExpiryAt,
+        status: credentials.getStatus(),
+        scopes: credentials.getScopes(),
+        credentialVersion: savedCredentialVersion,
+      }),
+      refreshTokenRotated: refreshed.refreshToken !== undefined,
     });
   }
 
-  return Object.freeze({ prepareCredentials });
+  function validateRefreshInput(userId: string): number {
+    if (!UUID_PATTERN.test(userId)) {
+      throw new GoogleTokenStoreError("GOOGLE_TOKEN_INPUT_INVALID");
+    }
+
+    const currentTimestamp = dependencies.now();
+    if (!Number.isFinite(currentTimestamp)) {
+      throw new GoogleTokenStoreError("GOOGLE_TOKEN_INPUT_INVALID");
+    }
+
+    return currentTimestamp;
+  }
+
+  async function prepareCredentials(
+    userId: string,
+    credentials: GoogleTokenCredentials,
+  ): Promise<GoogleTokenCredentials> {
+    const currentTimestamp = validateRefreshInput(userId);
+
+    const accessToken = credentials.getAccessToken();
+    const expiry = credentials.getTokenExpiryAt();
+    const expiryTimestamp = expiry === null ? Number.NaN : Date.parse(expiry);
+    const accessTokenIsUsable =
+      accessToken !== null &&
+      Number.isFinite(expiryTimestamp) &&
+      expiryTimestamp - currentTimestamp >
+        GOOGLE_AUTH_EAGER_REFRESH_THRESHOLD_MS;
+
+    if (accessTokenIsUsable) {
+      return credentials;
+    }
+
+    return (await refreshCredentials(userId, credentials, currentTimestamp))
+      .credentials;
+  }
+
+  async function refreshCredentialsOnce(
+    userId: string,
+    credentials: GoogleTokenCredentials,
+  ): Promise<GoogleTokenRefreshOperationResult> {
+    const currentTimestamp = validateRefreshInput(userId);
+    return refreshCredentials(userId, credentials, currentTimestamp);
+  }
+
+  return Object.freeze({ prepareCredentials, refreshCredentialsOnce });
 }
