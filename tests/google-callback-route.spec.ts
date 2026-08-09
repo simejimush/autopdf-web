@@ -68,6 +68,8 @@ function loadRoute(options?: {
   verifyError?: Error;
   saveError?: Error;
   validationFailureError?: Error;
+  leaseClaimError?: Error;
+  leaseReleaseError?: Error;
   state?: string | null;
   stateCookie?: string | null;
   stateIssuedAt?: number;
@@ -109,10 +111,14 @@ function loadRoute(options?: {
       url: string;
       codeVerifier: string | null;
       grantType: string | null;
+      hasAbortSignal: boolean;
     }>,
+    oauthClientOptions: [] as unknown[],
     credentials: [] as Array<Record<string, unknown>>,
     saves: [] as Array<Record<string, unknown>>,
     validationFailures: [] as Array<Record<string, unknown>>,
+    leaseClaims: [] as Array<Record<string, unknown>>,
+    leaseReleases: [] as Array<Record<string, unknown>>,
     jwtFrom: 0,
     cookieGets: [] as string[],
     logs: [] as unknown[][],
@@ -121,6 +127,10 @@ function loadRoute(options?: {
   class OAuth2 {
     credentials: Record<string, unknown> = {};
     private tokensListener?: (tokens: Record<string, unknown>) => void;
+
+    constructor(options?: unknown) {
+      calls.oauthClientOptions.push(options);
+    }
 
     on(event: string, listener: (tokens: Record<string, unknown>) => void) {
       if (event === "tokens") this.tokensListener = listener;
@@ -162,6 +172,9 @@ function loadRoute(options?: {
       };
     }
     if (specifier === "googleapis") return { google: { auth: { OAuth2 } } };
+    if (specifier === "@/lib/google/auth") {
+      return { GOOGLE_REFRESH_PROVIDER_TIMEOUT_MS: 30_000 };
+    }
     if (specifier === "@/lib/google/oauthStateCore") {
       return {
         GOOGLE_OAUTH_STATE_COOKIE_NAME,
@@ -205,6 +218,26 @@ function loadRoute(options?: {
           events.push("preflight");
           if (options?.preflightError) throw options.preflightError;
         },
+        async claimGoogleCredentialRefreshLease(
+          input: Record<string, unknown>,
+        ) {
+          events.push("claim");
+          calls.leaseClaims.push(input);
+          if (options?.leaseClaimError) throw options.leaseClaimError;
+          return {
+            getIdHash: () => "a".repeat(64),
+            toJSON: () => {
+              throw new Error("lease serialization forbidden");
+            },
+          };
+        },
+        async releaseGoogleCredentialRefreshLease(
+          input: Record<string, unknown>,
+        ) {
+          events.push("release");
+          calls.leaseReleases.push(input);
+          if (options?.leaseReleaseError) throw options.leaseReleaseError;
+        },
         async loadGoogleCallbackConnectionSnapshot(userId: string) {
           calls.snapshots.push(userId);
           events.push("snapshot");
@@ -246,6 +279,7 @@ function loadRoute(options?: {
       url: String(input),
       codeVerifier: body.get("code_verifier"),
       grantType: body.get("grant_type"),
+      hasAbortSignal: init?.signal instanceof AbortSignal,
     });
     if (body.get("code_verifier") !== codeVerifier) {
       return {
@@ -278,6 +312,7 @@ function loadRoute(options?: {
     require: localRequire,
     URL,
     URLSearchParams,
+    AbortSignal,
     fetch: fetchMock,
     console: { error: (...args: unknown[]) => calls.logs.push(args) },
     process: {
@@ -320,8 +355,8 @@ test("initial callback preflights, validates, and inserts encrypted-store input"
     "https://app.example.test/settings?google=connected",
   );
   expect(route.events).toEqual([
-    "preflight",
     "snapshot",
+    "preflight",
     "fetch",
     "verify",
     "save",
@@ -338,8 +373,15 @@ test("initial callback preflights, validates, and inserts encrypted-store input"
       url: "https://oauth2.googleapis.com/token",
       codeVerifier: route.codeVerifier,
       grantType: "authorization_code",
+      hasAbortSignal: true,
     },
   ]);
+  expect(route.calls.oauthClientOptions[0]).toMatchObject({
+    transporterOptions: {
+      timeout: 30_000,
+      retryConfig: { retry: 0, noResponseRetries: 0 },
+    },
+  });
   expect(route.calls.cookieGets).toEqual([GOOGLE_OAUTH_STATE_COOKIE_NAME]);
   expect(setCookie).toContain(`${GOOGLE_OAUTH_STATE_COOKIE_NAME}=`);
   expect(setCookie).toContain("Max-Age=0");
@@ -447,6 +489,7 @@ test("validation failure updates an existing row through the token store", async
       writeMode: "update",
       expectedStatus: "connected",
       expectedCredentialVersion: "0",
+      refreshLeaseIdHash: "a".repeat(64),
     },
   ]);
   expect(JSON.stringify(route.calls.validationFailures)).not.toContain(
@@ -604,13 +647,55 @@ test("preflight and snapshot failures stop before Google token exchange", async 
   const preflightResponse = await preflight.GET(preflight.request);
   expect(preflightResponse.headers.get("location")).toContain("env_missing");
   expect(preflight.calls.fetch).toBe(0);
-  expect(preflight.calls.snapshots).toEqual([]);
+  expect(preflight.calls.snapshots).toEqual([USER_ID]);
 
   const snapshot = loadRoute({ snapshotError: new Error("raw-db-secret") });
   const snapshotResponse = await snapshot.GET(snapshot.request);
   expect(snapshotResponse.headers.get("location")).toContain("load_failed");
   expect(snapshot.calls.fetch).toBe(0);
   expect(snapshot.calls.saves).toEqual([]);
+});
+
+test("reconnect lease conflict stops before provider and credential writes", async () => {
+  const route = loadRoute({
+    rowExists: true,
+    storedRefreshToken: "stored-refresh",
+    leaseClaimError: new Error("safe lease conflict"),
+  });
+  const response = await route.GET(route.request);
+  expect(response.headers.get("location")).toContain("save_failed");
+  expect(route.calls.leaseClaims).toHaveLength(1);
+  expect(route.calls.fetch).toBe(0);
+  expect(route.calls.saves).toEqual([]);
+  expect(route.calls.validationFailures).toEqual([]);
+});
+
+test("reconnect preflight failure releases its lease before any provider call", async () => {
+  const route = loadRoute({
+    rowExists: true,
+    storedRefreshToken: "stored-refresh",
+    preflightError: new Error("safe preflight failure"),
+  });
+  const response = await route.GET(route.request);
+  expect(response.headers.get("location")).toContain("env_missing");
+  expect(route.events).toEqual(["snapshot", "claim", "preflight", "release"]);
+  expect(route.calls.fetch).toBe(0);
+});
+
+test("reconnect provider failure holds the lease for expiry recovery", async () => {
+  const route = loadRoute({
+    rowExists: true,
+    storedRefreshToken: "stored-refresh",
+    exchangeOk: false,
+    exchangeStatus: 400,
+    exchangeToken: { error: "invalid_grant" },
+  });
+  const response = await route.GET(route.request);
+  expect(response.headers.get("location")).toContain("invalid_grant");
+  expect(route.calls.fetch).toBe(1);
+  expect(route.calls.leaseClaims).toHaveLength(1);
+  expect(route.calls.leaseReleases).toEqual([]);
+  expect(route.calls.saves).toEqual([]);
 });
 
 test("exchange, validation, and save failures use fixed redirects without secrets", async () => {

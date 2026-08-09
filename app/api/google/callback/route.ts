@@ -11,11 +11,14 @@ import {
 } from "@/lib/google/oauthStateCore";
 import {
   createPlaintextGoogleToken,
+  claimGoogleCredentialRefreshLease,
   loadGoogleCallbackConnectionSnapshot,
   preflightGoogleTokenEncryptionWrite,
   recordGoogleCredentialValidationFailure,
+  releaseGoogleCredentialRefreshLease,
   saveGoogleCallbackConnection,
 } from "@/lib/google/tokenStore";
+import { GOOGLE_REFRESH_PROVIDER_TIMEOUT_MS } from "@/lib/google/auth";
 
 function redirectWithConsumedOAuthState(path: string, requestUrl: URL) {
   const response = NextResponse.redirect(new URL(path, requestUrl.origin));
@@ -88,16 +91,6 @@ export async function GET(req: Request) {
     return redirectWithConsumedOAuthState("/settings?google=missing", url);
   }
 
-  try {
-    preflightGoogleTokenEncryptionWrite();
-  } catch {
-    console.error("[google.callback] token write preflight failed", {
-      code: "GOOGLE_TOKEN_WRITE_PREFLIGHT_FAILED",
-      location: "oauth_callback_preflight",
-    });
-    return redirectWithConsumedOAuthState("/settings?google=env_missing", url);
-  }
-
   let callbackSnapshot;
   try {
     callbackSnapshot = await loadGoogleCallbackConnectionSnapshot(user.id);
@@ -108,6 +101,7 @@ export async function GET(req: Request) {
     });
     return redirectWithConsumedOAuthState("/settings?google=load_failed", url);
   }
+
   const callbackCredentialVersion = callbackSnapshot.getCredentialVersion();
   if (callbackSnapshot.exists() && callbackCredentialVersion === null) {
     console.error("[google.callback] invalid connection version", {
@@ -117,6 +111,53 @@ export async function GET(req: Request) {
     return redirectWithConsumedOAuthState("/settings?google=load_failed", url);
   }
 
+  let refreshLease;
+  if (callbackSnapshot.exists()) {
+    try {
+      refreshLease = await claimGoogleCredentialRefreshLease({
+        userId: user.id,
+        expectedStatus: callbackSnapshot.getStatus(),
+        expectedCredentialVersion: callbackCredentialVersion!,
+      });
+    } catch {
+      console.error("[google.callback] credential mutation conflicted", {
+        code: "GOOGLE_CREDENTIAL_LEASE_CONFLICT",
+        location: "oauth_callback_lease_claim",
+      });
+      return redirectWithConsumedOAuthState(
+        "/settings?google=save_failed",
+        url,
+      );
+    }
+  }
+
+  try {
+    preflightGoogleTokenEncryptionWrite();
+  } catch {
+    if (refreshLease) {
+      try {
+        await releaseGoogleCredentialRefreshLease({
+          userId: user.id,
+          expectedStatus: callbackSnapshot.getStatus(),
+          expectedCredentialVersion: callbackCredentialVersion!,
+          lease: refreshLease,
+        });
+      } catch {
+        console.error(
+          "[google.callback] token write preflight lease release failed",
+          {
+            code: "GOOGLE_CREDENTIAL_LEASE_RELEASE_FAILED",
+            location: "oauth_callback_preflight",
+          },
+        );
+      }
+    }
+    console.error("[google.callback] token write preflight failed", {
+      code: "GOOGLE_TOKEN_WRITE_PREFLIGHT_FAILED",
+      location: "oauth_callback_preflight",
+    });
+    return redirectWithConsumedOAuthState("/settings?google=env_missing", url);
+  }
   try {
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
@@ -129,6 +170,7 @@ export async function GET(req: Request) {
         grant_type: "authorization_code",
         code_verifier: codeVerifier,
       }),
+      signal: AbortSignal.timeout(GOOGLE_REFRESH_PROVIDER_TIMEOUT_MS),
     });
 
     const token = await tokenRes.json();
@@ -182,11 +224,18 @@ export async function GET(req: Request) {
         throw new Error("missing_refresh_token");
       }
 
-      const oauth2Client = new google.auth.OAuth2(
+      const oauth2Client = new google.auth.OAuth2({
         clientId,
         clientSecret,
         redirectUri,
-      );
+        transporterOptions: {
+          timeout: GOOGLE_REFRESH_PROVIDER_TIMEOUT_MS,
+          retryConfig: {
+            retry: 0,
+            noResponseRetries: 0,
+          },
+        },
+      });
 
       oauth2Client.on("tokens", (tokens) => {
         const candidate = tokens.refresh_token?.trim();
@@ -225,6 +274,7 @@ export async function GET(req: Request) {
             ? {
                 expectedStatus: callbackSnapshot.getStatus(),
                 expectedCredentialVersion: callbackCredentialVersion!,
+                refreshLeaseIdHash: refreshLease!.getIdHash(),
               }
             : {}),
         });
@@ -258,6 +308,7 @@ export async function GET(req: Request) {
           ? {
               expectedStatus: callbackSnapshot.getStatus(),
               expectedCredentialVersion: callbackCredentialVersion!,
+              refreshLeaseIdHash: refreshLease!.getIdHash(),
             }
           : {}),
         state: {

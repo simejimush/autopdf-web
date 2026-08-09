@@ -9,25 +9,27 @@ AutoPDF の Supabase (PostgreSQL) のテーブル構造とインデックス。
 Google OAuth 接続情報  
 Gmail / Google Drive API 用トークン保存。
 
-| column                        | type        | description                                              |
-| ----------------------------- | ----------- | -------------------------------------------------------- |
-| id                            | uuid        | PK                                                       |
-| user_id                       | uuid        | auth.users.id                                            |
-| status                        | text        | 接続状態                                                 |
-| scopes                        | text        | OAuth scopes                                             |
-| access_token_enc              | text        | 暗号化アクセストークン                                   |
-| refresh_token_enc             | text        | 暗号化リフレッシュトークン                               |
-| credential_version            | bigint      | credential更新CAS用version（0以上、default 0、NOT NULL） |
-| token_expiry_at               | timestamptz | アクセストークン期限                                     |
-| last_verified_at              | timestamptz | 最終接続確認                                             |
-| last_success_at               | timestamptz | 最終成功時刻                                             |
-| last_error_at                 | timestamptz | 最終エラー時刻                                           |
-| last_error_code               | text        | 最終エラーコード                                         |
-| reauth_required               | boolean     | 再認証が必要か                                           |
-| last_user_notified_at         | timestamptz | 最終ユーザー通知時刻                                     |
-| last_user_notified_error_code | text        | 最終ユーザー通知エラーコード                             |
-| created_at                    | timestamptz | 作成日時                                                 |
-| updated_at                    | timestamptz | 更新日時                                                 |
+| column                        | type        | description                                                 |
+| ----------------------------- | ----------- | ----------------------------------------------------------- |
+| id                            | uuid        | PK                                                          |
+| user_id                       | uuid        | auth.users.id                                               |
+| status                        | text        | 接続状態                                                    |
+| scopes                        | text        | OAuth scopes                                                |
+| access_token_enc              | text        | 暗号化アクセストークン                                      |
+| refresh_token_enc             | text        | 暗号化リフレッシュトークン                                  |
+| credential_version            | bigint      | credential更新CAS用version（0以上、default 0、NOT NULL）    |
+| refresh_lease_id_hash         | text        | Google credential refresh leaseのSHA-256 digest（nullable） |
+| refresh_lease_expires_at      | timestamptz | Google credential refresh lease期限（nullable）             |
+| token_expiry_at               | timestamptz | アクセストークン期限                                        |
+| last_verified_at              | timestamptz | 最終接続確認                                                |
+| last_success_at               | timestamptz | 最終成功時刻                                                |
+| last_error_at                 | timestamptz | 最終エラー時刻                                              |
+| last_error_code               | text        | 最終エラーコード                                            |
+| reauth_required               | boolean     | 再認証が必要か                                              |
+| last_user_notified_at         | timestamptz | 最終ユーザー通知時刻                                        |
+| last_user_notified_error_code | text        | 最終ユーザー通知エラーコード                                |
+| created_at                    | timestamptz | 作成日時                                                    |
+| updated_at                    | timestamptz | 更新日時                                                    |
 
 ### Index
 
@@ -35,6 +37,13 @@ google_connections_pkey (id)
 
 google_connections_user_id_key  
 (user_id UNIQUE)
+
+refresh lease invariant:
+
+- `refresh_lease_id_hash`と`refresh_lease_expires_at`は両方NULLまたは両方non-NULL
+- hashはlowercase SHA-256 hex 64文字
+- `claim_google_credential_refresh_lease(uuid,text,bigint,text)`が`statement_timestamp()`基準で90秒leaseを原子的にclaimする
+- RPCは`SECURITY INVOKER`、owner `postgres`、`service_role`だけが`EXECUTE`可能
 
 ```
 
@@ -342,8 +351,10 @@ processed_emails (重複処理防止)
 2. `20260529090000_create_ai_usage_logs.sql`
 3. `20260530090000_harden_autopdf_core_security.sql`
 4. `20260726090000_add_google_credential_version.sql`
+5. `20260807064701_reconcile_production_core_security.sql`
+6. `20260809180000_add_google_refresh_lease.sql`
 
-Productionでは1を実行しない。既存schemaのmigration history repairを別承認で行った後、3、4だけを適用する。
+Productionでは1を実行しない。Production適用対象と順序は各migrationの個別reviewと明示承認で確定し、この文書更新だけでは6を含むmigrationを適用しない。
 
 ## Migration safety invariants
 
@@ -351,6 +362,7 @@ Productionでは1を実行しない。既存schemaのmigration history repairを
 - AI usage migration直後の既知shapeは、14 columns、PK、3 indexes、RLS enabled、authenticated own-row SELECT/INSERT policies、application roleのtable grantなしである。次のhardening migrationがpolicyを削除し、`service_role`の`SELECT, INSERT`だけを付与する。
 - credential migrationはDDL前に`credential_version`の状態を分類する。不在なら追加できる。完全一致の`bigint NOT NULL DEFAULT 0`かつvalidated nonnegative CHECKで、NULL/負値rowおよび未知constraintがなければ、適用済み相当としてDDLなしで完了する。
 - nullable、default違い、型違い、constraint名衝突、異なる/未validated CHECK、NULL/負値rowは未知shapeとして停止する。不在columnの追加と0 backfillは同一transaction内で行い、token列、owner、`user_id`、CAS application契約は変更しない。
+- refresh lease migrationは、2列・validated pair/digest CHECK・server-clock claim RPC・owner/security/grantがすべて不在、または完全一致するshapeだけを許可する。既存row、token、`credential_version`、RLS、policy、table grantを変更せず、DB適用は別承認とする。
 - Preview / Production DBへの適用とmigration history repairは、このschema文書の更新には含まれない。Productionではcore baselineを実行しない。
 
 ## Indexes

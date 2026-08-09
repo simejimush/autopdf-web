@@ -26,6 +26,8 @@ hardening migrationは、変更前に既存policy / table grant / column grant�
 2. `20260529090000_create_ai_usage_logs.sql`
 3. `20260530090000_harden_autopdf_core_security.sql`
 4. `20260726090000_add_google_credential_version.sql`
+5. `20260807064701_reconcile_production_core_security.sql`
+6. `20260809180000_add_google_refresh_lease.sql`
 
 core baselineは、対象5 tableが1つでも存在すればDDL前に停止する空Preview DB専用migrationである。Productionでは絶対に実行しない。Productionの既存schemaやrowをbaselineへ合わせる処理、row dataのコピー、`runs.user_id`のbackfillは行わない。
 
@@ -37,9 +39,10 @@ hardeningはPreview / Production共通だが、6 tableの列・default・NOT NUL
 - AI usage migrationは作成直後にRLSを有効化し、hardening前の既知policyを作成する。Supabase projectごとのdefault privilege差を除くため、`PUBLIC`、`anon`、`authenticated`、`service_role`のtable権限を明示的にrevokeする。次のhardening migrationが既知policyを検証・削除し、最終的な`service_role SELECT, INSERT`だけを付与する。
 - `20260726090000_add_google_credential_version.sql`も明示transactionと両timeoutを持つ。DDL前preflightでcolumn不在または完全一致だけを許可する。完全一致は`bigint NOT NULL DEFAULT 0`、validated nonnegative CHECK、NULL/負値rowなし、未知constraintなしを意味し、この場合はDDLを実行しない。
 - `credential_version`が不在の場合だけ、column追加、既存rowの0 backfill、CHECK追加・validate、NOT NULL化を同一transaction内で行う。nullable、default違い、型違い、constraint名衝突、未validated/異なるCHECK、NULL/負値rowなどの部分shapeはDDL前にfail-closedとする。
+- `20260809180000_add_google_refresh_lease.sql`は、2列・validated pair/digest CHECK・server-clock claim RPC・owner/security/grantがすべて不在、またはすべて完全一致するshapeだけを許可する。片側だけの列、wrong constraint、unknown dependency、wrong function/grantはDDL前に停止し、row、token、`credential_version`、RLS、policy、table grantを変更しない。
 - この文書更新時点ではPreview / Production DBへのmigration適用、history repair、schema/data変更は未実施である。Productionへcore baselineを適用してはならない。
 
-Previewへの次回read-only確認へ進む前に、4 migrationの順序、working tree、commit SHA、静的migration test、全Playwright、TypeScript、対象ESLint、Prettier、diffを再確認する。実DB適用は、そのread-only確認と別の明示承認後に限る。
+Previewへの次回read-only確認へ進む前に、6 migrationの順序、working tree、commit SHA、静的migration test、全Playwright、TypeScript、対象ESLint、Prettier、diffを再確認する。実DB適用は、そのread-only確認と別の明示承認後に限る。
 
 ## 1.3 Preview適用手順（人間承認後のみ）
 
@@ -220,20 +223,28 @@ M1は古いDB書込みを拒否するが、2つのGoogle refreshがprovider側�
 - `google_connections.refresh_lease_id_hash text null`
 - `google_connections.refresh_lease_expires_at timestamptz null`
 - lease本体は暗号学的乱数とし、DBにはhashだけを保存
+- raw lease secretはserver processの非serializable handle内だけに保持し、32-byte CSPRNG secretのSHA-256 digestだけをDB条件へ渡す
+- pair CHECKは両方NULLまたは両方non-NULLだけを許可し、digest CHECKはlowercase SHA-256 hex 64文字だけを許可する
 - expiry検索が必要な運用workerを導入するまで専用indexは不要
 
 ### transaction契約
 
-- provider refresh前に`user_id + credential_version + connected + lease expired/null`でclaim
-- claimとversion確認を同一UPDATEで行う
+- provider refresh前に`user_id + credential_version + expected status + lease null/expired`でclaim
+- `SECURITY INVOKER` RPCが`statement_timestamp()`を一度だけ取得し、active/expired判定と90秒expiry生成を同一UPDATEで行う。application時刻やapplication supplied expiryはsecurity boundaryに使わない
+- RPCの`EXECUTE`は`service_role`だけに付与し、`PUBLIC` / `anon` / `authenticated`には付与しない
 - ownerだけがcredential保存とlease clearを行う
-- crash時は短いexpiry後に再claim可能
-- retryは最大1回、無制限loop禁止
+- 成功時はtoken暗号化保存、`credential_version + 1`、lease/expiry clearをowner hash付きの1 UPDATEで行う
+- Google provider callは30秒timeout・SDK retry 0、lease TTLは90秒とする。provider呼出し後の失敗・process crashはleaseをexpiryまで保持し、別requestによる不明結果の即時再実行を防ぐ
+- encryption preflight失敗はprovider呼出し前なので、owner/status/version/hash付きUPDATEで安全にreleaseする
+- lease conflictはprovider 0回、credential write 0回、retry 0回でfail-closedとし、自動retry loopは持たない
 
 ### rollback / recovery
 
 - lease取得コードを無効化し、lease列は残置
 - stuck leaseはexpiryで自動回復。手動clearはuser限定・監査付き
+- callback/reconnectは既存rowの場合だけprovider前に同じleaseをclaimする。初回connect insertは競合rowがないため対象外とする。validation failureはowner付き更新、disconnectはactive lease中のmutation拒否とexpiry後回復を行う
+- 初回callbackのduplicate provider callはconnection rowがまだ存在しないため、このgeneric leaseでは別schemaを追加して解決しない。unique insert、authorization codeのone-time semantics、固定失敗redirectを維持する既知のresidual riskとする
+- Production rolloutはmigration firstとする。旧artifactはnullable列/RPCを無視して動作できるが、新artifactをmigration前に出してはならない。またproviderへ到達可能な旧artifact・Cron・in-flight requestをdrainするまでlease保護完了とは判定しない
 
 ### テスト・監視
 
