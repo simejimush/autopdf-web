@@ -239,6 +239,31 @@ Google 接続機能に影響する。再接続や callback 動作に注意が必
 
 ---
 
+## Production Google token encryption keyring
+
+`GOOGLE_TOKEN_ENCRYPTION_KEYS_JSON` は通常の単一 credential と異なり、既存 ciphertext の復号に必要な旧 key を含む完全な keyring として扱う。
+
+### バックアップと復元契約
+
+- [ ] 独立バックアップ先が Google Cloud project `autopdf-485700` の Secret Manager secret `autopdf-production-google-token-keyring` である
+- [ ] payload は `JSON.stringify` 相当のcompact JSON、UTF-8、BOMなし、末尾改行なしである
+- [ ] secret version追加はcanonical byte bufferをBase64化し、Secret Manager APIの`payload.data`へ渡す
+- [ ] Windows shellのstdoutやtext pipelineを正式な保存・復元経路に使わない
+- [ ] Vercel更新前に、追加したversionをAPIの`payload.data`からBase64 decodeしてメモリへ復元する
+- [ ] 復元payloadについてBOMなし、正しいUTF-8、現行parserの受理、key ID、key長、重複なし、保存前後のbyte一致を確認する
+- [ ] 定期的なrestore testでも同じAPI・parser・byte一致のgateを実行する
+
+### ローテーションと環境分離
+
+- [ ] rotation前に、既存ciphertextの復号に必要な旧keyを含む完全なkeyringをバックアップする
+- [ ] encrypted rowが参照する旧keyはkeyringおよび復元可能なバックアップから削除しない
+- [ ] 未使用または不正なSecret Manager versionは通常運用でdestroyせず、監査・復元用にdisableする
+- [ ] restore test成功後にのみ、検証済みの同一keyringとcurrent key IDをVercel Productionへ更新する
+- [ ] ProductionとPreview / Developmentのkeyring、current key ID、バックアップを混在させない
+- [ ] secret値をGit、docs、ログ、CLI引数、平文ファイル、クリップボードへ保存しない
+
+---
+
 ## 4. `STRIPE_SECRET_KEY`
 
 ### 役割
