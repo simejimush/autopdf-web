@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { disconnectGoogleConnection } from "@/lib/google/tokenStore";
+import { GoogleTokenStoreError } from "@/lib/google/tokenStoreCore";
 
 export async function POST() {
   const supabase = await createSupabaseServerClient();
@@ -16,7 +17,15 @@ export async function POST() {
 
   try {
     await disconnectGoogleConnection(user.id);
-  } catch {
+  } catch (error) {
+    if (
+      error instanceof GoogleTokenStoreError &&
+      error.code === "GOOGLE_TOKEN_REFRESH_IN_PROGRESS"
+    ) {
+      return NextResponse.redirect(
+        new URL("/settings?google=refresh_in_progress", process.env.APP_URL!),
+      );
+    }
     return NextResponse.redirect(
       new URL("/settings?google=disconnect_failed", process.env.APP_URL!),
     );

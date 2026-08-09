@@ -25,7 +25,11 @@ type GoogleConnectionsTable = Readonly<{
   }>;
   update(payload: GoogleConnectionWritePayload): Readonly<{
     eq(
-      column: "user_id" | "status" | "credential_version",
+      column:
+        | "user_id"
+        | "status"
+        | "credential_version"
+        | "refresh_lease_id_hash",
       value: string,
     ): GoogleConnectionUpdateFilter;
     is(column: "status", value: null): GoogleConnectionUpdateFilter;
@@ -34,7 +38,11 @@ type GoogleConnectionsTable = Readonly<{
 
 type GoogleConnectionUpdateFilter = Readonly<{
   eq(
-    column: "user_id" | "status" | "credential_version",
+    column:
+      | "user_id"
+      | "status"
+      | "credential_version"
+      | "refresh_lease_id_hash",
     value: string,
   ): GoogleConnectionUpdateFilter;
   is(column: "status", value: null): GoogleConnectionUpdateFilter;
@@ -43,6 +51,15 @@ type GoogleConnectionUpdateFilter = Readonly<{
 
 export type GoogleTokenSupabaseClient = Readonly<{
   from(table: "google_connections"): GoogleConnectionsTable;
+  rpc(
+    functionName: "claim_google_credential_refresh_lease",
+    args: Readonly<{
+      p_user_id: string;
+      p_expected_status: string | null;
+      p_expected_credential_version: string;
+      p_lease_id_hash: string;
+    }>,
+  ): PromiseLike<QueryResult>;
 }>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -206,6 +223,12 @@ export function createGoogleTokenRepository(
           input.expectedStatus === null
             ? query.is("status", null)
             : query.eq("status", input.expectedStatus);
+        if (input.expectedRefreshLeaseIdHash !== undefined) {
+          query = query.eq(
+            "refresh_lease_id_hash",
+            input.expectedRefreshLeaseIdHash,
+          );
+        }
         result = await query.select("id,credential_version");
       } catch {
         return { ok: false } as const;
@@ -213,6 +236,28 @@ export function createGoogleTokenRepository(
 
       const { data, error } = result;
 
+      const credentialVersions = parseWriteCredentialVersions(data);
+      if (error || credentialVersions === null) {
+        return { ok: false } as const;
+      }
+
+      return { ok: true, credentialVersions } as const;
+    },
+    async claimGoogleCredentialRefreshLease(input) {
+      let result: QueryResult;
+      try {
+        const client = await getClient();
+        result = await client.rpc("claim_google_credential_refresh_lease", {
+          p_user_id: input.userId,
+          p_expected_status: input.expectedStatus,
+          p_expected_credential_version: input.expectedCredentialVersion,
+          p_lease_id_hash: input.leaseIdHash,
+        });
+      } catch {
+        return { ok: false } as const;
+      }
+
+      const { data, error } = result;
       const credentialVersions = parseWriteCredentialVersions(data);
       if (error || credentialVersions === null) {
         return { ok: false } as const;
