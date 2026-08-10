@@ -39,6 +39,7 @@ export function GlobalBanner({ banner }: { banner: Banner | null }) {
       {b.variant === "error" && b.ctaHref && b.ctaLabel ? (
         <Link
           href={b.ctaHref}
+          prefetch={false}
           className="shrink-0 rounded-lg px-3 py-2 text-sm font-semibold border bg-[#cb3636] !text-white border-[#cb3636] hover:brightness-95"
         >
           {b.ctaLabel}
