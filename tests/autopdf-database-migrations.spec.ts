@@ -10,6 +10,8 @@ const CREDENTIAL_NAME = "20260726090000_add_google_credential_version.sql";
 const RECONCILIATION_NAME =
   "20260807064701_reconcile_production_core_security.sql";
 const REFRESH_LEASE_NAME = "20260809180000_add_google_refresh_lease.sql";
+const RLS_AUTO_ENABLE_ACL_NAME =
+  "20260810044303_harden_rls_auto_enable_acl.sql";
 
 function readMigration(name: string): string {
   return readFileSync(resolve(MIGRATIONS_DIR, name), "utf8");
@@ -38,6 +40,7 @@ test("fixes the AutoPDF migration filename and dependency order", () => {
     CREDENTIAL_NAME,
     RECONCILIATION_NAME,
     REFRESH_LEASE_NAME,
+    RLS_AUTO_ENABLE_ACL_NAME,
   ]);
   expect(normalizedSql(BASELINE_NAME)).not.toContain("credential_version");
   expect(normalizedSql(HARDENING_NAME)).toContain(
@@ -49,6 +52,48 @@ test("fixes the AutoPDF migration filename and dependency order", () => {
   expect(normalizedSql(CREDENTIAL_NAME)).not.toContain(
     "add column if not exists credential_version",
   );
+});
+
+test("hardens only the known rls_auto_enable function ACL", () => {
+  const sql = normalizedSql(RLS_AUTO_ENABLE_ACL_NAME);
+
+  expectTransactionalWithTimeouts(sql);
+  expect(sql).toContain("do $rls_auto_enable_acl_preflight$");
+  expect(sql).toContain("do $rls_auto_enable_acl_postcondition$");
+  expect(sql).toContain("6998ea6b4c2480f5d2e34b5dcf3f8d36");
+  expect(
+    sql.match(
+      /revoke execute on function public\.rls_auto_enable\(\) from public;/g,
+    ),
+  ).toHaveLength(1);
+
+  for (const role of [
+    "public",
+    "anon",
+    "authenticated",
+    "service_role",
+    "postgres",
+  ]) {
+    expect(sql).toContain(
+      "has_function_privilege('" + role + "', target_function, 'execute')",
+    );
+  }
+
+  expect(sql).toContain("ensure_rls");
+  expect(sql).toContain(
+    "array['create table', 'create table as', 'select into']::text[]",
+  );
+  expect(sql).not.toMatch(/^\s*grant\b/im);
+  expect(sql).not.toMatch(/^\s*(create|alter|drop)\s+function\b/im);
+  expect(sql).not.toMatch(/^\s*(create|alter|drop)\s+event\s+trigger\b/im);
+  expect(sql).not.toMatch(/^\s*(create|alter|drop)\s+policy\b/im);
+  expect(sql).not.toMatch(
+    /^\s*(create|alter|drop|grant|revoke)\s+.*\bon\s+table\b/im,
+  );
+  expect(sql).not.toMatch(
+    /\b(enable|disable|force)\s+row\s+level\s+security\b/,
+  );
+  expect(sql).not.toMatch(/access_token_enc|refresh_token_enc|client_secret/);
 });
 
 test("keeps the core baseline Preview-only, transactional, and fail-closed", () => {
