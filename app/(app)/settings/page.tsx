@@ -167,7 +167,11 @@ export default async function SettingsPage() {
             </dl>
 
             <div className={styles.actions}>
-              <Link href="/api/google/connect" className={styles.primaryBtn}>
+              <Link
+                href="/api/google/connect"
+                prefetch={false}
+                className={styles.primaryBtn}
+              >
                 {needsGoogleReconnect
                   ? "Googleを再接続"
                   : isGoogleConnected
