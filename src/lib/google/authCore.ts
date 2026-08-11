@@ -152,9 +152,10 @@ export function createGoogleAuthCore(dependencies: GoogleAuthCoreDependencies) {
           expectedCredentialVersion,
           handle,
           accessToken: refreshed.accessToken,
-          ...(refreshed.refreshToken
-            ? { refreshToken: refreshed.refreshToken }
-            : {}),
+          // Persisting the existing plaintext handle through the same atomic
+          // finalize re-encrypts legacy and retired-key refresh tokens without
+          // changing the provider-rotation audit meaning below.
+          refreshToken: refreshed.refreshToken ?? refreshToken,
           tokenExpiryAt,
           timestamp,
         });

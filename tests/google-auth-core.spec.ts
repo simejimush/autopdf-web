@@ -69,6 +69,7 @@ function harness(options?: {
     mark: 0,
     provider: 0,
     finalize: 0,
+    finalizedRefreshTokens: [] as Array<string | undefined>,
     load: 0,
     transitions: [] as string[],
   };
@@ -111,8 +112,9 @@ function harness(options?: {
         }
       );
     },
-    async finalizeRefreshOperation() {
+    async finalizeRefreshOperation(input) {
       calls.finalize += 1;
+      calls.finalizedRefreshTokens.push(input.refreshToken);
       if (options?.finalizeError) throw options.finalizeError;
       return VERSION_1;
     },
@@ -257,5 +259,19 @@ test("rotation returns the new refresh token without logging or serialization", 
   const result = await core.refreshCredentialsOnce(USER_ID, credentials());
   expect(result.refreshTokenRotated).toBe(true);
   expect(result.credentials.getRefreshToken()).toBe("rotated-refresh");
+  expect(calls.finalizedRefreshTokens).toEqual(["rotated-refresh"]);
+  expect(calls.finalize).toBe(1);
+});
+
+test("preserved refresh token is finalized for lazy encryption without reporting rotation", async () => {
+  const { core, calls } = harness();
+  const result = await core.refreshCredentialsOnce(
+    USER_ID,
+    credentials({ refreshToken: "preserved-refresh" }),
+  );
+
+  expect(result.refreshTokenRotated).toBe(false);
+  expect(result.credentials.getRefreshToken()).toBe("preserved-refresh");
+  expect(calls.finalizedRefreshTokens).toEqual(["preserved-refresh"]);
   expect(calls.finalize).toBe(1);
 });

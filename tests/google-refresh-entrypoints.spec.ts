@@ -31,3 +31,25 @@ test("legacy lease remains limited to callback credential mutation and disconnec
   expect(tokenStore).not.toContain("getAccessToken(");
   expect(tokenStore).not.toContain("refreshAccessToken(");
 });
+
+test("automatic refresh re-encrypts the preserved token without changing rotation semantics", () => {
+  const authCore = source("src/lib/google/authCore.ts");
+  const operation = source("src/lib/google/refreshOperation.ts");
+  const repository = source("src/lib/google/refreshOperationRepository.ts");
+
+  expect(authCore).toContain(
+    "refreshToken: refreshed.refreshToken ?? refreshToken",
+  );
+  expect(authCore).toContain(
+    "refreshTokenRotated: refreshed.refreshToken !== undefined",
+  );
+  expect(operation).toContain(
+    'encryptGoogleTokenForStore(input.refreshToken, input.userId, "refresh")',
+  );
+  expect(operation).toContain(
+    "refreshTokenPresent: input.refreshToken !== undefined",
+  );
+  expect(repository).toContain(
+    "p_refresh_token_present: input.refreshTokenPresent",
+  );
+});

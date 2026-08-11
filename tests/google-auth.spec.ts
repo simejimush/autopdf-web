@@ -255,10 +255,10 @@ test("epoch credentials refresh and persist provider expiry exactly once", async
   expect(auth.calls.updates[0]).toMatchObject({
     userId: USER_ID,
     accessToken: "refreshed-access",
+    refreshToken: "stored-refresh",
     expectedCredentialVersion: VERSION_0,
     tokenExpiryAt: "2999-01-01T00:00:00.000Z",
   });
-  expect(auth.calls.updates[0]).not.toHaveProperty("refreshToken");
   expect(client.credentials).toMatchObject({
     access_token: "refreshed-access",
     refresh_token: "stored-refresh",

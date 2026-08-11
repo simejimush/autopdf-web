@@ -677,6 +677,57 @@ test("load decrypts encrypted access and refresh with separate AAD", async () =>
   expect(credentials.getTokenExpiryAt()).toBeNull();
 });
 
+test("load safely dual-reads either mixed legacy and encrypted token order", async () => {
+  const key = createKey();
+  const encryptedAccess = encryptGoogleToken({
+    token: "mixed-encrypted-access",
+    userId: USER_ID,
+    tokenType: "access",
+    keyId: KEY_ID,
+    key,
+  });
+  const encryptedRefresh = encryptGoogleToken({
+    token: "mixed-encrypted-refresh",
+    userId: USER_ID,
+    tokenType: "refresh",
+    keyId: KEY_ID,
+    key,
+  });
+
+  for (const row of [
+    {
+      accessTokenStored: encryptedAccess,
+      refreshTokenStored: "mixed-legacy-refresh",
+      expectedAccess: "mixed-encrypted-access",
+      expectedRefresh: "mixed-legacy-refresh",
+    },
+    {
+      accessTokenStored: "mixed-legacy-access",
+      refreshTokenStored: encryptedRefresh,
+      expectedAccess: "mixed-legacy-access",
+      expectedRefresh: "mixed-encrypted-refresh",
+    },
+  ]) {
+    const { store } = createHarness({
+      key,
+      selectResult: {
+        ok: true,
+        rows: [
+          {
+            accessTokenStored: row.accessTokenStored,
+            refreshTokenStored: row.refreshTokenStored,
+            credentialVersionStored: VERSION_0,
+          },
+        ],
+      },
+    });
+    const loaded = await store.loadGoogleTokenCredentials(USER_ID);
+
+    expect(loaded.getAccessToken()).toBe(row.expectedAccess);
+    expect(loaded.getRefreshToken()).toBe(row.expectedRefresh);
+  }
+});
+
 test("refresh canary load requires one connected encrypted non-reauth row", async () => {
   const key = createKey();
   const accessToken = encryptGoogleToken({

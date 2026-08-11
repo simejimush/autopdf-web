@@ -74,6 +74,9 @@ test("finalization keeps credential CAS and operation completion in one RPC tran
   );
   expect(migration).toContain("credential_version = next_version");
   expect(migration).toContain(
+    "refresh_token_enc = case when p_refresh_token_present\n        then p_refresh_token_enc else connection.refresh_token_enc end",
+  );
+  expect(migration).toContain(
     "set state = 'completed', result_credential_version = saved_version",
   );
   expect(migration).toContain(
