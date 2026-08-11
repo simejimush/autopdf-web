@@ -7,6 +7,7 @@ do $rls_auto_enable_acl_preflight$
 declare
   target_function oid;
   function_count bigint;
+  named_trigger_count bigint;
   function_row record;
   event_trigger_row record;
 begin
@@ -17,12 +18,21 @@ begin
   where n.nspname = 'public'
     and p.proname = 'rls_auto_enable';
 
-  if function_count <> 1 then
-    raise exception 'AutoPDF ACL hardening requires exactly one public.rls_auto_enable function';
+  select count(*) into named_trigger_count
+  from pg_catalog.pg_event_trigger e
+  where e.evtname = 'ensure_rls';
+
+  if function_count = 0 and named_trigger_count = 0 then
+    return;
+  end if;
+
+  if function_count <> 1 or named_trigger_count <> 1 then
+    raise exception 'public.rls_auto_enable and ensure_rls must be both absent or both present';
   end if;
 
   select
     r.rolname as owner,
+    p.proowner as owner_oid,
     l.lanname as language,
     pg_catalog.pg_get_function_identity_arguments(p.oid) as identity_arguments,
     pg_catalog.pg_get_function_result(p.oid) as result_type,
@@ -52,17 +62,34 @@ begin
      or function_row.proleakproof
      or function_row.proisstrict
      or function_row.proconfig is distinct from array['search_path=pg_catalog']::text[]
-     or function_row.proacl is not null
      or function_row.definition_hash <> '6998ea6b4c2480f5d2e34b5dcf3f8d36' then
     raise exception 'public.rls_auto_enable function identity drifted before ACL hardening';
   end if;
 
-  if not pg_catalog.has_function_privilege('public', target_function, 'EXECUTE')
-     or not pg_catalog.has_function_privilege('anon', target_function, 'EXECUTE')
-     or not pg_catalog.has_function_privilege('authenticated', target_function, 'EXECUTE')
-     or not pg_catalog.has_function_privilege('service_role', target_function, 'EXECUTE')
-     or not pg_catalog.has_function_privilege('postgres', target_function, 'EXECUTE') then
+  if function_row.proacl is null and (
+       not pg_catalog.has_function_privilege('public', target_function, 'EXECUTE')
+       or not pg_catalog.has_function_privilege('anon', target_function, 'EXECUTE')
+       or not pg_catalog.has_function_privilege('authenticated', target_function, 'EXECUTE')
+       or not pg_catalog.has_function_privilege('service_role', target_function, 'EXECUTE')
+       or not pg_catalog.has_function_privilege('postgres', target_function, 'EXECUTE')
+     ) then
     raise exception 'public.rls_auto_enable precondition ACL is unexpected';
+  end if;
+
+  if function_row.proacl is not null and (
+       pg_catalog.has_function_privilege('public', target_function, 'EXECUTE')
+       or pg_catalog.has_function_privilege('anon', target_function, 'EXECUTE')
+       or pg_catalog.has_function_privilege('authenticated', target_function, 'EXECUTE')
+       or pg_catalog.has_function_privilege('service_role', target_function, 'EXECUTE')
+       or not pg_catalog.has_function_privilege('postgres', target_function, 'EXECUTE')
+       or exists (
+         select 1
+         from pg_catalog.aclexplode(function_row.proacl) privilege
+         where privilege.privilege_type = 'EXECUTE'
+           and privilege.grantee <> function_row.owner_oid
+       )
+     ) then
+    raise exception 'public.rls_auto_enable hardened ACL is unexpected';
   end if;
 
   if exists (
@@ -100,16 +127,41 @@ begin
 end
 $rls_auto_enable_acl_preflight$;
 
-revoke execute on function public.rls_auto_enable() from public;
+do $rls_auto_enable_acl_apply$
+begin
+  if pg_catalog.to_regprocedure('public.rls_auto_enable()') is not null then
+    execute 'revoke execute on function public.rls_auto_enable() from public';
+  end if;
+end
+$rls_auto_enable_acl_apply$;
 
 do $rls_auto_enable_acl_postcondition$
 declare
   target_function oid;
+  function_count bigint;
+  named_trigger_count bigint;
+  event_trigger_count bigint;
 begin
-  target_function := pg_catalog.to_regprocedure('public.rls_auto_enable()');
+  select min(p.oid::bigint)::oid, count(*)
+    into target_function, function_count
+  from pg_catalog.pg_proc p
+  join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public'
+    and p.proname = 'rls_auto_enable';
 
-  if target_function is null
-     or not exists (
+  select count(*) into named_trigger_count
+  from pg_catalog.pg_event_trigger e
+  where e.evtname = 'ensure_rls';
+
+  if function_count = 0 and named_trigger_count = 0 then
+    return;
+  end if;
+
+  if function_count <> 1 or named_trigger_count <> 1 then
+    raise exception 'public.rls_auto_enable and ensure_rls diverged during ACL hardening';
+  end if;
+
+  if not exists (
        select 1
        from pg_catalog.pg_proc p
        join pg_catalog.pg_roles r on r.oid = p.proowner
@@ -153,7 +205,12 @@ begin
     raise exception 'public.rls_auto_enable retained an unexpected EXECUTE grantee';
   end if;
 
-  if not exists (
+  select count(*) into event_trigger_count
+  from pg_catalog.pg_event_trigger e
+  where e.evtname = 'ensure_rls'
+     or e.evtfoid = target_function;
+
+  if event_trigger_count <> 1 or not exists (
     select 1
     from pg_catalog.pg_event_trigger e
     join pg_catalog.pg_roles r on r.oid = e.evtowner

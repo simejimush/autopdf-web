@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { expect, test } from "@playwright/test";
@@ -10,10 +11,14 @@ const CREDENTIAL_NAME = "20260726090000_add_google_credential_version.sql";
 const RECONCILIATION_NAME =
   "20260807064701_reconcile_production_core_security.sql";
 const REFRESH_LEASE_NAME = "20260809180000_add_google_refresh_lease.sql";
-const RLS_AUTO_ENABLE_ACL_NAME =
+const LEGACY_RLS_AUTO_ENABLE_ACL_NAME =
   "20260810044303_harden_rls_auto_enable_acl.sql";
 const REFRESH_OPERATIONS_NAME =
   "20260811041554_add_google_refresh_operations.sql";
+const FORWARD_RLS_AUTO_ENABLE_ACL_NAME =
+  "20260811083110_harden_rls_auto_enable_acl_forward.sql";
+const LEGACY_RLS_AUTO_ENABLE_ACL_SHA256 =
+  "caa4291b7f0fd6f704c36473c99e7263f12e5e6cc79d726a81d19059ec42e198";
 
 function readMigration(name: string): string {
   return readFileSync(resolve(MIGRATIONS_DIR, name), "utf8");
@@ -42,8 +47,9 @@ test("fixes the AutoPDF migration filename and dependency order", () => {
     CREDENTIAL_NAME,
     RECONCILIATION_NAME,
     REFRESH_LEASE_NAME,
-    RLS_AUTO_ENABLE_ACL_NAME,
+    LEGACY_RLS_AUTO_ENABLE_ACL_NAME,
     REFRESH_OPERATIONS_NAME,
+    FORWARD_RLS_AUTO_ENABLE_ACL_NAME,
   ]);
   expect(normalizedSql(BASELINE_NAME)).not.toContain("credential_version");
   expect(normalizedSql(HARDENING_NAME)).toContain(
@@ -57,8 +63,38 @@ test("fixes the AutoPDF migration filename and dependency order", () => {
   );
 });
 
-test("hardens only the known rls_auto_enable function ACL", () => {
-  const sql = normalizedSql(RLS_AUTO_ENABLE_ACL_NAME);
+test("preserves the applied rls_auto_enable ACL migration source lineage", () => {
+  const source = readMigration(LEGACY_RLS_AUTO_ENABLE_ACL_NAME);
+  const normalizedSource = source.replace(/\r\n/g, "\n");
+  const sql = normalizedSource.toLowerCase();
+
+  expect(createHash("sha256").update(normalizedSource).digest("hex")).toBe(
+    LEGACY_RLS_AUTO_ENABLE_ACL_SHA256,
+  );
+  expectTransactionalWithTimeouts(sql);
+  expect(sql).toContain(
+    "autopdf acl hardening requires exactly one public.rls_auto_enable function",
+  );
+  expect(sql).toContain(
+    "revoke execute on function public.rls_auto_enable() from public;",
+  );
+  expect(sql).not.toContain("do $rls_auto_enable_acl_apply$");
+  expect(sql).not.toContain(
+    "if function_count = 0 and named_trigger_count = 0 then",
+  );
+  expect(sql).not.toContain(
+    "public.rls_auto_enable hardened acl is unexpected",
+  );
+});
+
+test("places the forward ACL remediation after the applied migration", () => {
+  expect(BigInt(FORWARD_RLS_AUTO_ENABLE_ACL_NAME.slice(0, 14))).toBeGreaterThan(
+    BigInt(LEGACY_RLS_AUTO_ENABLE_ACL_NAME.slice(0, 14)),
+  );
+});
+
+test("forward migration hardens only the known rls_auto_enable function ACL", () => {
+  const sql = normalizedSql(FORWARD_RLS_AUTO_ENABLE_ACL_NAME);
 
   expectTransactionalWithTimeouts(sql);
   expect(sql).toContain("do $rls_auto_enable_acl_preflight$");
@@ -101,7 +137,7 @@ test("hardens only the known rls_auto_enable function ACL", () => {
 });
 
 test("treats only the completely absent RLS helper shape as a safe no-op", () => {
-  const sql = normalizedSql(RLS_AUTO_ENABLE_ACL_NAME);
+  const sql = normalizedSql(FORWARD_RLS_AUTO_ENABLE_ACL_NAME);
   const preflight = sql.slice(
     sql.indexOf("do $rls_auto_enable_acl_preflight$"),
     sql.indexOf("$rls_auto_enable_acl_preflight$;"),
@@ -127,6 +163,8 @@ test("treats only the completely absent RLS helper shape as a safe no-op", () =>
   expect(postcondition).toContain(
     "if function_count = 0 and named_trigger_count = 0 then",
   );
+  expect(preflight).toContain("return;");
+  expect(postcondition).toContain("return;");
   expect(sql).not.toMatch(/^\s*(create|alter|drop)\s+event\s+trigger\b/im);
   expect(sql).not.toMatch(/^\s*(create|alter|drop)\s+function\b/im);
   expect(sql).not.toMatch(
@@ -135,7 +173,7 @@ test("treats only the completely absent RLS helper shape as a safe no-op", () =>
 });
 
 test("accepts the expected initial or replay ACL and fails closed on drift", () => {
-  const sql = normalizedSql(RLS_AUTO_ENABLE_ACL_NAME);
+  const sql = normalizedSql(FORWARD_RLS_AUTO_ENABLE_ACL_NAME);
   const preflightEnd = sql.indexOf("$rls_auto_enable_acl_preflight$;");
   const firstMutation = sql.indexOf("do $rls_auto_enable_acl_apply$");
 
@@ -143,14 +181,55 @@ test("accepts the expected initial or replay ACL and fails closed on drift", () 
   expect(firstMutation).toBeGreaterThan(preflightEnd);
   expect(sql).toContain("if function_row.proacl is null and (");
   expect(sql).toContain("if function_row.proacl is not null and (");
+  expect(sql).toContain(
+    "public.rls_auto_enable precondition acl is unexpected",
+  );
   expect(sql).toContain("public.rls_auto_enable hardened acl is unexpected");
   expect(sql).toContain(
     "public.rls_auto_enable and ensure_rls diverged during acl hardening",
   );
   expect(sql).toContain("if event_trigger_count <> 1 or not exists (");
   expect(sql).toContain("ensure_rls event trigger identity drifted");
+  expect(sql).toContain("public.rls_auto_enable function identity drifted");
+  expect(sql).toContain("unexpectedly belongs to an extension");
   expect(sql.trimStart()).toMatch(/^begin;/);
   expect(sql.trimEnd()).toMatch(/commit;$/);
+});
+
+test("rejects partial or drifted ACL helper shapes before mutation", () => {
+  const sql = normalizedSql(FORWARD_RLS_AUTO_ENABLE_ACL_NAME);
+  const preflightEnd = sql.indexOf("$rls_auto_enable_acl_preflight$;");
+  const preflight = sql.slice(0, preflightEnd);
+  const firstMutation = sql.indexOf("do $rls_auto_enable_acl_apply$");
+
+  expect(preflightEnd).toBeGreaterThan(0);
+  expect(firstMutation).toBeGreaterThan(preflightEnd);
+  expect(preflight).toContain(
+    "if function_count <> 1 or named_trigger_count <> 1 then",
+  );
+  expect(preflight).toContain("where e.evtname = 'ensure_rls'");
+  expect(preflight).toContain("or e.evtfoid = target_function");
+  expect(preflight).toContain("event_trigger_row.trigger_count <> 1");
+  expect(preflight).toContain("function_row.owner <> 'postgres'");
+  expect(preflight).toContain("function_row.language <> 'plpgsql'");
+  expect(preflight).toContain("or not function_row.prosecdef");
+  expect(preflight).toContain(
+    "function_row.proconfig is distinct from array['search_path=pg_catalog']::text[]",
+  );
+  expect(preflight).toContain(
+    "function_row.definition_hash <> '6998ea6b4c2480f5d2e34b5dcf3f8d36'",
+  );
+  expect(preflight).toContain("if function_row.proacl is not null and (");
+  expect(preflight).toContain(
+    "event_trigger_row.trigger_event <> 'ddl_command_end'",
+  );
+  expect(preflight).toContain(
+    'event_trigger_row.trigger_tags <> \'{"create table","create table as","select into"}\'',
+  );
+  expect(preflight).toContain(
+    "event_trigger_row.function_oid <> target_function",
+  );
+  expect(preflight).toContain("event_trigger_row.owner <> 'postgres'");
 });
 
 test("keeps the core baseline Preview-only, transactional, and fail-closed", () => {

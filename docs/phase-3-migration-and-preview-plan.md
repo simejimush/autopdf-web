@@ -28,6 +28,9 @@ hardening migrationは、変更前に既存policy / table grant / column grant�
 4. `20260726090000_add_google_credential_version.sql`
 5. `20260807064701_reconcile_production_core_security.sql`
 6. `20260809180000_add_google_refresh_lease.sql`
+7. `20260810044303_harden_rls_auto_enable_acl.sql`
+8. `20260811041554_add_google_refresh_operations.sql`
+9. `20260811083110_harden_rls_auto_enable_acl_forward.sql`
 
 core baselineは、対象5 tableが1つでも存在すればDDL前に停止する空Preview DB専用migrationである。Productionでは絶対に実行しない。Productionの既存schemaやrowをbaselineへ合わせる処理、row dataのコピー、`runs.user_id`のbackfillは行わない。
 
@@ -40,9 +43,16 @@ hardeningはPreview / Production共通だが、6 tableの列・default・NOT NUL
 - `20260726090000_add_google_credential_version.sql`も明示transactionと両timeoutを持つ。DDL前preflightでcolumn不在または完全一致だけを許可する。完全一致は`bigint NOT NULL DEFAULT 0`、validated nonnegative CHECK、NULL/負値rowなし、未知constraintなしを意味し、この場合はDDLを実行しない。
 - `credential_version`が不在の場合だけ、column追加、既存rowの0 backfill、CHECK追加・validate、NOT NULL化を同一transaction内で行う。nullable、default違い、型違い、constraint名衝突、未validated/異なるCHECK、NULL/負値rowなどの部分shapeはDDL前にfail-closedとする。
 - `20260809180000_add_google_refresh_lease.sql`は、2列・validated pair/digest CHECK・server-clock claim RPC・owner/security/grantがすべて不在、またはすべて完全一致するshapeだけを許可する。片側だけの列、wrong constraint、unknown dependency、wrong function/grantはDDL前に停止し、row、token、`credential_version`、RLS、policy、table grantを変更しない。
-- この文書更新時点ではPreview / Production DBへのmigration適用、history repair、schema/data変更は未実施である。Productionへcore baselineを適用してはならない。
+- 今回のACL lineage remediationではPreview / Production DBへのmigration適用、history repair、schema/data変更を行わない。Productionへcore baselineを適用してはならない。
 
-Previewへの次回read-only確認へ進む前に、6 migrationの順序、working tree、commit SHA、静的migration test、全Playwright、TypeScript、対象ESLint、Prettier、diffを再確認する。実DB適用は、そのread-only確認と別の明示承認後に限る。
+### 1.2.2 RLS auto-enable ACL migration lineage
+
+- Previewでは`20260810044303_harden_rls_auto_enable_acl.sql`が旧SQLで適用済みである。repositoryも同じ旧source（SHA-256 `CAA4291B7F0FD6F704C36473C99E7263F12E5E6CC79D726A81D19059EC42E198`）を保持し、適用済みversionの意味を変更しない。Previewには後続の`20260811083110_harden_rls_auto_enable_acl_forward.sql`だけを別承認で適用する。
+- Productionでは`20260810044303`は未適用であり、`public.rls_auto_enable()`と`ensure_rls`も不存在である。旧migrationはhelper存在を要求するため直接適用しない。適用直前のmetadata-only preflightで不存在を再確認し、別の明示承認で同versionをmigration historyへbaseline/repairした後、新forward migrationを適用する。history repairとmigration applyは同一の暗黙承認に含めない。
+- 新forward migrationは、helper/triggerが両方不存在ならgrant/revokeやobject作成を行わずno-opとする。両方がexpected shapeで存在する場合は、初期`PUBLIC EXECUTE`をowner-only ACLへhardeningし、既にharden済みならreplay-safeに成功する。partial state、extra binding、function/trigger/ACL driftは最初のmutationより前にfail-closedとする。
+- Phase 3で正式サポートするfresh replayは、helper-present Supabase baselineからのfull chainと、reconciliationおよびmigration history baseline済みのProduction-compatible chainである。helper/trigger不存在かつmigration historyが0件の任意DBへ全migrationを直接replayする経路は正式サポート外とし、squashed baseline/bootstrap redesignはこのPhaseでは行わない。
+
+Previewへの次回read-only確認へ進む前に、9 migrationの順序、working tree、commit SHA、静的migration test、全Playwright、TypeScript、対象ESLint、Prettier、diffを再確認する。実DB適用は、そのread-only確認と別の明示承認後に限る。
 
 ## 1.3 Preview適用手順（人間承認後のみ）
 
