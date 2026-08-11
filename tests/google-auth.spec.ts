@@ -69,6 +69,7 @@ function loadAuth(options?: {
   }).outputText;
   const calls = {
     loads: [] as string[],
+    canaryLoads: [] as string[],
     preflight: 0,
     refresh: 0,
     claims: 0,
@@ -121,6 +122,12 @@ function loadAuth(options?: {
   const loadedModule = {
     exports: {} as {
       getOAuthClientForUser: (userId: string) => Promise<OAuth2>;
+      refreshGoogleCredentialsForCanary: (userId: string) => Promise<{
+        operationId: string;
+        previousCredentialVersion: string;
+        resultCredentialVersion: string;
+        refreshTokenRotated: boolean;
+      }>;
       GoogleOAuthError: new (code: string) => Error & { code: string };
     },
   };
@@ -135,6 +142,11 @@ function loadAuth(options?: {
         createPlaintextGoogleToken: (value: string) => value,
         async loadGoogleTokenCredentials(userId: string) {
           calls.loads.push(userId);
+          if (options?.loadError) throw options.loadError;
+          return options?.storedCredentials ?? credentials();
+        },
+        async loadGoogleRefreshCanaryCredentials(userId: string) {
+          calls.canaryLoads.push(userId);
           if (options?.loadError) throw options.loadError;
           return options?.storedCredentials ?? credentials();
         },
@@ -167,6 +179,9 @@ function loadAuth(options?: {
         },
       };
     }
+    if (specifier === "@/lib/google/refreshOperationCore") {
+      return { createGoogleRefreshOperationId };
+    }
     throw new Error(`Unexpected dependency: ${specifier}`);
   };
 
@@ -184,11 +199,31 @@ function loadAuth(options?: {
 
   return {
     getOAuthClientForUser: loadedModule.exports.getOAuthClientForUser,
+    refreshGoogleCredentialsForCanary:
+      loadedModule.exports.refreshGoogleCredentialsForCanary,
     GoogleOAuthError: loadedModule.exports.GoogleOAuthError,
     calls,
     source,
   };
 }
+
+test("canary forces exactly one operation-safe refresh even for usable credentials", async () => {
+  const auth = loadAuth();
+  const result = await auth.refreshGoogleCredentialsForCanary(USER_ID);
+
+  expect(auth.calls.canaryLoads).toEqual([USER_ID]);
+  expect(auth.calls.loads).toEqual([]);
+  expect(auth.calls.claims).toBe(1);
+  expect(auth.calls.preflight).toBe(1);
+  expect(auth.calls.refresh).toBe(1);
+  expect(auth.calls.updates).toHaveLength(1);
+  expect(result).toEqual({
+    operationId: createGoogleRefreshOperationId(USER_ID, VERSION_0),
+    previousCredentialVersion: "0",
+    resultCredentialVersion: "1",
+    refreshTokenRotated: false,
+  });
+});
 
 test("usable stored credentials return an OAuth client without refresh write", async () => {
   const auth = loadAuth();

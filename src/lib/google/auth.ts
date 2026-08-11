@@ -3,6 +3,7 @@ import { google } from "googleapis";
 import { createGoogleAuthCore } from "@/lib/google/authCore";
 import {
   createPlaintextGoogleToken,
+  loadGoogleRefreshCanaryCredentials,
   loadGoogleTokenCredentials,
   preflightGoogleTokenEncryptionWrite,
 } from "@/lib/google/tokenStore";
@@ -13,6 +14,7 @@ import {
   transitionGoogleRefreshOperation,
 } from "@/lib/google/refreshOperation";
 import { GoogleTokenStoreError } from "@/lib/google/tokenStoreCore";
+import { createGoogleRefreshOperationId } from "@/lib/google/refreshOperationCore";
 
 type GoogleOAuthErrorCode =
   | "GOOGLE_CONNECTION_NOT_FOUND"
@@ -57,38 +59,11 @@ function getGoogleRefreshErrorCode(error: unknown): GoogleOAuthErrorCode {
   return "GOOGLE_TOKEN_REFRESH_FAILED";
 }
 
-export async function getOAuthClientForUser(userId: string) {
-  let storedCredentials;
-  try {
-    storedCredentials = await loadGoogleTokenCredentials(userId);
-  } catch (error) {
-    if (
-      error instanceof GoogleTokenStoreError &&
-      error.code === "GOOGLE_TOKEN_ROW_NOT_FOUND"
-    ) {
-      throw new GoogleOAuthError("GOOGLE_CONNECTION_NOT_FOUND");
-    }
-    throw error;
-  }
-
-  if (
-    !storedCredentials.exists() ||
-    storedCredentials.getStatus() !== "connected"
-  ) {
-    throw new GoogleOAuthError("GOOGLE_CONNECTION_NOT_FOUND");
-  }
-
-  if (!storedCredentials.getRefreshToken()) {
-    throw new GoogleOAuthError("GOOGLE_REFRESH_TOKEN_MISSING");
-  }
-
-  const clientId = process.env.GOOGLE_CLIENT_ID ?? "";
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET ?? "";
-  if (!clientId || !clientSecret) {
-    throw new GoogleOAuthError("GOOGLE_TOKEN_REFRESH_FAILED");
-  }
-
-  const authCore = createGoogleAuthCore({
+function createConfiguredGoogleAuthCore(
+  clientId: string,
+  clientSecret: string,
+) {
+  return createGoogleAuthCore({
     now: Date.now,
     preflightEncryptionWrite: preflightGoogleTokenEncryptionWrite,
     prepareRefreshOperation: prepareGoogleRefreshOperation,
@@ -155,6 +130,51 @@ export async function getOAuthClientForUser(userId: string) {
       }
     },
   });
+}
+
+function getGoogleClientConfiguration(): Readonly<{
+  clientId: string;
+  clientSecret: string;
+}> {
+  const clientId = process.env.GOOGLE_CLIENT_ID ?? "";
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET ?? "";
+  if (!clientId || !clientSecret) {
+    throw new GoogleOAuthError("GOOGLE_TOKEN_REFRESH_FAILED");
+  }
+  return { clientId, clientSecret };
+}
+
+async function loadConnectedCredentials(userId: string) {
+  let storedCredentials;
+  try {
+    storedCredentials = await loadGoogleTokenCredentials(userId);
+  } catch (error) {
+    if (
+      error instanceof GoogleTokenStoreError &&
+      error.code === "GOOGLE_TOKEN_ROW_NOT_FOUND"
+    ) {
+      throw new GoogleOAuthError("GOOGLE_CONNECTION_NOT_FOUND");
+    }
+    throw error;
+  }
+
+  if (
+    !storedCredentials.exists() ||
+    storedCredentials.getStatus() !== "connected"
+  ) {
+    throw new GoogleOAuthError("GOOGLE_CONNECTION_NOT_FOUND");
+  }
+  if (!storedCredentials.getRefreshToken()) {
+    throw new GoogleOAuthError("GOOGLE_REFRESH_TOKEN_MISSING");
+  }
+  return storedCredentials;
+}
+
+export async function getOAuthClientForUser(userId: string) {
+  const storedCredentials = await loadConnectedCredentials(userId);
+  const { clientId, clientSecret } = getGoogleClientConfiguration();
+
+  const authCore = createConfiguredGoogleAuthCore(clientId, clientSecret);
 
   const credentials = await authCore.prepareCredentials(
     userId,
@@ -169,4 +189,25 @@ export async function getOAuthClientForUser(userId: string) {
   });
 
   return oauth2Client;
+}
+
+export async function refreshGoogleCredentialsForCanary(userId: string) {
+  const storedCredentials = await loadGoogleRefreshCanaryCredentials(userId);
+  const previousCredentialVersion = storedCredentials.getCredentialVersion();
+  const operationId = createGoogleRefreshOperationId(
+    userId,
+    previousCredentialVersion,
+  );
+  const { clientId, clientSecret } = getGoogleClientConfiguration();
+  const result = await createConfiguredGoogleAuthCore(
+    clientId,
+    clientSecret,
+  ).refreshCredentialsOnce(userId, storedCredentials);
+
+  return Object.freeze({
+    operationId,
+    previousCredentialVersion: String(previousCredentialVersion),
+    resultCredentialVersion: String(result.credentials.getCredentialVersion()),
+    refreshTokenRotated: result.refreshTokenRotated,
+  });
 }

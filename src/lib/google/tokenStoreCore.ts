@@ -44,7 +44,8 @@ export type GoogleTokenStoreErrorCode =
   | "GOOGLE_TOKEN_REFRESH_IN_PROGRESS"
   | "GOOGLE_REFRESH_OUTCOME_UNKNOWN"
   | "GOOGLE_TOKEN_ROW_NOT_FOUND"
-  | "GOOGLE_TOKEN_ROW_DUPLICATE";
+  | "GOOGLE_TOKEN_ROW_DUPLICATE"
+  | "GOOGLE_REFRESH_CANARY_NOT_ELIGIBLE";
 
 const SAFE_ERROR_MESSAGES: Record<GoogleTokenStoreErrorCode, string> = {
   GOOGLE_TOKEN_INPUT_INVALID: "Google token store input is invalid",
@@ -57,6 +58,8 @@ const SAFE_ERROR_MESSAGES: Record<GoogleTokenStoreErrorCode, string> = {
     "Google token refresh outcome is unknown; reconnect is required",
   GOOGLE_TOKEN_ROW_NOT_FOUND: "Google token row was not found",
   GOOGLE_TOKEN_ROW_DUPLICATE: "Multiple Google token rows were found",
+  GOOGLE_REFRESH_CANARY_NOT_ELIGIBLE:
+    "Google credentials are not eligible for the refresh canary",
 };
 
 const UUID_PATTERN =
@@ -74,6 +77,16 @@ export const GOOGLE_TOKEN_CREDENTIAL_COLUMNS = Object.freeze([
   "credential_version",
 ] as const);
 
+export const GOOGLE_REFRESH_CANARY_CREDENTIAL_COLUMNS = Object.freeze([
+  "access_token_enc",
+  "refresh_token_enc",
+  "status",
+  "token_expiry_at",
+  "scopes",
+  "credential_version",
+  "reauth_required",
+] as const);
+
 export const GOOGLE_CALLBACK_REFRESH_COLUMNS = Object.freeze([
   "refresh_token_enc",
 ] as const);
@@ -89,7 +102,8 @@ export const GOOGLE_CALLBACK_SNAPSHOT_COLUMNS = Object.freeze([
 export type GoogleTokenReadColumn =
   | (typeof GOOGLE_TOKEN_CREDENTIAL_COLUMNS)[number]
   | (typeof GOOGLE_CALLBACK_REFRESH_COLUMNS)[number]
-  | (typeof GOOGLE_CALLBACK_SNAPSHOT_COLUMNS)[number];
+  | (typeof GOOGLE_CALLBACK_SNAPSHOT_COLUMNS)[number]
+  | (typeof GOOGLE_REFRESH_CANARY_CREDENTIAL_COLUMNS)[number];
 
 export type GoogleTokenConnectionRow = Readonly<{
   accessTokenStored?: string | null;
@@ -98,6 +112,7 @@ export type GoogleTokenConnectionRow = Readonly<{
   tokenExpiryAtStored?: string | null;
   scopesStored?: string | null;
   credentialVersionStored?: GoogleCredentialVersion;
+  reauthRequiredStored?: boolean;
 }>;
 
 export type GoogleConnectionWritePayload = Readonly<{
@@ -670,6 +685,48 @@ export function createGoogleTokenStore(
     });
   }
 
+  async function loadGoogleRefreshCanaryCredentials(
+    rawUserId: string,
+  ): Promise<GoogleTokenCredentials> {
+    const userId = validateUserId(rawUserId);
+    const result = await repository.selectConnectionsByUserId({
+      userId,
+      columns: GOOGLE_REFRESH_CANARY_CREDENTIAL_COLUMNS,
+    });
+    const row = getSingleRow(result);
+    const storedTokens = [row.accessTokenStored, row.refreshTokenStored].filter(
+      (token): token is string => token !== null && token !== undefined,
+    );
+
+    if (
+      row.statusStored !== "connected" ||
+      row.reauthRequiredStored !== false ||
+      !row.refreshTokenStored ||
+      storedTokens.some((token) => !isEncryptedGoogleToken(token))
+    ) {
+      fail("GOOGLE_REFRESH_CANARY_NOT_ELIGIBLE");
+    }
+
+    try {
+      for (const token of storedTokens) validateEncryptedGoogleToken(token);
+    } catch {
+      fail("GOOGLE_REFRESH_CANARY_NOT_ELIGIBLE");
+    }
+
+    return createGoogleTokenCredentialHandle({
+      accessToken: decryptStoredToken(row.accessTokenStored, userId, "access"),
+      refreshToken: decryptStoredToken(
+        row.refreshTokenStored,
+        userId,
+        "refresh",
+      ),
+      tokenExpiryAt: normalizeStoredExpiry(row.tokenExpiryAtStored),
+      status: row.statusStored,
+      scopes: row.scopesStored ?? null,
+      credentialVersion: getStoredCredentialVersion(row),
+    });
+  }
+
   async function loadGoogleCallbackConnectionSnapshot(
     rawUserId: string,
   ): Promise<GoogleCallbackConnectionSnapshot> {
@@ -953,6 +1010,7 @@ export function createGoogleTokenStore(
 
   return Object.freeze({
     loadGoogleTokenCredentials,
+    loadGoogleRefreshCanaryCredentials,
     loadGoogleRefreshTokenForCallback,
     loadGoogleCallbackConnectionSnapshot,
     saveGoogleCallbackConnection,

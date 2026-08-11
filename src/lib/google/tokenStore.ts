@@ -163,6 +163,8 @@ export async function releaseGoogleCredentialRefreshLease(
 }
 
 export const loadGoogleTokenCredentials = tokenStore.loadGoogleTokenCredentials;
+export const loadGoogleRefreshCanaryCredentials =
+  tokenStore.loadGoogleRefreshCanaryCredentials;
 export const loadGoogleRefreshTokenForCallback =
   tokenStore.loadGoogleRefreshTokenForCallback;
 export const loadGoogleCallbackConnectionSnapshot =
