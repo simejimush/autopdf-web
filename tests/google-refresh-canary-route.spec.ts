@@ -22,6 +22,7 @@ function loadRoute(options?: {
   enabled?: string;
   allowedHost?: string;
   refreshError?: Error;
+  refreshTokenRotated?: boolean;
 }) {
   const source = readFileSync(ROUTE_PATH, "utf8");
   const compiled = ts.transpileModule(source, {
@@ -32,7 +33,12 @@ function loadRoute(options?: {
     },
     fileName: ROUTE_PATH,
   }).outputText;
-  const calls = { getUser: 0, refresh: [] as string[], from: 0 };
+  const calls = {
+    getUser: 0,
+    refresh: [] as string[],
+    audit: [] as unknown[][],
+    from: 0,
+  };
   const loadedModule = {
     exports: {} as { POST: (request: Request) => Promise<Response> },
   };
@@ -53,7 +59,7 @@ function loadRoute(options?: {
             operationId: "aaaaaaaa-aaaa-5aaa-8aaa-aaaaaaaaaaaa",
             previousCredentialVersion: "4",
             resultCredentialVersion: "5",
-            refreshTokenRotated: false,
+            refreshTokenRotated: options?.refreshTokenRotated ?? false,
           };
         },
       };
@@ -87,6 +93,11 @@ function loadRoute(options?: {
     module: loadedModule,
     require: localRequire,
     URL,
+    console: {
+      info(...args: unknown[]) {
+        calls.audit.push(args);
+      },
+    },
     process: {
       env: {
         VERCEL_ENV: options?.vercelEnv ?? "preview",
@@ -172,6 +183,40 @@ test("an exact configured host delegates once for the authenticated user", async
     resultCredentialVersion: "5",
     refreshTokenRotated: false,
   });
+  expect(route.calls.audit).toEqual([
+    [
+      "[google.refresh-canary.audit]",
+      {
+        event: "google_refresh_canary_completed",
+        operation_id: "aaaaaaaa-aaaa-5aaa-8aaa-aaaaaaaaaaaa",
+        previous_credential_version: "4",
+        result_credential_version: "5",
+        refresh_token_handling: "preserved",
+      },
+    ],
+  ]);
+  expect(JSON.stringify(route.calls.audit)).not.toContain("access-token");
+  expect(JSON.stringify(route.calls.audit)).not.toContain("refresh-token");
+});
+
+test("a rotated provider result is recorded only as non-secret audit metadata", async () => {
+  const route = loadRoute({
+    user: { id: USER_ID },
+    refreshTokenRotated: true,
+  });
+
+  const response = await route.POST(request());
+
+  expect(response.status).toBe(200);
+  expect(route.calls.refresh).toEqual([USER_ID]);
+  expect(route.calls.audit).toHaveLength(1);
+  expect(route.calls.audit[0]?.[1]).toEqual({
+    event: "google_refresh_canary_completed",
+    operation_id: "aaaaaaaa-aaaa-5aaa-8aaa-aaaaaaaaaaaa",
+    previous_credential_version: "4",
+    result_credential_version: "5",
+    refresh_token_handling: "rotated",
+  });
 });
 
 test("host mismatch and wildcard-like config fail before refresh", async () => {
@@ -202,6 +247,24 @@ test("operation conflicts return fixed metadata without raw error details", asyn
     ok: false,
     error_code: "REFRESH_OUTCOME_UNKNOWN",
   });
+  expect(route.calls.audit).toEqual([]);
+});
+
+test("failed refresh never emits a completed audit event", async () => {
+  const route = loadRoute({
+    user: { id: USER_ID },
+    refreshError: new Error("provider or finalize failure"),
+  });
+
+  const response = await route.POST(request());
+
+  expect(response.status).toBe(500);
+  expect(await response.json()).toEqual({
+    ok: false,
+    error_code: "REFRESH_CANARY_FAILED",
+  });
+  expect(route.calls.refresh).toEqual([USER_ID]);
+  expect(route.calls.audit).toEqual([]);
 });
 
 test("route is POST-only and contains no forbidden downstream workflow", () => {
