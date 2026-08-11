@@ -17,6 +17,8 @@ const REFRESH_OPERATIONS_NAME =
   "20260811041554_add_google_refresh_operations.sql";
 const FORWARD_RLS_AUTO_ENABLE_ACL_NAME =
   "20260811083110_harden_rls_auto_enable_acl_forward.sql";
+const REFRESH_FINALIZE_LEASE_REMEDIATION_NAME =
+  "20260811134704_protect_google_refresh_finalize_lease_ownership.sql";
 const LEGACY_RLS_AUTO_ENABLE_ACL_SHA256 =
   "caa4291b7f0fd6f704c36473c99e7263f12e5e6cc79d726a81d19059ec42e198";
 
@@ -50,6 +52,7 @@ test("fixes the AutoPDF migration filename and dependency order", () => {
     LEGACY_RLS_AUTO_ENABLE_ACL_NAME,
     REFRESH_OPERATIONS_NAME,
     FORWARD_RLS_AUTO_ENABLE_ACL_NAME,
+    REFRESH_FINALIZE_LEASE_REMEDIATION_NAME,
   ]);
   expect(normalizedSql(BASELINE_NAME)).not.toContain("credential_version");
   expect(normalizedSql(HARDENING_NAME)).toContain(
@@ -90,6 +93,18 @@ test("preserves the applied rls_auto_enable ACL migration source lineage", () =>
 test("places the forward ACL remediation after the applied migration", () => {
   expect(BigInt(FORWARD_RLS_AUTO_ENABLE_ACL_NAME.slice(0, 14))).toBeGreaterThan(
     BigInt(LEGACY_RLS_AUTO_ENABLE_ACL_NAME.slice(0, 14)),
+  );
+});
+
+test("places the refresh finalize lease remediation after operations and ACL lineage", () => {
+  const remediationVersion = BigInt(
+    REFRESH_FINALIZE_LEASE_REMEDIATION_NAME.slice(0, 14),
+  );
+  expect(remediationVersion).toBeGreaterThan(
+    BigInt(REFRESH_OPERATIONS_NAME.slice(0, 14)),
+  );
+  expect(remediationVersion).toBeGreaterThan(
+    BigInt(FORWARD_RLS_AUTO_ENABLE_ACL_NAME.slice(0, 14)),
   );
 });
 
