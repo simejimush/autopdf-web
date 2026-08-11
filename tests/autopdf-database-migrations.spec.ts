@@ -62,11 +62,12 @@ test("hardens only the known rls_auto_enable function ACL", () => {
 
   expectTransactionalWithTimeouts(sql);
   expect(sql).toContain("do $rls_auto_enable_acl_preflight$");
+  expect(sql).toContain("do $rls_auto_enable_acl_apply$");
   expect(sql).toContain("do $rls_auto_enable_acl_postcondition$");
   expect(sql).toContain("6998ea6b4c2480f5d2e34b5dcf3f8d36");
   expect(
     sql.match(
-      /revoke execute on function public\.rls_auto_enable\(\) from public;/g,
+      /revoke execute on function public\.rls_auto_enable\(\) from public/g,
     ),
   ).toHaveLength(1);
 
@@ -97,6 +98,59 @@ test("hardens only the known rls_auto_enable function ACL", () => {
     /\b(enable|disable|force)\s+row\s+level\s+security\b/,
   );
   expect(sql).not.toMatch(/access_token_enc|refresh_token_enc|client_secret/);
+});
+
+test("treats only the completely absent RLS helper shape as a safe no-op", () => {
+  const sql = normalizedSql(RLS_AUTO_ENABLE_ACL_NAME);
+  const preflight = sql.slice(
+    sql.indexOf("do $rls_auto_enable_acl_preflight$"),
+    sql.indexOf("$rls_auto_enable_acl_preflight$;"),
+  );
+  const apply = sql.slice(
+    sql.indexOf("do $rls_auto_enable_acl_apply$"),
+    sql.indexOf("$rls_auto_enable_acl_apply$;"),
+  );
+  const postcondition = sql.slice(
+    sql.indexOf("do $rls_auto_enable_acl_postcondition$"),
+    sql.indexOf("$rls_auto_enable_acl_postcondition$;"),
+  );
+
+  expect(preflight).toContain(
+    "if function_count = 0 and named_trigger_count = 0 then",
+  );
+  expect(preflight).toContain(
+    "public.rls_auto_enable and ensure_rls must be both absent or both present",
+  );
+  expect(apply).toContain(
+    "if pg_catalog.to_regprocedure('public.rls_auto_enable()') is not null then",
+  );
+  expect(postcondition).toContain(
+    "if function_count = 0 and named_trigger_count = 0 then",
+  );
+  expect(sql).not.toMatch(/^\s*(create|alter|drop)\s+event\s+trigger\b/im);
+  expect(sql).not.toMatch(/^\s*(create|alter|drop)\s+function\b/im);
+  expect(sql).not.toMatch(
+    /^\s*(revoke|grant|drop|alter)\b[^;]*\bif exists\b/im,
+  );
+});
+
+test("accepts the expected initial or replay ACL and fails closed on drift", () => {
+  const sql = normalizedSql(RLS_AUTO_ENABLE_ACL_NAME);
+  const preflightEnd = sql.indexOf("$rls_auto_enable_acl_preflight$;");
+  const firstMutation = sql.indexOf("do $rls_auto_enable_acl_apply$");
+
+  expect(preflightEnd).toBeGreaterThan(0);
+  expect(firstMutation).toBeGreaterThan(preflightEnd);
+  expect(sql).toContain("if function_row.proacl is null and (");
+  expect(sql).toContain("if function_row.proacl is not null and (");
+  expect(sql).toContain("public.rls_auto_enable hardened acl is unexpected");
+  expect(sql).toContain(
+    "public.rls_auto_enable and ensure_rls diverged during acl hardening",
+  );
+  expect(sql).toContain("if event_trigger_count <> 1 or not exists (");
+  expect(sql).toContain("ensure_rls event trigger identity drifted");
+  expect(sql.trimStart()).toMatch(/^begin;/);
+  expect(sql.trimEnd()).toMatch(/commit;$/);
 });
 
 test("keeps the core baseline Preview-only, transactional, and fail-closed", () => {
