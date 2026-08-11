@@ -69,9 +69,16 @@ export type GoogleAuthCoreDependencies = Readonly<{
   ): Promise<GoogleCredentialVersion>;
 }>;
 
-function normalizeRefreshedExpiry(value: string): string {
+function normalizeRefreshedExpiry(
+  value: string,
+  refreshStartedAt: number,
+): string {
   const timestamp = Date.parse(value);
-  if (!value.trim() || !Number.isFinite(timestamp)) {
+  if (
+    !value.trim() ||
+    !Number.isFinite(timestamp) ||
+    timestamp <= refreshStartedAt
+  ) {
     throw new GoogleTokenStoreError("GOOGLE_TOKEN_INPUT_INVALID");
   }
 
@@ -134,7 +141,10 @@ export function createGoogleAuthCore(dependencies: GoogleAuthCoreDependencies) {
         accessToken,
         refreshToken,
       });
-      const tokenExpiryAt = normalizeRefreshedExpiry(refreshed.tokenExpiryAt);
+      const tokenExpiryAt = normalizeRefreshedExpiry(
+        refreshed.tokenExpiryAt,
+        currentTimestamp,
+      );
       const timestamp = new Date(currentTimestamp).toISOString();
       const savedCredentialVersion =
         await dependencies.finalizeRefreshOperation({

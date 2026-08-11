@@ -205,6 +205,35 @@ test("provider or finalize ambiguity transitions to outcome_unknown", async () =
   }
 });
 
+test("invalid or non-future refreshed expiry never reaches finalization", async () => {
+  for (const tokenExpiryAt of [
+    "",
+    "not-a-date",
+    "1970-01-01T00:00:00.000Z",
+    new Date(NOW_MS - 1).toISOString(),
+    new Date(NOW_MS).toISOString(),
+  ]) {
+    const { core, calls } = harness({
+      refreshed: {
+        accessToken: createPlaintextGoogleToken("refreshed-access"),
+        tokenExpiryAt,
+      },
+    });
+
+    await expect(
+      core.refreshCredentialsOnce(
+        USER_ID,
+        credentials({
+          expiry: "1970-01-01T00:00:00.000Z",
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "GOOGLE_REFRESH_OUTCOME_UNKNOWN" });
+    expect(calls.provider).toBe(1);
+    expect(calls.finalize).toBe(0);
+    expect(calls.transitions).toEqual(["outcome_unknown"]);
+  }
+});
+
 test("confirmed invalid grant becomes terminal and is not rewritten as unknown", async () => {
   const invalidGrant = new Error("invalid grant");
   const { core, calls } = harness({

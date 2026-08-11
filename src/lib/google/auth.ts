@@ -96,22 +96,26 @@ function createConfiguredGoogleAuthCore(
       });
       refreshClient.setCredentials({
         refresh_token: input.refreshToken,
-        ...(input.accessToken ? { access_token: input.accessToken } : {}),
-        expiry_date: 0,
       });
 
       try {
-        const accessTokenResult = await refreshClient.getAccessToken();
-        const accessToken = accessTokenResult?.token?.trim() ?? "";
-        const expiryDate = refreshClient.credentials.expiry_date;
+        const refreshResult = await refreshClient.refreshAccessToken();
+        const accessToken =
+          refreshResult.credentials.access_token?.trim() ?? "";
+        const expiryDate = refreshResult.credentials.expiry_date;
 
-        if (!accessToken || typeof expiryDate !== "number") {
+        if (
+          !accessToken ||
+          typeof expiryDate !== "number" ||
+          !Number.isFinite(expiryDate) ||
+          expiryDate <= 0
+        ) {
           throw new GoogleOAuthError("GOOGLE_TOKEN_REFRESH_FAILED");
         }
 
         const rotatedRefreshToken =
           refreshTokenFromEvent ??
-          refreshClient.credentials.refresh_token?.trim() ??
+          refreshResult.credentials.refresh_token?.trim() ??
           "";
 
         return {

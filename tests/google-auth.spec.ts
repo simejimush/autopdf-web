@@ -55,7 +55,7 @@ function loadAuth(options?: {
   refreshError?: unknown;
   refreshedAccessToken?: string;
   rotatedRefreshToken?: string;
-  refreshedExpiry?: number;
+  refreshedExpiry?: number | null;
   updateError?: Error;
 }) {
   const source = readFileSync(AUTH_PATH, "utf8");
@@ -77,6 +77,7 @@ function loadAuth(options?: {
     updates: [] as Array<Record<string, unknown>>,
     clients: [] as Array<{ credentials: Record<string, unknown> }>,
     clientOptions: [] as unknown[],
+    credentialSets: [] as Array<Record<string, unknown>>,
   };
 
   class OAuth2 {
@@ -90,6 +91,7 @@ function loadAuth(options?: {
 
     setCredentials(value: Record<string, unknown>) {
       this.credentials = { ...value };
+      calls.credentialSets.push(value);
     }
 
     on(event: string, listener: (tokens: Record<string, unknown>) => void) {
@@ -97,25 +99,26 @@ function loadAuth(options?: {
       return this;
     }
 
-    async getAccessToken() {
+    async refreshAccessToken() {
       calls.refresh += 1;
       if (options?.refreshError) throw options.refreshError;
-      this.tokensListener?.({
+      const expiryDate =
+        options && "refreshedExpiry" in options
+          ? options.refreshedExpiry
+          : Date.parse("2999-01-01T00:00:00.000Z");
+      const refreshedCredentials = {
         access_token: options?.refreshedAccessToken ?? "refreshed-access",
         ...(options?.rotatedRefreshToken
           ? { refresh_token: options.rotatedRefreshToken }
           : {}),
-      });
-      this.credentials = {
-        ...this.credentials,
-        access_token: options?.refreshedAccessToken ?? "refreshed-access",
-        expiry_date:
-          options?.refreshedExpiry ?? Date.parse("2999-01-01T00:00:00.000Z"),
-        ...(options?.rotatedRefreshToken
-          ? { refresh_token: options.rotatedRefreshToken }
-          : {}),
+        ...(expiryDate === null ? {} : { expiry_date: expiryDate }),
       };
-      return { token: this.credentials.access_token };
+      this.tokensListener?.(refreshedCredentials);
+      this.credentials = {
+        ...refreshedCredentials,
+        refresh_token: this.credentials.refresh_token,
+      };
+      return { credentials: this.credentials };
     }
   }
 
@@ -239,9 +242,9 @@ test("usable stored credentials return an OAuth client without refresh write", a
   });
 });
 
-test("expired credentials refresh and persist access-only exactly once", async () => {
+test("epoch credentials refresh and persist provider expiry exactly once", async () => {
   const auth = loadAuth({
-    storedCredentials: credentials({ expiry: "2000-01-01T00:00:00.000Z" }),
+    storedCredentials: credentials({ expiry: "1970-01-01T00:00:00.000Z" }),
   });
   const client = await auth.getOAuthClientForUser(USER_ID);
 
@@ -253,6 +256,7 @@ test("expired credentials refresh and persist access-only exactly once", async (
     userId: USER_ID,
     accessToken: "refreshed-access",
     expectedCredentialVersion: VERSION_0,
+    tokenExpiryAt: "2999-01-01T00:00:00.000Z",
   });
   expect(auth.calls.updates[0]).not.toHaveProperty("refreshToken");
   expect(client.credentials).toMatchObject({
@@ -265,6 +269,25 @@ test("expired credentials refresh and persist access-only exactly once", async (
       retryConfig: { retry: 0, noResponseRetries: 0 },
     },
   });
+  expect(auth.calls.credentialSets[0]).toEqual({
+    refresh_token: "stored-refresh",
+  });
+});
+
+test("refresh expiry metadata fails closed before credential finalization", async () => {
+  for (const refreshedExpiry of [null, 0, -1, Number.NaN, Infinity]) {
+    const auth = loadAuth({
+      storedCredentials: credentials({ expiry: "1970-01-01T00:00:00.000Z" }),
+      refreshedExpiry,
+    });
+
+    await expect(auth.getOAuthClientForUser(USER_ID)).rejects.toMatchObject({
+      code: "GOOGLE_REFRESH_OUTCOME_UNKNOWN",
+    });
+    expect(auth.calls.refresh).toBe(1);
+    expect(auth.calls.updates).toEqual([]);
+    expect(auth.calls.releases).toBe(1);
+  }
 });
 
 test("rotated refresh token is persisted atomically with access", async () => {
