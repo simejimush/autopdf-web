@@ -9,6 +9,7 @@ type UpdateGoogleConnectionHealthParams = {
 const REAUTH_REQUIRED_CODES = new Set([
   "GOOGLE_TOKEN_INVALID",
   "GOOGLE_PERMISSION_DENIED",
+  "GOOGLE_REFRESH_OUTCOME_UNKNOWN",
 ]);
 
 const GOOGLE_CONNECTION_HEALTH_SELECT = "id, user_id";

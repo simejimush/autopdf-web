@@ -119,6 +119,7 @@ test("error health update preserves the existing reauth policy", async () => {
   for (const [errorCode, expectedReauth] of [
     ["GOOGLE_TOKEN_INVALID", true],
     ["GOOGLE_PERMISSION_DENIED", true],
+    ["GOOGLE_REFRESH_OUTCOME_UNKNOWN", true],
     ["UNKNOWN", false],
   ] as const) {
     const harness = loadModule();

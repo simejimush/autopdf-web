@@ -6,6 +6,7 @@ import {
   createGoogleTokenEncryptionWritePreflight,
   createGoogleTokenStore,
   createGoogleCredentialVersion,
+  createGoogleUserId,
   createGoogleRefreshLeaseIdHash,
   createPlaintextGoogleToken,
   GoogleTokenStoreError,
@@ -81,9 +82,10 @@ export type {
   UpdateRefreshedGoogleAccessTokenInput,
   GoogleRefreshLeaseIdHash,
   GoogleRefreshLeaseHandle,
+  EncryptedGoogleToken,
 } from "@/lib/google/tokenStoreCore";
 
-function createRefreshLeaseHandle(): import("@/lib/google/tokenStoreCore").GoogleRefreshLeaseHandle {
+export function createRefreshLeaseHandle(): import("@/lib/google/tokenStoreCore").GoogleRefreshLeaseHandle {
   const rawLeaseSecret = randomBytes(GOOGLE_REFRESH_LEASE_SECRET_BYTES);
   const handle = Object.create(Object.prototype) as Record<
     PropertyKey,
@@ -111,6 +113,18 @@ function createRefreshLeaseHandle(): import("@/lib/google/tokenStoreCore").Googl
   return Object.freeze(
     handle,
   ) as import("@/lib/google/tokenStoreCore").GoogleRefreshLeaseHandle;
+}
+
+export function encryptGoogleTokenForStore(
+  token: import("@/lib/google/tokenStoreCore").PlaintextGoogleToken,
+  userId: string,
+  tokenType: "access" | "refresh",
+): import("@/lib/google/tokenStoreCore").EncryptedGoogleToken {
+  return crypto.encrypt({
+    token,
+    userId: createGoogleUserId(userId),
+    tokenType,
+  }) as import("@/lib/google/tokenStoreCore").EncryptedGoogleToken;
 }
 
 export async function claimGoogleCredentialRefreshLease(

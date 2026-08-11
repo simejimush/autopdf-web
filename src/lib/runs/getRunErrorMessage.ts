@@ -26,6 +26,7 @@ export function getRunErrorMessage(
     case "GOOGLE_REFRESH_TOKEN_MISSING":
     case "GOOGLE_TOKEN_INVALID":
     case "GOOGLE_TOKEN_REFRESH_FAILED":
+    case "GOOGLE_REFRESH_OUTCOME_UNKNOWN":
       return {
         title: "Googleの認証が切れています",
         message: "GmailまたはGoogle Driveへの接続に必要な認証情報が無効です。",
@@ -48,6 +49,7 @@ export function getRunErrorMessage(
     case "GOOGLE_TOKEN_WRITE_DISABLED":
     case "GOOGLE_TOKEN_STORE_FAILED":
     case "GOOGLE_TOKEN_UPDATE_CONFLICT":
+    case "GOOGLE_TOKEN_REFRESH_IN_PROGRESS":
     case "GOOGLE_TOKEN_ROW_NOT_FOUND":
     case "GOOGLE_TOKEN_ROW_DUPLICATE":
       return {

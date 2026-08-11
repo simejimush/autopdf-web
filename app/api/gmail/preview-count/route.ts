@@ -87,6 +87,13 @@ export async function POST(req: Request) {
       );
     }
 
+    if (errorCode === "GOOGLE_REFRESH_OUTCOME_UNKNOWN") {
+      return NextResponse.json(
+        { error: "GOOGLE_REFRESH_OUTCOME_UNKNOWN" },
+        { status: 409 },
+      );
+    }
+
     console.error("[gmail.preview-count] failed", {
       code: errorCode,
       errorName: error instanceof Error ? error.name : "UnknownError",

@@ -10,8 +10,8 @@ import {
   createGoogleRefreshLeaseIdHash,
   GoogleTokenStoreError,
   type GoogleTokenCredentials,
-  type UpdateRefreshedGoogleAccessTokenInput,
 } from "../src/lib/google/tokenStoreCore";
+import { createGoogleRefreshOperationId } from "../src/lib/google/refreshOperationCore";
 
 const AUTH_PATH = resolve(process.cwd(), "src/lib/google/auth.ts");
 const USER_ID = "44444444-4444-4444-8444-444444444444";
@@ -73,7 +73,7 @@ function loadAuth(options?: {
     refresh: 0,
     claims: 0,
     releases: 0,
-    updates: [] as UpdateRefreshedGoogleAccessTokenInput[],
+    updates: [] as Array<Record<string, unknown>>,
     clients: [] as Array<{ credentials: Record<string, unknown> }>,
     clientOptions: [] as unknown[],
   };
@@ -142,16 +142,25 @@ function loadAuth(options?: {
           calls.preflight += 1;
           if (options?.preflightError) throw options.preflightError;
         },
-        async claimGoogleCredentialRefreshLease() {
+      };
+    }
+    if (specifier === "@/lib/google/refreshOperation") {
+      return {
+        async prepareGoogleRefreshOperation() {
           calls.claims += 1;
-          return LEASE;
+          return {
+            state: "prepared",
+            handle: {
+              operationId: createGoogleRefreshOperationId(USER_ID, VERSION_0),
+              lease: LEASE,
+            },
+          };
         },
-        async releaseGoogleCredentialRefreshLease() {
+        async markGoogleRefreshProviderStarted() {},
+        async transitionGoogleRefreshOperation() {
           calls.releases += 1;
         },
-        async updateRefreshedGoogleAccessToken(
-          input: UpdateRefreshedGoogleAccessTokenInput,
-        ) {
+        async finalizeGoogleRefreshOperation(input: Record<string, unknown>) {
           calls.updates.push(input);
           if (options?.updateError) throw options.updateError;
           return VERSION_1;
@@ -208,9 +217,9 @@ test("expired credentials refresh and persist access-only exactly once", async (
   expect(auth.calls.updates[0]).toMatchObject({
     userId: USER_ID,
     accessToken: "refreshed-access",
-    refreshToken: { mode: "preserve" },
     expectedCredentialVersion: VERSION_0,
   });
+  expect(auth.calls.updates[0]).not.toHaveProperty("refreshToken");
   expect(client.credentials).toMatchObject({
     access_token: "refreshed-access",
     refresh_token: "stored-refresh",
@@ -232,10 +241,7 @@ test("rotated refresh token is persisted atomically with access", async () => {
   await auth.getOAuthClientForUser(USER_ID);
 
   expect(auth.calls.updates).toHaveLength(1);
-  expect(auth.calls.updates[0].refreshToken).toEqual({
-    mode: "update",
-    token: "rotated-refresh",
-  });
+  expect(auth.calls.updates[0].refreshToken).toBe("rotated-refresh");
 });
 
 test("preflight and Google failures do not perform tokenStore updates", async () => {
@@ -268,7 +274,7 @@ test("store failure does not return a partially refreshed OAuth client", async (
   });
 
   await expect(auth.getOAuthClientForUser(USER_ID)).rejects.toMatchObject({
-    code: "GOOGLE_TOKEN_STORE_FAILED",
+    code: "GOOGLE_REFRESH_OUTCOME_UNKNOWN",
   });
   expect(auth.calls.refresh).toBe(1);
   expect(auth.calls.updates).toHaveLength(1);

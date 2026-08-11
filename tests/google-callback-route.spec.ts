@@ -346,7 +346,7 @@ function loadRoute(options?: {
   };
 }
 
-test("initial callback preflights, validates, and inserts encrypted-store input", async () => {
+test("initial callback preflights and stores the authorization-code exchange result", async () => {
   const route = loadRoute();
   const response = await route.GET(route.request);
   const setCookie = response.headers.get("set-cookie") ?? "";
@@ -354,18 +354,12 @@ test("initial callback preflights, validates, and inserts encrypted-store input"
   expect(response.headers.get("location")).toBe(
     "https://app.example.test/settings?google=connected",
   );
-  expect(route.events).toEqual([
-    "snapshot",
-    "preflight",
-    "fetch",
-    "verify",
-    "save",
-  ]);
+  expect(route.events).toEqual(["snapshot", "preflight", "fetch", "save"]);
   expect(route.calls.saves).toHaveLength(1);
   expect(route.calls.saves[0]).toMatchObject({
     userId: USER_ID,
     writeMode: "insert",
-    accessToken: "verified-access",
+    accessToken: "exchange-access",
     refreshToken: { mode: "update", token: "exchange-refresh" },
   });
   expect(route.calls.tokenRequests).toEqual([
@@ -376,12 +370,7 @@ test("initial callback preflights, validates, and inserts encrypted-store input"
       hasAbortSignal: true,
     },
   ]);
-  expect(route.calls.oauthClientOptions[0]).toMatchObject({
-    transporterOptions: {
-      timeout: 30_000,
-      retryConfig: { retry: 0, noResponseRetries: 0 },
-    },
-  });
+  expect(route.calls.oauthClientOptions).toEqual([]);
   expect(route.calls.cookieGets).toEqual([GOOGLE_OAUTH_STATE_COOKIE_NAME]);
   expect(setCookie).toContain(`${GOOGLE_OAUTH_STATE_COOKIE_NAME}=`);
   expect(setCookie).toContain("Max-Age=0");
@@ -398,9 +387,7 @@ test("reconnect without a new refresh dual-reads and re-encrypts the stored toke
 
   await route.GET(route.request);
 
-  expect(route.calls.credentials[0]).toEqual({
-    refresh_token: "legacy-or-decrypted-refresh",
-  });
+  expect(route.calls.credentials).toEqual([]);
   expect(route.calls.saves[0]).toMatchObject({
     writeMode: "update",
     expectedStatus: "connected",
@@ -426,14 +413,14 @@ test("a newly returned refresh token replaces the old token in one save", async 
 
   await route.GET(route.request);
 
-  expect(route.calls.credentials[0]).toEqual({ refresh_token: "new-refresh" });
+  expect(route.calls.credentials).toEqual([]);
   expect(route.calls.saves[0]).toMatchObject({
     writeMode: "update",
     refreshToken: { mode: "update", token: "new-refresh" },
   });
 });
 
-test("validation token events are folded into the single callback save", async () => {
+test("callback does not start a second token refresh after exchange", async () => {
   const route = loadRoute({
     rowExists: true,
     storedRefreshToken: "old-refresh",
@@ -445,8 +432,10 @@ test("validation token events are folded into the single callback save", async (
 
   expect(route.calls.saves).toHaveLength(1);
   expect(route.calls.saves[0]).toMatchObject({
-    refreshToken: { mode: "update", token: "event-rotated-refresh" },
+    accessToken: "exchange-access",
+    refreshToken: { mode: "update", token: "old-refresh" },
   });
+  expect(route.events).not.toContain("verify");
 });
 
 test("missing or invalid refresh fails validation without token save", async () => {
@@ -476,7 +465,7 @@ test("validation failure updates an existing row through the token store", async
   const route = loadRoute({
     rowExists: true,
     storedRefreshToken: "stored-refresh",
-    verifyError: new Error("provider-validation-failed"),
+    exchangeToken: { access_token: " ", refresh_token: "stored-refresh" },
   });
   const response = await route.GET(route.request);
 
@@ -628,7 +617,7 @@ test("unauthenticated callbacks consume state without provider or database work"
 test("health write failure preserves the token-invalid redirect safely", async () => {
   const secret = "raw-health-db-secret";
   const route = loadRoute({
-    verifyError: new Error("provider-validation-failed"),
+    exchangeToken: { access_token: " ", refresh_token: "exchange-refresh" },
     validationFailureError: new Error(secret),
   });
   const response = await route.GET(route.request);
@@ -698,14 +687,19 @@ test("reconnect provider failure holds the lease for expiry recovery", async () 
   expect(route.calls.saves).toEqual([]);
 });
 
-test("exchange, validation, and save failures use fixed redirects without secrets", async () => {
+test("exchange, malformed result, and save failures use fixed redirects without secrets", async () => {
   const cases = [
     loadRoute({
       exchangeOk: false,
       exchangeStatus: 400,
       exchangeToken: { error: "raw-provider-secret" },
     }),
-    loadRoute({ verifyError: new Error("raw-google-secret") }),
+    loadRoute({
+      exchangeToken: {
+        access_token: " ",
+        refresh_token: "raw-google-secret",
+      },
+    }),
     loadRoute({ saveError: new Error("raw-store-secret") }),
   ];
   const expected = ["token_failed", "token_invalid", "save_failed"];

@@ -3,7 +3,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { google } from "googleapis";
 import {
   getGoogleOAuthStateCookieOptions,
   GOOGLE_OAUTH_STATE_COOKIE_NAME,
@@ -204,7 +203,6 @@ export async function GET(req: Request) {
     let verifiedAccessToken;
     let refreshTokenToSave = callbackSnapshot.getRefreshToken();
     let validatedRefreshToken = refreshTokenToSave;
-    let verifiedExpiryAt = tokenExpiryAt;
 
     try {
       if (
@@ -224,43 +222,16 @@ export async function GET(req: Request) {
         throw new Error("missing_refresh_token");
       }
 
-      const oauth2Client = new google.auth.OAuth2({
-        clientId,
-        clientSecret,
-        redirectUri,
-        transporterOptions: {
-          timeout: GOOGLE_REFRESH_PROVIDER_TIMEOUT_MS,
-          retryConfig: {
-            retry: 0,
-            noResponseRetries: 0,
-          },
-        },
-      });
-
-      oauth2Client.on("tokens", (tokens) => {
-        const candidate = tokens.refresh_token?.trim();
-        if (candidate) {
-          validatedRefreshToken = createPlaintextGoogleToken(candidate);
-        }
-      });
-
-      oauth2Client.setCredentials({
-        refresh_token: refreshTokenToSave,
-      });
-
-      const accessTokenResult = await oauth2Client.getAccessToken();
-      const accessToken = accessTokenResult?.token?.trim() ?? "";
+      const accessToken =
+        typeof token?.access_token === "string"
+          ? token.access_token.trim()
+          : "";
 
       if (!accessToken) {
         throw new Error("missing_access_token");
       }
 
       verifiedAccessToken = createPlaintextGoogleToken(accessToken);
-      if (typeof oauth2Client.credentials.expiry_date === "number") {
-        verifiedExpiryAt = new Date(
-          oauth2Client.credentials.expiry_date,
-        ).toISOString();
-      }
     } catch {
       console.error("[google.callback] token validation failed", {
         reason: "oauth_access_token_check_failed",
@@ -312,7 +283,7 @@ export async function GET(req: Request) {
             }
           : {}),
         state: {
-          tokenExpiryAt: verifiedExpiryAt,
+          tokenExpiryAt,
           scopes:
             typeof token?.scope === "string"
               ? token.scope
