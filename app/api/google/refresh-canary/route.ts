@@ -43,6 +43,15 @@ export async function POST(request: Request) {
 
   try {
     const result = await refreshGoogleCredentialsForCanary(user.id);
+    console.info("[google.refresh-canary.audit]", {
+      event: "google_refresh_canary_completed",
+      operation_id: result.operationId,
+      previous_credential_version: result.previousCredentialVersion,
+      result_credential_version: result.resultCredentialVersion,
+      refresh_token_handling: result.refreshTokenRotated
+        ? "rotated"
+        : "preserved",
+    });
     return NextResponse.json(
       { ok: true, state: "completed", ...result },
       { status: 200, headers: NO_STORE_HEADERS },
