@@ -11,6 +11,7 @@ import {
   GOOGLE_CALLBACK_REFRESH_COLUMNS,
   GOOGLE_CALLBACK_SNAPSHOT_COLUMNS,
   GOOGLE_TOKEN_CREDENTIAL_COLUMNS,
+  GOOGLE_REFRESH_CANARY_CREDENTIAL_COLUMNS,
   GoogleTokenCredentialSerializationError,
   GoogleTokenStoreError,
   type GoogleConnectionWritePayload,
@@ -674,6 +675,80 @@ test("load decrypts encrypted access and refresh with separate AAD", async () =>
   expect(credentials.getAccessToken()).toBe("encrypted-access-token");
   expect(credentials.getRefreshToken()).toBe("encrypted-refresh-token");
   expect(credentials.getTokenExpiryAt()).toBeNull();
+});
+
+test("refresh canary load requires one connected encrypted non-reauth row", async () => {
+  const key = createKey();
+  const accessToken = encryptGoogleToken({
+    token: "canary-access-token",
+    userId: USER_ID,
+    tokenType: "access",
+    keyId: KEY_ID,
+    key,
+  });
+  const refreshToken = encryptGoogleToken({
+    token: "canary-refresh-token",
+    userId: USER_ID,
+    tokenType: "refresh",
+    keyId: KEY_ID,
+    key,
+  });
+  const { store, calls } = createHarness({
+    key,
+    selectResult: {
+      ok: true,
+      rows: [
+        {
+          accessTokenStored: accessToken,
+          refreshTokenStored: refreshToken,
+          statusStored: "connected",
+          credentialVersionStored: VERSION_0,
+          reauthRequiredStored: false,
+        },
+      ],
+    },
+  });
+
+  const credentials = await store.loadGoogleRefreshCanaryCredentials(USER_ID);
+  expect(credentials.getAccessToken()).toBe("canary-access-token");
+  expect(credentials.getRefreshToken()).toBe("canary-refresh-token");
+  expect(calls.selects).toEqual([
+    {
+      userId: USER_ID,
+      columns: [...GOOGLE_REFRESH_CANARY_CREDENTIAL_COLUMNS],
+    },
+  ]);
+});
+
+test("refresh canary load rejects legacy, reauth, and disconnected rows", async () => {
+  for (const row of [
+    {
+      refreshTokenStored: "legacy-refresh-token",
+      statusStored: "connected",
+      credentialVersionStored: VERSION_0,
+      reauthRequiredStored: false,
+    },
+    {
+      refreshTokenStored: "enc:v1:key:bad:bad:bad",
+      statusStored: "connected",
+      credentialVersionStored: VERSION_0,
+      reauthRequiredStored: true,
+    },
+    {
+      refreshTokenStored: "enc:v1:key:bad:bad:bad",
+      statusStored: "disconnected",
+      credentialVersionStored: VERSION_0,
+      reauthRequiredStored: false,
+    },
+  ]) {
+    const { store } = createHarness({
+      selectResult: { ok: true, rows: [row] },
+    });
+    await expectStoreErrorAsync(
+      () => store.loadGoogleRefreshCanaryCredentials(USER_ID),
+      "GOOGLE_REFRESH_CANARY_NOT_ELIGIBLE",
+    );
+  }
 });
 
 test("credential handle preserves token and expiry variants exactly", () => {

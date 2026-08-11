@@ -81,6 +81,7 @@ function parseConnectionRow(
     tokenExpiryAtStored?: string | null;
     scopesStored?: string | null;
     credentialVersionStored?: GoogleCredentialVersion;
+    reauthRequiredStored?: boolean;
   } = {};
 
   for (const column of columns) {
@@ -97,6 +98,14 @@ function parseConnectionRow(
       } catch {
         return null;
       }
+      continue;
+    }
+
+    if (column === "reauth_required") {
+      if (typeof storedValue !== "boolean") {
+        return null;
+      }
+      row.reauthRequiredStored = storedValue;
       continue;
     }
 
