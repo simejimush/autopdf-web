@@ -822,10 +822,11 @@ test("Google reauth notifications remain after finalization and notifier failure
   expect(harness.source).not.toContain("auth.admin.getUserById");
 });
 
-test("only the existing two Google reauth codes trigger user notification", async () => {
+test("all fail-closed Google reauth codes trigger user notification", async () => {
   for (const errorCode of [
     "GOOGLE_TOKEN_INVALID",
     "GOOGLE_PERMISSION_DENIED",
+    "GOOGLE_REFRESH_OUTCOME_UNKNOWN",
   ] as const) {
     const harness = loadExecuteRule({
       trigger: "cron",

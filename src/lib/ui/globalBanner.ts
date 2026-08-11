@@ -22,6 +22,7 @@ function errorCopy(errorCode?: string | null, message?: string | null) {
   switch (errorCode) {
     case "GOOGLE_TOKEN_INVALID":
     case "GOOGLE_PERMISSION_DENIED":
+    case "GOOGLE_REFRESH_OUTCOME_UNKNOWN":
     case "google_oauth_invalid":
       return {
         title: "Google連携の再接続が必要です",

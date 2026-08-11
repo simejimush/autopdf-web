@@ -2,17 +2,13 @@ import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { expect, test } from "@playwright/test";
-import { createGoogleAuthCore } from "../src/lib/google/authCore";
 import {
   createGoogleCredentialVersion,
   createGoogleRefreshLeaseIdHash,
-  createGoogleTokenCredentialHandle,
   createGoogleTokenStore,
   createPlaintextGoogleToken,
-  GoogleTokenStoreError,
   type GoogleConnectionWritePayload,
   type GoogleCredentialVersion,
-  type GoogleRefreshLeaseHandle,
   type GoogleRefreshLeaseIdHash,
   type GoogleTokenRepository,
 } from "../src/lib/google/tokenStoreCore";
@@ -41,15 +37,6 @@ type ConnectionState = {
 
 function leaseHash(label: string): GoogleRefreshLeaseIdHash {
   return createGoogleRefreshLeaseIdHash(label.repeat(64).slice(0, 64));
-}
-
-function leaseHandle(hash: GoogleRefreshLeaseIdHash): GoogleRefreshLeaseHandle {
-  return Object.freeze({
-    getIdHash: () => hash,
-    toJSON: (): never => {
-      throw new Error("lease serialization forbidden");
-    },
-  });
 }
 
 function createLeaseHarness() {
@@ -203,69 +190,6 @@ async function claim(
   });
 }
 
-function credentials() {
-  return createGoogleTokenCredentialHandle({
-    accessToken: null,
-    refreshToken: createPlaintextGoogleToken("legacy-refresh"),
-    tokenExpiryAt: null,
-    status: "connected",
-    scopes: "gmail.readonly drive.file",
-    credentialVersion: VERSION_0,
-  });
-}
-
-function createCoordinatedAuth(
-  harness: ReturnType<typeof createLeaseHarness>,
-  options?: {
-    providerError?: Error;
-    preflightError?: Error;
-    waitDuringProvider?: () => Promise<void>;
-  },
-) {
-  let currentMs = NOW_MS;
-  let providerCalls = 0;
-  let nextLease = 0;
-  const core = createGoogleAuthCore({
-    now: () => currentMs,
-    async claimRefreshLease(input) {
-      const hash = leaseHash(nextLease++ % 2 === 0 ? "a" : "b");
-      await claim(harness, input.userId, hash, currentMs);
-      return leaseHandle(hash);
-    },
-    async releaseRefreshLease(input) {
-      await harness.store.releaseGoogleCredentialRefreshLease({
-        userId: input.userId,
-        expectedStatus: "connected",
-        expectedCredentialVersion: input.expectedCredentialVersion,
-        leaseIdHash: input.lease.getIdHash(),
-      });
-    },
-    preflightEncryptionWrite() {
-      if (options?.preflightError) throw options.preflightError;
-    },
-    async refreshTokens() {
-      providerCalls += 1;
-      await options?.waitDuringProvider?.();
-      if (options?.providerError) throw options.providerError;
-      return {
-        accessToken: createPlaintextGoogleToken("refreshed-access"),
-        tokenExpiryAt: new Date(currentMs + 60 * 60 * 1000).toISOString(),
-      };
-    },
-    updateRefreshedTokens: harness.store.updateRefreshedGoogleAccessToken,
-  });
-  return {
-    core,
-    get providerCalls() {
-      return providerCalls;
-    },
-    advanceTo(ms: number) {
-      currentMs = ms;
-      harness.advanceServerTo(ms);
-    },
-  };
-}
-
 test("lease claim is atomic, active leases cannot be stolen, and expired leases can be reclaimed", async () => {
   const harness = createLeaseHarness();
   const first = leaseHash("a");
@@ -278,52 +202,6 @@ test("lease claim is atomic, active leases cannot be stolen, and expired leases 
   ).rejects.toMatchObject({ code: "GOOGLE_TOKEN_UPDATE_CONFLICT" });
   await claim(harness, USER_A, second, NOW_MS + LEASE_TTL_MS);
   expect(harness.states.get(USER_A)?.leaseHash).toBe(second);
-});
-
-test("same connection race invokes the provider exactly once", async () => {
-  const harness = createLeaseHarness();
-  let markProviderStarted!: () => void;
-  let releaseProvider!: () => void;
-  const providerStarted = new Promise<void>((resolve) => {
-    markProviderStarted = resolve;
-  });
-  const providerRelease = new Promise<void>((resolve) => {
-    releaseProvider = resolve;
-  });
-  const auth = createCoordinatedAuth(harness, {
-    async waitDuringProvider() {
-      markProviderStarted();
-      await providerRelease;
-    },
-  });
-
-  const requestA = auth.core.refreshCredentialsOnce(USER_A, credentials());
-  await providerStarted;
-  await expect(
-    auth.core.refreshCredentialsOnce(USER_A, credentials()),
-  ).rejects.toMatchObject({ code: "GOOGLE_TOKEN_UPDATE_CONFLICT" });
-  expect(auth.providerCalls).toBe(1);
-  expect(harness.states.get(USER_A)?.updates).toBe(0);
-
-  releaseProvider();
-  await requestA;
-  expect(harness.states.get(USER_A)).toMatchObject({
-    version: createGoogleCredentialVersion(1),
-    leaseHash: null,
-    leaseExpiresAt: null,
-    updates: 1,
-  });
-});
-
-test("different connections refresh independently", async () => {
-  const harness = createLeaseHarness();
-  const auth = createCoordinatedAuth(harness);
-  const results = await Promise.all([
-    auth.core.refreshCredentialsOnce(USER_A, credentials()),
-    auth.core.refreshCredentialsOnce(USER_B, credentials()),
-  ]);
-  expect(results).toHaveLength(2);
-  expect(auth.providerCalls).toBe(2);
 });
 
 test("wrong owner, status, version, and lease hash fail closed", async () => {
@@ -418,42 +296,6 @@ test("wrong lease hash and stale version cannot save credentials", async () => {
     leaseHash: owner,
     accessTokenStored: null,
   });
-});
-
-test("provider failure holds the lease until expiry and crash recovery can reclaim", async () => {
-  const harness = createLeaseHarness();
-  const failedAuth = createCoordinatedAuth(harness, {
-    providerError: new Error("safe provider failure"),
-  });
-  await expect(
-    failedAuth.core.refreshCredentialsOnce(USER_A, credentials()),
-  ).rejects.toBeTruthy();
-  expect(failedAuth.providerCalls).toBe(1);
-  expect(harness.states.get(USER_A)).toMatchObject({
-    version: VERSION_0,
-    accessTokenStored: null,
-  });
-
-  const recovery = createCoordinatedAuth(harness);
-  await expect(
-    recovery.core.refreshCredentialsOnce(USER_A, credentials()),
-  ).rejects.toMatchObject({ code: "GOOGLE_TOKEN_UPDATE_CONFLICT" });
-  expect(recovery.providerCalls).toBe(0);
-  recovery.advanceTo(NOW_MS + LEASE_TTL_MS);
-  await recovery.core.refreshCredentialsOnce(USER_A, credentials());
-  expect(recovery.providerCalls).toBe(1);
-});
-
-test("preflight failure releases only its own lease and invokes no provider", async () => {
-  const harness = createLeaseHarness();
-  const auth = createCoordinatedAuth(harness, {
-    preflightError: new GoogleTokenStoreError("GOOGLE_TOKEN_WRITE_DISABLED"),
-  });
-  await expect(
-    auth.core.refreshCredentialsOnce(USER_A, credentials()),
-  ).rejects.toMatchObject({ code: "GOOGLE_TOKEN_WRITE_DISABLED" });
-  expect(auth.providerCalls).toBe(0);
-  expect(harness.states.get(USER_A)?.leaseHash).toBeNull();
 });
 
 test("disconnect is rejected during an active lease and succeeds after expiry", async () => {

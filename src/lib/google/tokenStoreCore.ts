@@ -42,6 +42,7 @@ export type GoogleTokenStoreErrorCode =
   | "GOOGLE_TOKEN_STORE_FAILED"
   | "GOOGLE_TOKEN_UPDATE_CONFLICT"
   | "GOOGLE_TOKEN_REFRESH_IN_PROGRESS"
+  | "GOOGLE_REFRESH_OUTCOME_UNKNOWN"
   | "GOOGLE_TOKEN_ROW_NOT_FOUND"
   | "GOOGLE_TOKEN_ROW_DUPLICATE";
 
@@ -52,6 +53,8 @@ const SAFE_ERROR_MESSAGES: Record<GoogleTokenStoreErrorCode, string> = {
   GOOGLE_TOKEN_STORE_FAILED: "Google token storage failed",
   GOOGLE_TOKEN_UPDATE_CONFLICT: "Google token storage update conflicted",
   GOOGLE_TOKEN_REFRESH_IN_PROGRESS: "Google token refresh is in progress",
+  GOOGLE_REFRESH_OUTCOME_UNKNOWN:
+    "Google token refresh outcome is unknown; reconnect is required",
   GOOGLE_TOKEN_ROW_NOT_FOUND: "Google token row was not found",
   GOOGLE_TOKEN_ROW_DUPLICATE: "Multiple Google token rows were found",
 };
@@ -406,6 +409,10 @@ function validateUserId(userId: string): GoogleUserId {
   }
 
   return userId as GoogleUserId;
+}
+
+export function createGoogleUserId(userId: string): GoogleUserId {
+  return validateUserId(userId);
 }
 
 export function createPlaintextGoogleToken(

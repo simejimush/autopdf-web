@@ -2,11 +2,13 @@ import {
   createGoogleTokenCredentialHandle,
   GoogleTokenStoreError,
   type GoogleCredentialVersion,
-  type GoogleRefreshLeaseHandle,
   type GoogleTokenCredentials,
   type PlaintextGoogleToken,
-  type UpdateRefreshedGoogleAccessTokenInput,
 } from "@/lib/google/tokenStoreCore";
+import type {
+  GoogleRefreshOperationHandle,
+  GoogleRefreshPrepareResult,
+} from "@/lib/google/refreshOperationCore";
 
 export const GOOGLE_AUTH_EAGER_REFRESH_THRESHOLD_MS = 5 * 60 * 1000;
 const UUID_PATTERN =
@@ -26,27 +28,44 @@ export type GoogleTokenRefreshOperationResult = Readonly<{
 export type GoogleAuthCoreDependencies = Readonly<{
   now: () => number;
   preflightEncryptionWrite: () => void;
-  claimRefreshLease(
+  prepareRefreshOperation(
+    userId: string,
+    expectedCredentialVersion: GoogleCredentialVersion,
+  ): Promise<GoogleRefreshPrepareResult>;
+  markProviderStarted(
+    userId: string,
+    expectedCredentialVersion: GoogleCredentialVersion,
+    handle: GoogleRefreshOperationHandle,
+  ): Promise<void>;
+  transitionRefreshOperation(
     input: Readonly<{
       userId: string;
       expectedCredentialVersion: GoogleCredentialVersion;
-    }>,
-  ): Promise<GoogleRefreshLeaseHandle>;
-  releaseRefreshLease(
-    input: Readonly<{
-      userId: string;
-      expectedCredentialVersion: GoogleCredentialVersion;
-      lease: GoogleRefreshLeaseHandle;
+      handle: GoogleRefreshOperationHandle;
+      targetState: "retryable" | "failed_terminal" | "outcome_unknown";
+      errorCode: string;
     }>,
   ): Promise<void>;
+  loadCredentials(userId: string): Promise<GoogleTokenCredentials>;
+  classifyProviderFailure(
+    error: unknown,
+  ): "failed_terminal" | "outcome_unknown";
   refreshTokens(
     input: Readonly<{
       accessToken: PlaintextGoogleToken | null;
       refreshToken: PlaintextGoogleToken;
     }>,
   ): Promise<GoogleTokenRefreshResult>;
-  updateRefreshedTokens(
-    input: UpdateRefreshedGoogleAccessTokenInput,
+  finalizeRefreshOperation(
+    input: Readonly<{
+      userId: string;
+      expectedCredentialVersion: GoogleCredentialVersion;
+      handle: GoogleRefreshOperationHandle;
+      accessToken: PlaintextGoogleToken;
+      refreshToken?: PlaintextGoogleToken;
+      tokenExpiryAt: string;
+      timestamp: string;
+    }>,
   ): Promise<GoogleCredentialVersion>;
 }>;
 
@@ -72,51 +91,97 @@ export function createGoogleAuthCore(dependencies: GoogleAuthCoreDependencies) {
     }
 
     const expectedCredentialVersion = credentials.getCredentialVersion();
-    const lease = await dependencies.claimRefreshLease({
+    const prepared = await dependencies.prepareRefreshOperation(
       userId,
       expectedCredentialVersion,
-    });
+    );
+    if (prepared.state === "completed") {
+      const completedCredentials = await dependencies.loadCredentials(userId);
+      if (
+        !completedCredentials.exists() ||
+        completedCredentials.getCredentialVersion() !==
+          prepared.resultCredentialVersion
+      ) {
+        throw new GoogleTokenStoreError("GOOGLE_TOKEN_STORE_FAILED");
+      }
+      return Object.freeze({
+        credentials: completedCredentials,
+        refreshTokenRotated: false,
+      });
+    }
+    const handle = prepared.handle;
     try {
       dependencies.preflightEncryptionWrite();
     } catch (error) {
-      await dependencies.releaseRefreshLease({
+      await dependencies.transitionRefreshOperation({
         userId,
         expectedCredentialVersion,
-        lease,
+        handle,
+        targetState: "retryable",
+        errorCode: "GOOGLE_TOKEN_WRITE_DISABLED",
       });
       throw error;
     }
-    const refreshed = await dependencies.refreshTokens({
-      accessToken,
-      refreshToken,
-    });
-    const tokenExpiryAt = normalizeRefreshedExpiry(refreshed.tokenExpiryAt);
-    const timestamp = new Date(currentTimestamp).toISOString();
-
-    const savedCredentialVersion = await dependencies.updateRefreshedTokens({
+    await dependencies.markProviderStarted(
       userId,
-      accessToken: refreshed.accessToken,
-      refreshToken: refreshed.refreshToken
-        ? { mode: "update", token: refreshed.refreshToken }
-        : { mode: "preserve" },
-      tokenExpiryAt,
-      lastVerifiedAt: timestamp,
-      updatedAt: timestamp,
       expectedCredentialVersion,
-      refreshLeaseIdHash: lease.getIdHash(),
-    });
+      handle,
+    );
 
-    return Object.freeze({
-      credentials: createGoogleTokenCredentialHandle({
-        accessToken: refreshed.accessToken,
-        refreshToken: refreshed.refreshToken ?? refreshToken,
-        tokenExpiryAt,
-        status: credentials.getStatus(),
-        scopes: credentials.getScopes(),
-        credentialVersion: savedCredentialVersion,
-      }),
-      refreshTokenRotated: refreshed.refreshToken !== undefined,
-    });
+    let refreshed: GoogleTokenRefreshResult;
+    try {
+      refreshed = await dependencies.refreshTokens({
+        accessToken,
+        refreshToken,
+      });
+      const tokenExpiryAt = normalizeRefreshedExpiry(refreshed.tokenExpiryAt);
+      const timestamp = new Date(currentTimestamp).toISOString();
+      const savedCredentialVersion =
+        await dependencies.finalizeRefreshOperation({
+          userId,
+          expectedCredentialVersion,
+          handle,
+          accessToken: refreshed.accessToken,
+          ...(refreshed.refreshToken
+            ? { refreshToken: refreshed.refreshToken }
+            : {}),
+          tokenExpiryAt,
+          timestamp,
+        });
+
+      return Object.freeze({
+        credentials: createGoogleTokenCredentialHandle({
+          accessToken: refreshed.accessToken,
+          refreshToken: refreshed.refreshToken ?? refreshToken,
+          tokenExpiryAt,
+          status: credentials.getStatus(),
+          scopes: credentials.getScopes(),
+          credentialVersion: savedCredentialVersion,
+        }),
+        refreshTokenRotated: refreshed.refreshToken !== undefined,
+      });
+    } catch (error) {
+      const targetState = dependencies.classifyProviderFailure(error);
+      const errorCode =
+        targetState === "failed_terminal"
+          ? "GOOGLE_TOKEN_INVALID"
+          : "GOOGLE_REFRESH_OUTCOME_UNKNOWN";
+      try {
+        await dependencies.transitionRefreshOperation({
+          userId,
+          expectedCredentialVersion,
+          handle,
+          targetState,
+          errorCode,
+        });
+      } catch {
+        throw new GoogleTokenStoreError("GOOGLE_REFRESH_OUTCOME_UNKNOWN");
+      }
+      if (targetState === "outcome_unknown") {
+        throw new GoogleTokenStoreError("GOOGLE_REFRESH_OUTCOME_UNKNOWN");
+      }
+      throw error;
+    }
   }
 
   function validateRefreshInput(userId: string): number {

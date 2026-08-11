@@ -3,12 +3,15 @@ import { google } from "googleapis";
 import { createGoogleAuthCore } from "@/lib/google/authCore";
 import {
   createPlaintextGoogleToken,
-  claimGoogleCredentialRefreshLease,
   loadGoogleTokenCredentials,
   preflightGoogleTokenEncryptionWrite,
-  releaseGoogleCredentialRefreshLease,
-  updateRefreshedGoogleAccessToken,
 } from "@/lib/google/tokenStore";
+import {
+  finalizeGoogleRefreshOperation,
+  markGoogleRefreshProviderStarted,
+  prepareGoogleRefreshOperation,
+  transitionGoogleRefreshOperation,
+} from "@/lib/google/refreshOperation";
 import { GoogleTokenStoreError } from "@/lib/google/tokenStoreCore";
 
 type GoogleOAuthErrorCode =
@@ -16,7 +19,8 @@ type GoogleOAuthErrorCode =
   | "GOOGLE_REFRESH_TOKEN_MISSING"
   | "GOOGLE_TOKEN_INVALID"
   | "GOOGLE_PERMISSION_DENIED"
-  | "GOOGLE_TOKEN_REFRESH_FAILED";
+  | "GOOGLE_TOKEN_REFRESH_FAILED"
+  | "GOOGLE_REFRESH_OUTCOME_UNKNOWN";
 
 export const GOOGLE_REFRESH_PROVIDER_TIMEOUT_MS = 30_000;
 
@@ -87,8 +91,17 @@ export async function getOAuthClientForUser(userId: string) {
   const authCore = createGoogleAuthCore({
     now: Date.now,
     preflightEncryptionWrite: preflightGoogleTokenEncryptionWrite,
-    claimRefreshLease: claimGoogleCredentialRefreshLease,
-    releaseRefreshLease: releaseGoogleCredentialRefreshLease,
+    prepareRefreshOperation: prepareGoogleRefreshOperation,
+    markProviderStarted: markGoogleRefreshProviderStarted,
+    transitionRefreshOperation: transitionGoogleRefreshOperation,
+    finalizeRefreshOperation: finalizeGoogleRefreshOperation,
+    loadCredentials: loadGoogleTokenCredentials,
+    classifyProviderFailure(error) {
+      return error instanceof GoogleOAuthError &&
+        error.code === "GOOGLE_TOKEN_INVALID"
+        ? "failed_terminal"
+        : "outcome_unknown";
+    },
     async refreshTokens(input) {
       const refreshClient = new google.auth.OAuth2({
         clientId,
@@ -141,7 +154,6 @@ export async function getOAuthClientForUser(userId: string) {
           : new GoogleOAuthError(getGoogleRefreshErrorCode(error));
       }
     },
-    updateRefreshedTokens: updateRefreshedGoogleAccessToken,
   });
 
   const credentials = await authCore.prepareCredentials(

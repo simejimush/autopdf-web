@@ -44,6 +44,7 @@ type ExecuteResult = {
 
 const SLACK_NOTIFY_ERROR_CODES = new Set([
   "GOOGLE_TOKEN_INVALID",
+  "GOOGLE_REFRESH_OUTCOME_UNKNOWN",
   "GOOGLE_PERMISSION_DENIED",
   "DRIVE_FOLDER_INVALID",
   "DRIVE_UPLOAD_FAILED",
@@ -53,6 +54,7 @@ const SLACK_NOTIFY_ERROR_CODES = new Set([
 
 const USER_NOTIFY_ERROR_CODES = new Set<string>([
   "GOOGLE_TOKEN_INVALID",
+  "GOOGLE_REFRESH_OUTCOME_UNKNOWN",
   "GOOGLE_PERMISSION_DENIED",
 ]);
 
@@ -649,7 +651,9 @@ export async function executeRule(
           errorCode:
             errorCode === "GOOGLE_TOKEN_INVALID"
               ? "GOOGLE_TOKEN_INVALID"
-              : "GOOGLE_PERMISSION_DENIED",
+              : errorCode === "GOOGLE_REFRESH_OUTCOME_UNKNOWN"
+                ? "GOOGLE_REFRESH_OUTCOME_UNKNOWN"
+                : "GOOGLE_PERMISSION_DENIED",
           message: safeMessage,
           trigger: params.trigger,
           occurredAt: new Date().toISOString(),

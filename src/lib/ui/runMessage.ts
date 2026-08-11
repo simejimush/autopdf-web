@@ -55,6 +55,7 @@ export function formatRunMessageJa(run: RunLite | null) {
   if (run.status === "error") {
     switch (run.error_code) {
       case "GOOGLE_TOKEN_INVALID":
+      case "GOOGLE_REFRESH_OUTCOME_UNKNOWN":
         return "Googleの認証が切れています。Googleアカウントを再接続してください。";
       case "GOOGLE_PERMISSION_DENIED":
         return "Googleの権限が不足しています";

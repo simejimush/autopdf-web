@@ -4,7 +4,10 @@ import { sendEmail } from "@/lib/email/sendEmail";
 type UserNotificationPayload = {
   userId: string;
   ruleId: string;
-  errorCode: "GOOGLE_TOKEN_INVALID" | "GOOGLE_PERMISSION_DENIED";
+  errorCode:
+    | "GOOGLE_TOKEN_INVALID"
+    | "GOOGLE_PERMISSION_DENIED"
+    | "GOOGLE_REFRESH_OUTCOME_UNKNOWN";
   message: string;
   trigger: "manual" | "cron";
   occurredAt: string;
