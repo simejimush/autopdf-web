@@ -12,6 +12,8 @@ const RECONCILIATION_NAME =
 const REFRESH_LEASE_NAME = "20260809180000_add_google_refresh_lease.sql";
 const RLS_AUTO_ENABLE_ACL_NAME =
   "20260810044303_harden_rls_auto_enable_acl.sql";
+const REFRESH_OPERATIONS_NAME =
+  "20260811041554_add_google_refresh_operations.sql";
 
 function readMigration(name: string): string {
   return readFileSync(resolve(MIGRATIONS_DIR, name), "utf8");
@@ -41,6 +43,7 @@ test("fixes the AutoPDF migration filename and dependency order", () => {
     RECONCILIATION_NAME,
     REFRESH_LEASE_NAME,
     RLS_AUTO_ENABLE_ACL_NAME,
+    REFRESH_OPERATIONS_NAME,
   ]);
   expect(normalizedSql(BASELINE_NAME)).not.toContain("credential_version");
   expect(normalizedSql(HARDENING_NAME)).toContain(
