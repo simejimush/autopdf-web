@@ -8,7 +8,9 @@ const migration = readFileSync(
     "supabase/migrations/20260811041554_add_google_refresh_operations.sql",
   ),
   "utf8",
-).toLowerCase();
+)
+  .replace(/\r\n?/g, "\n")
+  .toLowerCase();
 
 test("operation migration is user-scoped, RLS protected, and service-role only for writes", () => {
   expect(migration).toContain("user_id uuid not null");
