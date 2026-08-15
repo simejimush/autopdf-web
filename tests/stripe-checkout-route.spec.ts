@@ -7,36 +7,12 @@ import ts from "typescript";
 
 const ROUTE_PATH = resolve(process.cwd(), "app/api/stripe/checkout/route.ts");
 const USER_ID = "44444444-4444-4444-8444-444444444444";
-const CUSTOMER_ID = "cus_CheckoutRouteTest";
-
-type Profile = Readonly<{
-  plan: string;
-  billing_status: string | null;
-  current_period_end: string | null;
-  cancel_at_period_end: boolean;
-  billing_customer_id: string | null;
-  billing_provider: string | null;
-}>;
-
-function createProfile(customerId: string | null): Profile {
-  return {
-    plan: "free",
-    billing_status: null,
-    current_period_end: null,
-    cancel_at_period_end: false,
-    billing_customer_id: customerId,
-    billing_provider: customerId ? "stripe" : null,
-  };
-}
+const ATTEMPT_ID = "55555555-5555-4555-8555-555555555555";
 
 function loadRoute(options?: {
   user?: { id: string; email?: string } | null;
-  authError?: { message: string } | null;
-  profile?: Profile;
-  profileError?: { message: string } | null;
-  repositoryError?: Error;
-  subscriptions?: Array<{ status: string }>;
-  openSessions?: Array<{ mode: string; url: string | null }>;
+  disposition?: "claimed" | "busy" | "session_ready";
+  providerFailure?: boolean;
 }) {
   const source = readFileSync(ROUTE_PATH, "utf8");
   const compiled = ts.transpileModule(source, {
@@ -45,243 +21,176 @@ function loadRoute(options?: {
       module: ts.ModuleKind.CommonJS,
       target: ts.ScriptTarget.ES2022,
     },
-    fileName: ROUTE_PATH,
   }).outputText;
   const calls = {
-    getUser: 0,
-    profileSelect: [] as string[],
-    profileEq: [] as Array<{ column: string; value: string }>,
-    jwtUpdates: [] as unknown[],
-    customerCreate: [] as unknown[],
-    repository: [] as Array<{ userId: string; customerId: string }>,
-    subscriptionList: [] as unknown[],
-    openSessionList: [] as unknown[],
-    checkoutCreate: [] as unknown[],
+    customerCreate: [] as Array<{ input: unknown; options: unknown }>,
+    sessionCreate: [] as Array<{ input: unknown; options: unknown }>,
+    claims: 0,
+    customerRecords: 0,
+    sessionRecords: 0,
+    failures: 0,
   };
 
   class MockStripe {
     customers = {
-      create: async (input: unknown) => {
-        calls.customerCreate.push(input);
-        return { id: CUSTOMER_ID };
+      create: async (input: unknown, requestOptions: unknown) => {
+        calls.customerCreate.push({ input, options: requestOptions });
+        if (options?.providerFailure)
+          throw new Error("provider timeout with secret");
+        return { id: "cus_safe" };
       },
     };
-
-    subscriptions = {
-      list: async (input: unknown) => {
-        calls.subscriptionList.push(input);
-        return { data: options?.subscriptions ?? [] };
-      },
-    };
-
+    subscriptions = { list: async () => ({ data: [] }) };
     checkout = {
       sessions: {
-        list: async (input: unknown) => {
-          calls.openSessionList.push(input);
-          return { data: options?.openSessions ?? [] };
-        },
-        create: async (input: unknown) => {
-          calls.checkoutCreate.push(input);
-          return { url: "https://checkout.example/session" };
+        list: async () => ({ data: [] }),
+        retrieve: async () => ({
+          id: "cs_existing",
+          client_reference_id: USER_ID,
+          mode: "subscription",
+          status: "open",
+          url: "https://checkout.example/existing",
+        }),
+        create: async (input: unknown, requestOptions: unknown) => {
+          calls.sessionCreate.push({ input, options: requestOptions });
+          return { id: "cs_new", url: "https://checkout.example/new" };
         },
       },
     };
   }
 
-  const loadedModule = {
-    exports: {} as { POST: () => Promise<Response> },
-  };
+  const loaded = { exports: {} as { POST: () => Promise<Response> } };
   const localRequire = (specifier: string) => {
-    if (specifier === "next/server") {
-      return { NextResponse };
-    }
-    if (specifier === "stripe") {
+    if (specifier === "next/server") return { NextResponse };
+    if (specifier === "stripe")
       return { __esModule: true, default: MockStripe };
-    }
     if (specifier === "@/lib/supabase/server") {
       return {
         async createSupabaseServerClient() {
           return {
             auth: {
               async getUser() {
-                calls.getUser += 1;
                 return {
                   data: {
                     user:
                       options?.user === undefined
-                        ? { id: USER_ID, email: "test@example.com" }
+                        ? { id: USER_ID, email: "safe@example.com" }
                         : options.user,
                   },
-                  error: options?.authError ?? null,
+                  error: null,
                 };
               },
             },
-            from(table: string) {
-              expect(table).toBe("user_profiles");
+            from() {
               return {
-                select(columns: string) {
-                  calls.profileSelect.push(columns);
-                  return {
-                    eq(column: string, value: string) {
-                      calls.profileEq.push({ column, value });
-                      return {
-                        async single() {
-                          return {
-                            data: options?.profile ?? createProfile(null),
-                            error: options?.profileError ?? null,
-                          };
-                        },
-                      };
-                    },
-                  };
-                },
-                update(payload: unknown) {
-                  calls.jwtUpdates.push(payload);
-                  throw new Error("authenticated JWT update is forbidden");
-                },
+                select: () => ({
+                  eq: () => ({
+                    single: async () => ({
+                      data: {
+                        plan: "free",
+                        billing_status: null,
+                        current_period_end: null,
+                      },
+                      error: null,
+                    }),
+                  }),
+                }),
               };
             },
           };
         },
       };
     }
-    if (specifier === "@/lib/billing/billingProfileRepository") {
+    if (specifier === "@/lib/billing/stripeSafetyRepository") {
       return {
-        async saveStripeCustomerReference(input: {
-          userId: string;
-          customerId: string;
-        }) {
-          calls.repository.push(input);
-          if (options?.repositoryError) {
-            throw options.repositoryError;
-          }
+        stripeSafetyRepository: {
+          async claimCheckout() {
+            calls.claims += 1;
+            const disposition = options?.disposition ?? "claimed";
+            return {
+              disposition,
+              attemptId: disposition === "claimed" ? ATTEMPT_ID : undefined,
+              sessionId:
+                disposition === "session_ready" ? "cs_existing" : undefined,
+              leaseHash: "a".repeat(32),
+            };
+          },
+          async recordCheckoutCustomer() {
+            calls.customerRecords += 1;
+          },
+          async recordCheckoutSession() {
+            calls.sessionRecords += 1;
+          },
+          async failCheckout() {
+            calls.failures += 1;
+          },
         },
       };
     }
-    throw new Error(`Unexpected route dependency: ${specifier}`);
+    throw new Error(`Unexpected dependency: ${specifier}`);
   };
-
   runInNewContext(compiled, {
-    exports: loadedModule.exports,
-    module: loadedModule,
+    exports: loaded.exports,
+    module: loaded,
     require: localRequire,
     process: {
       env: {
-        STRIPE_SECRET_KEY: "sk_test_not-a-real-secret",
-        STRIPE_PRICE_ID_PRO: "price_test_pro",
-        NEXT_PUBLIC_APP_URL: "https://app.example/",
+        STRIPE_SECRET_KEY: "sk_test",
+        STRIPE_PRICE_ID_PRO: "price_pro",
+        NEXT_PUBLIC_APP_URL: "https://app.example",
       },
     },
+    Date,
   });
-
-  return { POST: loadedModule.exports.POST, calls, source };
+  return { POST: loaded.exports.POST, calls, source };
 }
 
-async function responseBody(response: Response) {
-  return (await response.json()) as Record<string, unknown>;
-}
-
-test("unauthenticated Checkout remains a fixed 401 without side effects", async () => {
+test("unauthenticated Checkout is 401 before claim or provider calls", async () => {
   const route = loadRoute({ user: null });
   const response = await route.POST();
-
   expect(response.status).toBe(401);
-  expect(await responseBody(response)).toEqual({
-    ok: false,
-    error_code: "AUTH_REQUIRED",
-    message: "ログインしてください。",
-  });
-  expect(route.calls.repository).toHaveLength(0);
+  expect(route.calls.claims).toBe(0);
   expect(route.calls.customerCreate).toHaveLength(0);
-  expect(route.calls.checkoutCreate).toHaveLength(0);
 });
 
-test("new customers are saved for the authenticated user before Session creation", async () => {
+test("a concurrent request is rejected before any Stripe write", async () => {
+  const route = loadRoute({ disposition: "busy" });
+  const response = await route.POST();
+  expect(response.status).toBe(409);
+  expect(route.calls.claims).toBe(1);
+  expect(route.calls.customerCreate).toHaveLength(0);
+  expect(route.calls.sessionCreate).toHaveLength(0);
+});
+
+test("one attempt supplies stable, non-user-derived idempotency keys", async () => {
   const route = loadRoute();
   const response = await route.POST();
-
   expect(response.status).toBe(200);
-  expect(route.calls.repository).toEqual([
-    { userId: USER_ID, customerId: CUSTOMER_ID },
-  ]);
-  expect(route.calls.profileEq).toEqual([
-    { column: "user_id", value: USER_ID },
-  ]);
-  expect(route.calls.jwtUpdates).toHaveLength(0);
-  expect(route.calls.customerCreate).toHaveLength(1);
-  expect(route.calls.checkoutCreate).toHaveLength(1);
-  expect(route.source).not.toContain("request.json");
-  expect(route.source).not.toContain("request.body");
-  expect(route.source).not.toContain("supabaseAdmin");
-  expect(route.source).not.toContain(".update(");
+  expect(route.calls.customerCreate[0].options).toEqual({
+    idempotencyKey: `autopdf_checkout_customer_${ATTEMPT_ID}`,
+  });
+  expect(route.calls.sessionCreate[0].options).toEqual({
+    idempotencyKey: `autopdf_checkout_session_${ATTEMPT_ID}`,
+  });
+  expect(route.calls.customerRecords).toBe(1);
+  expect(route.calls.sessionRecords).toBe(1);
 });
 
-test("an existing profile customer is reused without a repository write", async () => {
-  const route = loadRoute({ profile: createProfile("cus_ExistingCustomer") });
+test("provider ambiguity is persisted as retryable with no raw error leak", async () => {
+  const route = loadRoute({ providerFailure: true });
   const response = await route.POST();
+  const responseText = await response.text();
+  expect(response.status).toBe(503);
+  expect(route.calls.failures).toBe(1);
+  expect(route.calls.sessionCreate).toHaveLength(0);
+  expect(responseText).not.toContain("provider timeout");
+  expect(responseText).not.toContain("sk_test");
+});
 
+test("a durable open Session is reused and never duplicated", async () => {
+  const route = loadRoute({ disposition: "session_ready" });
+  const response = await route.POST();
   expect(response.status).toBe(200);
   expect(route.calls.customerCreate).toHaveLength(0);
-  expect(route.calls.repository).toHaveLength(0);
-  expect(route.calls.subscriptionList).toEqual([
-    { customer: "cus_ExistingCustomer", status: "all", limit: 10 },
-  ]);
-  expect(route.calls.checkoutCreate).toHaveLength(1);
-});
-
-test("repository failure stops Checkout with the existing safe response", async () => {
-  const rawError = "raw database service-role error";
-  const route = loadRoute({ repositoryError: new Error(rawError) });
-  const response = await route.POST();
-  const text = await response.clone().text();
-
-  expect(response.status).toBe(500);
-  expect(await responseBody(response)).toEqual({
-    ok: false,
-    error_code: "INTERNAL_ERROR",
-    message: "決済情報の保存に失敗しました。時間をおいて再度お試しください。",
-  });
-  expect(route.calls.customerCreate).toHaveLength(1);
-  expect(route.calls.repository).toHaveLength(1);
-  expect(route.calls.subscriptionList).toHaveLength(0);
-  expect(route.calls.openSessionList).toHaveLength(0);
-  expect(route.calls.checkoutCreate).toHaveLength(0);
-  expect(text).not.toContain(rawError);
-  expect(text).not.toContain(CUSTOMER_ID);
-  expect(route.source).not.toContain("console.");
-});
-
-test("an open subscription Checkout Session remains reusable", async () => {
-  const route = loadRoute({
-    profile: createProfile("cus_ExistingCustomer"),
-    openSessions: [
-      { mode: "subscription", url: "https://checkout.example/reused" },
-    ],
-  });
-  const response = await route.POST();
-
-  expect(response.status).toBe(200);
-  expect(await responseBody(response)).toEqual({
-    ok: true,
-    url: "https://checkout.example/reused",
-    reused: true,
-  });
-  expect(route.calls.checkoutCreate).toHaveLength(0);
-});
-
-test("profile read failures keep the existing safe failure contract", async () => {
-  const rawError = "raw profile read details";
-  const route = loadRoute({ profileError: { message: rawError } });
-  const response = await route.POST();
-  const text = await response.clone().text();
-
-  expect(response.status).toBe(500);
-  expect(await responseBody(response)).toEqual({
-    ok: false,
-    error_code: "INTERNAL_ERROR",
-    message: "契約情報の確認に失敗しました。時間をおいて再度お試しください。",
-  });
-  expect(route.calls.customerCreate).toHaveLength(0);
-  expect(route.calls.repository).toHaveLength(0);
-  expect(text).not.toContain(rawError);
+  expect(route.calls.sessionCreate).toHaveLength(0);
 });

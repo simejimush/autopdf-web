@@ -4,8 +4,8 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { resolveEffectivePlan } from "@/lib/billing/resolveEffectivePlan";
 import { checkFreeMonthlyPdfSaveLimit } from "@/lib/rules/freePlanLimit";
 
-function jsonError(message: string, status = 500, details?: unknown) {
-  return NextResponse.json({ error: message, details }, { status });
+function jsonError(message: string, status = 500) {
+  return NextResponse.json({ error: message }, { status });
 }
 
 export async function GET() {
@@ -35,7 +35,7 @@ export async function GET() {
     .maybeSingle();
 
   if (error) {
-    return jsonError("Failed to load billing profile", 500, error);
+    return jsonError("Failed to load billing profile", 500);
   }
 
   const plan = resolveEffectivePlan(data);

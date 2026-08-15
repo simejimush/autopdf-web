@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Stripe from "stripe";
 import ClientStatus from "./ClientStatus";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const secretKey = process.env.STRIPE_SECRET_KEY;
 
@@ -59,8 +60,21 @@ export default async function BillingSuccessPage({
   }
 
   try {
+    const supabase = await createSupabaseServerClient();
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+    if (userError || !user) throw new Error("AUTH_REQUIRED");
+
     const stripe = getStripe();
     const session = await stripe.checkout.sessions.retrieve(session_id);
+    const ownerId =
+      session.client_reference_id ??
+      (typeof session.metadata?.user_id === "string"
+        ? session.metadata.user_id
+        : null);
+    if (ownerId !== user.id) throw new Error("SESSION_OWNER_MISMATCH");
 
     return (
       <main
