@@ -199,10 +199,18 @@ begin
          and index_row.indisvalid and index_row.indisready
          and not index_row.indisunique
          and index_row.indpred is null
-         and index_row.indkey::smallint[] = array[
-           user_id_column.attnum, created_at_column.attnum
-         ]::smallint[]
-         and index_row.indoption::smallint[] = array[0, 3]::smallint[]
+         and array(
+           select key_part
+           from pg_catalog.unnest(index_row.indkey::smallint[])
+             with ordinality as key_parts(key_part, position)
+           order by position
+         ) = array[user_id_column.attnum, created_at_column.attnum]::smallint[]
+         and array(
+           select option_part
+           from pg_catalog.unnest(index_row.indoption::smallint[])
+             with ordinality as option_parts(option_part, position)
+           order by position
+         ) = array[0, 3]::smallint[]
      ) then
     raise exception 'stripe safety migration blocked: dependency index drift';
   end if;

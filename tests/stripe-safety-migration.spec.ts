@@ -47,6 +47,54 @@ test("dependency schema drift is rejected before the first mutation", () => {
   );
 });
 
+test("dependency index comparison normalizes catalog array bounds and preserves order", () => {
+  const firstMutation = migration.indexOf("alter table public.user_profiles");
+  const indexGuardStart = migration.indexOf(
+    "from pg_catalog.pg_index index_row",
+  );
+  const indexGuardEnd = migration.indexOf(
+    "stripe safety migration blocked: dependency index drift",
+  );
+  const indexGuard = migration.slice(indexGuardStart, indexGuardEnd);
+
+  expect(indexGuardStart).toBeGreaterThan(-1);
+  expect(indexGuardEnd).toBeGreaterThan(indexGuardStart);
+  expect(indexGuardEnd).toBeLessThan(firstMutation);
+  expect(indexGuard).toContain(
+    "pg_catalog.unnest(index_row.indkey::smallint[])",
+  );
+  expect(indexGuard).toContain(
+    "with ordinality as key_parts(key_part, position)",
+  );
+  expect(indexGuard).toContain(
+    "array[user_id_column.attnum, created_at_column.attnum]::smallint[]",
+  );
+  expect(indexGuard).toContain(
+    "pg_catalog.unnest(index_row.indoption::smallint[])",
+  );
+  expect(indexGuard).toContain(
+    "with ordinality as option_parts(option_part, position)",
+  );
+  expect(indexGuard).toContain("array[0, 3]::smallint[]");
+  expect(indexGuard).not.toContain("index_row.indkey::smallint[] = array[");
+  expect(indexGuard).not.toContain("index_row.indoption::smallint[] = array[");
+
+  const normalize = (value: { lowerBound: number; elements: number[] }) => [
+    ...value.elements,
+  ];
+  const postgresKeys = { lowerBound: 0, elements: [2, 21] };
+  const expectedKeys = { lowerBound: 1, elements: [2, 21] };
+  const expectedOptions = { lowerBound: 1, elements: [0, 3] };
+
+  expect(normalize(postgresKeys)).toEqual(normalize(expectedKeys));
+  expect(normalize({ lowerBound: 0, elements: [21, 2] })).not.toEqual(
+    normalize(expectedKeys),
+  );
+  expect(normalize({ lowerBound: 0, elements: [0, 0] })).not.toEqual(
+    normalize(expectedOptions),
+  );
+});
+
 test("dependency ACL drift is rejected before the first mutation", () => {
   const firstMutation = migration.indexOf("alter table public.user_profiles");
   const aclGuard = migration.indexOf(
