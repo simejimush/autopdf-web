@@ -4,6 +4,7 @@ import { runInNewContext } from "node:vm";
 import { expect, test } from "@playwright/test";
 import { NextRequest, NextResponse } from "next/server";
 import ts from "typescript";
+import { createStripeWebhookProcessor } from "../src/lib/billing/stripeWebhookCore";
 
 const ROUTE_PATH = resolve(process.cwd(), "app/api/stripe/webhook/route.ts");
 
@@ -20,7 +21,8 @@ function subscription() {
 
 function loadRoute(options?: {
   invalidSignature?: boolean;
-  claimDisposition?: "claimed" | "duplicate" | "in_progress";
+  claimDisposition?: "claimed" | "duplicate" | "in_progress" | "conflict";
+  claimFailure?: boolean;
   finalizeDisposition?: "processed" | "stale" | "retryable_failed";
   providerFailure?: boolean;
   customerMismatch?: boolean;
@@ -64,11 +66,15 @@ function loadRoute(options?: {
     if (specifier === "next/server") return { NextRequest, NextResponse };
     if (specifier === "stripe")
       return { __esModule: true, default: MockStripe };
+    if (specifier === "@/lib/billing/stripeWebhookCore") {
+      return { createStripeWebhookProcessor };
+    }
     if (specifier === "@/lib/billing/stripeSafetyRepository") {
       return {
         stripeSafetyRepository: {
           async claimWebhook() {
             calls.claims += 1;
+            if (options?.claimFailure) throw new Error("raw database details");
             return {
               disposition: options?.claimDisposition ?? "claimed",
               leaseHash: "a".repeat(32),
@@ -126,6 +132,32 @@ test("duplicate event IDs are acknowledged without a second profile update", asy
   const route = loadRoute({ claimDisposition: "duplicate" });
   const response = await route.POST(request());
   expect(response.status).toBe(200);
+  expect(route.calls.retrieves).toBe(0);
+  expect(route.calls.finalizes).toBe(0);
+});
+
+test("in-progress and conflicting claims stop before provider access", async () => {
+  for (const [claimDisposition, status] of [
+    ["in_progress", 503],
+    ["conflict", 400],
+  ] as const) {
+    const route = loadRoute({ claimDisposition });
+    const response = await route.POST(request());
+    expect(response.status).toBe(status);
+    expect(route.calls.retrieves).toBe(0);
+    expect(route.calls.finalizes).toBe(0);
+  }
+});
+
+test("ledger failure is sanitized and stops before provider access", async () => {
+  const route = loadRoute({ claimFailure: true });
+  const response = await route.POST(request());
+  expect(response.status).toBe(503);
+  expect(await response.json()).toEqual({
+    ok: false,
+    error_code: "STRIPE_WEBHOOK_LEDGER_UNAVAILABLE",
+    message: "Webhookを安全に記録できませんでした。",
+  });
   expect(route.calls.retrieves).toBe(0);
   expect(route.calls.finalizes).toBe(0);
 });

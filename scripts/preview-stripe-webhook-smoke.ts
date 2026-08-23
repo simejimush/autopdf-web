@@ -1,20 +1,34 @@
-import { createHash, randomUUID } from "node:crypto";
-import Stripe from "stripe";
+import {
+  EXPECTED_PREVIEW_STRIPE_ACCOUNT_SHA256,
+  OperatorError,
+  buildControlledEvent,
+  classifyStripeMode,
+  failOperator,
+  prepareControlledSignedRequest,
+  sha256,
+  validateEventType,
+  validateFixture,
+  validateStaleCreated,
+} from "../src/lib/billing/controlledStripeEventCore";
+
+export {
+  OperatorError,
+  buildControlledEvent,
+  classifyStripeMode,
+  validateEventType,
+  validateFixture,
+  validateStaleCreated,
+};
 
 const ENABLE_VALUE = "CONTROLLED_PREVIEW_STRIPE_WEBHOOK";
 const EXECUTE_APPROVAL_VALUE = "APPROVED_CONTROLLED_PREVIEW_WEBHOOK";
-const EXPECTED_ACCOUNT_HASH =
-  "e4faa1997723db3b467816d0a26b6719ec9de3d0d427cb15a901eafcfab26f2b";
 const EVENT_TYPE = "customer.subscription.updated";
 const PRODUCTION_HOST = "autopdf-web.vercel.app";
 const PREVIEW_HOST_PATTERN =
   /^autopdf-web-git-codex-stripe-safety-clean-[a-z0-9-]+\.vercel\.app$/;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
-const CUSTOMER_PATTERN = /^cus_[A-Za-z0-9]{8,}$/;
-const SUBSCRIPTION_PATTERN = /^sub_[A-Za-z0-9]{8,}$/;
 
 type OperatorMode = "dry_run" | "execute";
-type StripeMode = "test" | "live" | "unknown";
 type SafeFetch = typeof fetch;
 
 type OperatorConfig = Readonly<{
@@ -29,38 +43,8 @@ type OperatorConfig = Readonly<{
   controlledCreated: number;
 }>;
 
-type ControlledEvent = Readonly<{
-  id: string;
-  object: "event";
-  created: number;
-  data: Readonly<{
-    object: Readonly<{
-      id: string;
-      object: "subscription";
-      customer: string;
-    }>;
-  }>;
-  livemode: false;
-  pending_webhooks: 1;
-  type: typeof EVENT_TYPE;
-}>;
-
-export class OperatorError extends Error {
-  readonly code: string;
-
-  constructor(code: string) {
-    super(code);
-    this.name = "OperatorError";
-    this.code = code;
-  }
-}
-
 function fail(code: string): never {
-  throw new OperatorError(code);
-}
-
-function sha256(value: string) {
-  return createHash("sha256").update(value).digest("hex");
+  return failOperator(code);
 }
 
 function requiredEnvironment(
@@ -85,41 +69,6 @@ export function parseOperatorMode(argv: readonly string[]): OperatorMode {
   if (argv[0] === "--dry-run") return "dry_run";
   if (argv[0] === "--execute") return "execute";
   fail("OPERATOR_ARGUMENT_INVALID");
-}
-
-export function classifyStripeMode(secretKey: string): StripeMode {
-  if (secretKey.startsWith("sk_test_")) return "test";
-  if (secretKey.startsWith("sk_live_")) return "live";
-  return "unknown";
-}
-
-export function validateEventType(eventType: string) {
-  if (eventType !== EVENT_TYPE) fail("OPERATOR_EVENT_TYPE_REJECTED");
-  return EVENT_TYPE;
-}
-
-export function validateStaleCreated(
-  controlledCreated: number,
-  baselineCreated: number,
-) {
-  if (
-    !Number.isSafeInteger(controlledCreated) ||
-    !Number.isSafeInteger(baselineCreated) ||
-    controlledCreated <= 0 ||
-    baselineCreated <= 0 ||
-    controlledCreated >= baselineCreated
-  ) {
-    fail("OPERATOR_EVENT_NOT_STALE");
-  }
-}
-
-export function validateFixture(customerId: string, subscriptionId: string) {
-  if (!CUSTOMER_PATTERN.test(customerId)) {
-    fail("OPERATOR_FIXTURE_CUSTOMER_INVALID");
-  }
-  if (!SUBSCRIPTION_PATTERN.test(subscriptionId)) {
-    fail("OPERATOR_FIXTURE_SUBSCRIPTION_INVALID");
-  }
 }
 
 export function validatePreviewTarget(
@@ -255,62 +204,16 @@ export function loadOperatorConfig(
   };
 }
 
-export function buildControlledEvent(
-  config: Pick<
-    OperatorConfig,
-    "customerId" | "subscriptionId" | "baselineCreated" | "controlledCreated"
-  >,
-  createId: () => string = randomUUID,
-): ControlledEvent {
-  validateEventType(EVENT_TYPE);
-  validateFixture(config.customerId, config.subscriptionId);
-  validateStaleCreated(config.controlledCreated, config.baselineCreated);
-  const entropy = createId().replaceAll("-", "");
-  if (!/^[A-Za-z0-9]{16,64}$/.test(entropy)) {
-    fail("OPERATOR_EVENT_ID_GENERATION_FAILED");
-  }
-  return {
-    id: `evt_autopdf_preview_${entropy}`,
-    object: "event",
-    created: config.controlledCreated,
-    data: {
-      object: {
-        id: config.subscriptionId,
-        object: "subscription",
-        customer: config.customerId,
-      },
-    },
-    livemode: false,
-    pending_webhooks: 1,
-    type: EVENT_TYPE,
-  };
-}
-
 export function prepareSignedRequest(
   config: OperatorConfig,
-  createId: () => string = randomUUID,
+  createId?: () => string,
 ) {
-  const event = buildControlledEvent(config, createId);
-  const payload = JSON.stringify(event);
-  const stripe = new Stripe(config.stripeSecretKey);
-  const signature = stripe.webhooks.generateTestHeaderString({
-    payload,
-    secret: config.webhookSigningSecret,
-    timestamp: Math.floor(Date.now() / 1000),
+  return prepareControlledSignedRequest({
+    config,
+    stripeSecretKey: config.stripeSecretKey,
+    webhookSigningSecret: config.webhookSigningSecret,
+    createId,
   });
-  const verified = stripe.webhooks.constructEvent(
-    payload,
-    signature,
-    config.webhookSigningSecret,
-  );
-  if (verified.id !== event.id || verified.type !== EVENT_TYPE) {
-    fail("OPERATOR_SIGNATURE_COMPATIBILITY_FAILED");
-  }
-  return {
-    payload,
-    signature,
-    eventIdHash: sha256(event.id),
-  };
 }
 
 async function safeJson(response: Response, errorCode: string) {
@@ -346,7 +249,7 @@ async function verifyProviderFixture(
   );
   if (
     typeof account.id !== "string" ||
-    sha256(account.id) !== EXPECTED_ACCOUNT_HASH
+    sha256(account.id) !== EXPECTED_PREVIEW_STRIPE_ACCOUNT_SHA256
   ) {
     fail("OPERATOR_STRIPE_ACCOUNT_IDENTITY_MISMATCH");
   }
