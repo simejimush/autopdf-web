@@ -13,6 +13,13 @@ function loadRoute(options?: {
   user?: { id: string; email?: string } | null;
   disposition?: "claimed" | "busy" | "session_ready";
   providerFailure?: boolean;
+  claimCustomerId?: string;
+  providerSubscriptionStatuses?: Array<"active" | "trialing">;
+  profile?: {
+    plan: "free" | "pro" | "pro_plus";
+    billing_status: string | null;
+    current_period_end: string | null;
+  };
 }) {
   const source = readFileSync(ROUTE_PATH, "utf8");
   const compiled = ts.transpileModule(source, {
@@ -29,9 +36,16 @@ function loadRoute(options?: {
     customerRecords: 0,
     sessionRecords: 0,
     failures: 0,
+    providerConstructs: 0,
+    subscriptionLists: 0,
+    sessionLists: 0,
   };
 
   class MockStripe {
+    constructor() {
+      calls.providerConstructs += 1;
+    }
+
     customers = {
       create: async (input: unknown, requestOptions: unknown) => {
         calls.customerCreate.push({ input, options: requestOptions });
@@ -40,10 +54,22 @@ function loadRoute(options?: {
         return { id: "cus_safe" };
       },
     };
-    subscriptions = { list: async () => ({ data: [] }) };
+    subscriptions = {
+      list: async () => {
+        calls.subscriptionLists += 1;
+        return {
+          data: (options?.providerSubscriptionStatuses ?? []).map((status) => ({
+            status,
+          })),
+        };
+      },
+    };
     checkout = {
       sessions: {
-        list: async () => ({ data: [] }),
+        list: async () => {
+          calls.sessionLists += 1;
+          return { data: [] };
+        },
         retrieve: async () => ({
           id: "cs_existing",
           client_reference_id: USER_ID,
@@ -86,7 +112,7 @@ function loadRoute(options?: {
                 select: () => ({
                   eq: () => ({
                     single: async () => ({
-                      data: {
+                      data: options?.profile ?? {
                         plan: "free",
                         billing_status: null,
                         current_period_end: null,
@@ -110,6 +136,7 @@ function loadRoute(options?: {
             return {
               disposition,
               attemptId: disposition === "claimed" ? ATTEMPT_ID : undefined,
+              customerId: options?.claimCustomerId,
               sessionId:
                 disposition === "session_ready" ? "cs_existing" : undefined,
               leaseHash: "a".repeat(32),
@@ -161,6 +188,52 @@ test("a concurrent request is rejected before any Stripe write", async () => {
   expect(route.calls.customerCreate).toHaveLength(0);
   expect(route.calls.sessionCreate).toHaveLength(0);
 });
+
+for (const billingStatus of ["active", "trialing"] as const) {
+  test(`an existing ${billingStatus} subscription stops before every provider boundary`, async () => {
+    const route = loadRoute({
+      profile: {
+        plan: "pro",
+        billing_status: billingStatus,
+        current_period_end: new Date(Date.now() + 60_000).toISOString(),
+      },
+    });
+
+    const response = await route.POST();
+
+    expect(response.status).toBe(409);
+    expect(route.calls.claims).toBe(0);
+    expect(route.calls.providerConstructs).toBe(0);
+    expect(route.calls.subscriptionLists).toBe(0);
+    expect(route.calls.sessionLists).toBe(0);
+    expect(route.calls.customerCreate).toHaveLength(0);
+    expect(route.calls.sessionCreate).toHaveLength(0);
+    expect(route.calls.customerRecords).toBe(0);
+    expect(route.calls.sessionRecords).toBe(0);
+  });
+}
+
+for (const providerStatus of ["active", "trialing"] as const) {
+  test(`an existing provider ${providerStatus} subscription prevents duplicate provider writes`, async () => {
+    const route = loadRoute({
+      claimCustomerId: "cus_existing",
+      providerSubscriptionStatuses: [providerStatus],
+    });
+
+    const response = await route.POST();
+
+    expect(response.status).toBe(409);
+    expect(route.calls.claims).toBe(1);
+    expect(route.calls.providerConstructs).toBe(1);
+    expect(route.calls.subscriptionLists).toBe(1);
+    expect(route.calls.customerCreate).toHaveLength(0);
+    expect(route.calls.sessionLists).toBe(0);
+    expect(route.calls.sessionCreate).toHaveLength(0);
+    expect(route.calls.customerRecords).toBe(0);
+    expect(route.calls.sessionRecords).toBe(0);
+    expect(route.calls.failures).toBe(1);
+  });
+}
 
 test("one attempt supplies stable, non-user-derived idempotency keys", async () => {
   const route = loadRoute();
