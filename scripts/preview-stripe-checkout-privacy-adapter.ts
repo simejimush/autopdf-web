@@ -1,7 +1,8 @@
-import {
-  executePrivacySafeCheckoutHarness,
-  type PrivacySafeHarnessResult,
-} from "./preview-stripe-checkout-privacy-harness";
+// @ts-expect-error Node's built-in TypeScript runner requires the explicit suffix.
+import * as PrivacyHarness from "./preview-stripe-checkout-privacy-harness.ts";
+
+const { executePrivacySafeCheckoutHarness } = PrivacyHarness;
+type PrivacySafeHarnessResult = PrivacyHarness.PrivacySafeHarnessResult;
 
 const HARNESS_ENV = Object.freeze({
   supabaseUrl: "AUTOPDF_PREVIEW_HARNESS_SUPABASE_URL",

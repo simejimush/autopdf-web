@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "stripe:preview-webhook-smoke": "node scripts/preview-stripe-webhook-smoke-cli.ts",
-    "stripe:preview-checkout-preflight": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/preview-supabase-identity-preflight-cli.ts"
+    "stripe:preview-checkout-preflight": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/preview-supabase-identity-preflight-cli.ts",
+    "stripe:preview-checkout-concurrency": "node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/preview-stripe-checkout-runtime-cli.ts"
   },
   "dependencies": {
     "@pdf-lib/fontkit": "^1.1.1",
