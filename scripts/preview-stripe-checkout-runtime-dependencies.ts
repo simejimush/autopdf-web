@@ -16,15 +16,21 @@ import * as PrivacyAdapter from "./preview-stripe-checkout-privacy-adapter.ts";
 // @ts-expect-error Node's built-in TypeScript runner requires the explicit suffix.
 import * as Runtime from "./preview-stripe-checkout-runtime.ts";
 // @ts-expect-error Node's built-in TypeScript runner requires the explicit suffix.
-import { runPreviewSupabaseIdentityPreflight } from "./preview-supabase-identity-preflight.ts";
+import * as SupabasePreflight from "./preview-supabase-identity-preflight.ts";
 
 const { createPreviewCheckoutHarnessAdapter } = PrivacyAdapter;
+const {
+  PreviewSupabaseIdentityPreflightError,
+  runPreviewSupabaseIdentityPreflight,
+} = SupabasePreflight;
 type PreviewHarnessArtifactHandle = PrivacyAdapter.PreviewHarnessArtifactHandle;
 type PreviewHarnessFixtureRow = PrivacyAdapter.PreviewHarnessFixtureRow;
 type PreviewHarnessOwnerHandle = PrivacyAdapter.PreviewHarnessOwnerHandle;
 type PreviewCheckoutRuntimeBaseline = Runtime.PreviewCheckoutRuntimeBaseline;
 type PreviewCheckoutRuntimeDependencies =
   Runtime.PreviewCheckoutRuntimeDependencies;
+type PreviewCheckoutRuntimePreflightStageCode =
+  Runtime.PreviewCheckoutRuntimePreflightStageCode;
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -100,6 +106,43 @@ class RealRuntimeDependencyError extends Error {
 
 function fail(): never {
   throw new RealRuntimeDependencyError();
+}
+
+function failPreflightStage(
+  stageCode: PreviewCheckoutRuntimePreflightStageCode,
+): never {
+  throw new Runtime.PreviewCheckoutRuntimePreflightStageError(stageCode);
+}
+
+async function runPreflightStage<T>(
+  stageCode: PreviewCheckoutRuntimePreflightStageCode,
+  operation: () => T | Promise<T>,
+) {
+  try {
+    return await operation();
+  } catch {
+    failPreflightStage(stageCode);
+  }
+}
+
+function supabasePreflightStageCode(error: unknown) {
+  if (!(error instanceof PreviewSupabaseIdentityPreflightError)) {
+    return "PREFLIGHT_SUPABASE_CONFIGURATION_FAILED" as const;
+  }
+  if (error.code === "PREFLIGHT_ANON_CREDENTIAL_INVALID") {
+    return "PREFLIGHT_SUPABASE_ANON_CREDENTIAL_FAILED" as const;
+  }
+  if (error.code === "PREFLIGHT_SERVICE_ROLE_CREDENTIAL_INVALID") {
+    return "PREFLIGHT_SUPABASE_SERVICE_ROLE_CREDENTIAL_FAILED" as const;
+  }
+  if (
+    error.code === "PREFLIGHT_EXPECTED_HASH_INVALID" ||
+    error.code === "PREFLIGHT_SUPABASE_URL_INVALID" ||
+    error.code === "PREFLIGHT_EXPECTED_ORIGIN_MISMATCH"
+  ) {
+    return "PREFLIGHT_SUPABASE_ORIGIN_TRUST_ROOT_FAILED" as const;
+  }
+  return "PREFLIGHT_SUPABASE_CONFIGURATION_FAILED" as const;
 }
 
 function sha256(value: string) {
@@ -585,42 +628,76 @@ export function createRealPreviewCheckoutRuntimeDependencies(
 ): PreviewCheckoutRuntimeDependencies {
   return Object.freeze({
     async runPreflight({ config, environment }) {
-      await runPreviewSupabaseIdentityPreflight(environment, ports.fetchImpl);
-
-      const supabaseUrl = environment.AUTOPDF_PREVIEW_HARNESS_SUPABASE_URL;
-      const anonKey = environment.AUTOPDF_PREVIEW_HARNESS_SUPABASE_ANON_KEY;
-      const serviceRoleKey =
-        environment.AUTOPDF_PREVIEW_HARNESS_SUPABASE_SERVICE_ROLE_KEY;
-      if (!supabaseUrl || !anonKey || !serviceRoleKey) fail();
-
-      const authentication = await ports.authenticate({
-        url: supabaseUrl,
-        anonKey,
-        cookieHeader: config.authCookie,
-        fetchImpl: ports.fetchImpl,
-      });
-      if (
-        !safeHashMatch(sha256(authentication.user.id), config.expectedOwnerHash)
-      ) {
-        fail();
+      try {
+        await runPreviewSupabaseIdentityPreflight(environment, ports.fetchImpl);
+      } catch (error) {
+        failPreflightStage(supabasePreflightStageCode(error));
       }
 
-      await verifyDeploymentGate({
-        appOrigin: config.appOrigin,
-        protectionCookie: authentication.protectionCookie,
-        fetchImpl: ports.fetchImpl,
+      const credentials = await runPreflightStage(
+        "PREFLIGHT_SUPABASE_CONFIGURATION_FAILED",
+        () => {
+          const supabaseUrl = environment.AUTOPDF_PREVIEW_HARNESS_SUPABASE_URL;
+          const anonKey = environment.AUTOPDF_PREVIEW_HARNESS_SUPABASE_ANON_KEY;
+          const serviceRoleKey =
+            environment.AUTOPDF_PREVIEW_HARNESS_SUPABASE_SERVICE_ROLE_KEY;
+          if (!supabaseUrl || !anonKey || !serviceRoleKey) fail();
+          return { supabaseUrl, anonKey, serviceRoleKey };
+        },
+      );
+
+      const authentication = await runPreflightStage(
+        "PREFLIGHT_SUPABASE_AUTH_FAILED",
+        () =>
+          ports.authenticate({
+            url: credentials.supabaseUrl,
+            anonKey: credentials.anonKey,
+            cookieHeader: config.authCookie,
+            fetchImpl: ports.fetchImpl,
+          }),
+      );
+      await runPreflightStage("PREFLIGHT_OWNER_IDENTITY_FAILED", () => {
+        if (
+          !safeHashMatch(
+            sha256(authentication.user.id),
+            config.expectedOwnerHash,
+          )
+        ) {
+          fail();
+        }
       });
 
-      const stripe = ports.createStripe(config.stripeSecretKey);
-      const account = await stripe.accounts.retrieve();
-      if (
-        !account.id ||
-        sha256(account.id) !== ports.expectedStripeAccountHash
-      ) {
-        fail();
-      }
+      await runPreflightStage("PREFLIGHT_PREVIEW_DEPLOYMENT_FAILED", () =>
+        verifyDeploymentGate({
+          appOrigin: config.appOrigin,
+          protectionCookie: authentication.protectionCookie,
+          fetchImpl: ports.fetchImpl,
+        }),
+      );
 
-      const admin = ports.createAdminClient(supabaseUrl, serviceRoleKey);
+      const stripe = await runPreflightStage(
+        "PREFLIGHT_STRIPE_ACCOUNT_FAILED",
+        async () => {
+          const stripeClient = ports.createStripe(config.stripeSecretKey);
+          const account = await stripeClient.accounts.retrieve();
+          if (
+            !account.id ||
+            sha256(account.id) !== ports.expectedStripeAccountHash
+          ) {
+            fail();
+          }
+          return stripeClient;
+        },
+      );
+
+      const admin = await runPreflightStage(
+        "PREFLIGHT_HARNESS_ADAPTER_FAILED",
+        () =>
+          ports.createAdminClient(
+            credentials.supabaseUrl,
+            credentials.serviceRoleKey,
+          ),
+      );
       const ownerId = authentication.user.id;
       const ownerHandle = ownerId as PreviewHarnessOwnerHandle;
       let baseline: FixtureState | undefined;
@@ -654,7 +731,11 @@ export function createRealPreviewCheckoutRuntimeDependencies(
             };
           },
           async inspectFixture() {
-            const state = await loadFixtureState({ admin, stripe, ownerId });
+            const state = await loadFixtureState({
+              admin,
+              stripe,
+              ownerId,
+            });
             baseline ??= state;
             return [fixtureRow(state, ownerHandle)];
           },
@@ -665,7 +746,11 @@ export function createRealPreviewCheckoutRuntimeDependencies(
           },
           async inspectPostState() {
             if (!baseline) fail();
-            const state = await loadFixtureState({ admin, stripe, ownerId });
+            const state = await loadFixtureState({
+              admin,
+              stripe,
+              ownerId,
+            });
             latestPostState = state;
             const customerDelta =
               state.stripe.customerIds.size - baseline.stripe.customerIds.size;
@@ -764,7 +849,7 @@ export function createRealPreviewCheckoutRuntimeDependencies(
             });
           },
         },
-      });
+      }).catch(() => failPreflightStage("PREFLIGHT_HARNESS_ADAPTER_FAILED"));
 
       return Object.freeze({
         previewDeploymentIdentityMatch: true,

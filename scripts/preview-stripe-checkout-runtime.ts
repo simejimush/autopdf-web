@@ -32,6 +32,19 @@ type RuntimeErrorCode =
   | "RUNTIME_CONCURRENCY_RESULT_UNSAFE"
   | "RUNTIME_CLEANUP_FAILED";
 
+export type PreviewCheckoutRuntimePreflightStageCode =
+  | "PREFLIGHT_SUPABASE_CONFIGURATION_FAILED"
+  | "PREFLIGHT_SUPABASE_ORIGIN_TRUST_ROOT_FAILED"
+  | "PREFLIGHT_SUPABASE_ANON_CREDENTIAL_FAILED"
+  | "PREFLIGHT_SUPABASE_SERVICE_ROLE_CREDENTIAL_FAILED"
+  | "PREFLIGHT_SUPABASE_AUTH_FAILED"
+  | "PREFLIGHT_OWNER_IDENTITY_FAILED"
+  | "PREFLIGHT_PREVIEW_DEPLOYMENT_FAILED"
+  | "PREFLIGHT_STRIPE_ACCOUNT_FAILED"
+  | "PREFLIGHT_HARNESS_ADAPTER_FAILED"
+  | "PREFLIGHT_RESULT_VALIDATION_FAILED"
+  | "PREFLIGHT_INTERNAL_FAILED";
+
 export type PreviewCheckoutRuntimeConfig = Readonly<{
   appOrigin: string;
   expectedOwnerHash: string;
@@ -135,16 +148,31 @@ export type PreviewCheckoutRuntimeReport = Readonly<{
 
 export class PreviewCheckoutRuntimeError extends Error {
   readonly code: RuntimeErrorCode;
+  readonly stageCode?: PreviewCheckoutRuntimePreflightStageCode;
 
-  constructor(code: RuntimeErrorCode) {
+  constructor(
+    code: RuntimeErrorCode,
+    stageCode?: PreviewCheckoutRuntimePreflightStageCode,
+  ) {
     super(code);
     this.name = "PreviewCheckoutRuntimeError";
     this.code = code;
+    this.stageCode = stageCode;
   }
 }
 
-function fail(code: RuntimeErrorCode): never {
-  throw new PreviewCheckoutRuntimeError(code);
+export class PreviewCheckoutRuntimePreflightStageError extends Error {
+  constructor(readonly stageCode: PreviewCheckoutRuntimePreflightStageCode) {
+    super(stageCode);
+    this.name = "PreviewCheckoutRuntimePreflightStageError";
+  }
+}
+
+function fail(
+  code: RuntimeErrorCode,
+  stageCode?: PreviewCheckoutRuntimePreflightStageCode,
+): never {
+  throw new PreviewCheckoutRuntimeError(code, stageCode);
 }
 
 function requiredEnvironment(environment: HarnessEnvironment, name: string) {
@@ -268,7 +296,7 @@ function validatePreflight(result: RuntimePreflightResult) {
     result.productionIdentity ||
     result.developmentIdentity
   ) {
-    fail("RUNTIME_PREFLIGHT_FAILED");
+    fail("RUNTIME_PREFLIGHT_FAILED", "PREFLIGHT_RESULT_VALIDATION_FAILED");
   }
 }
 
@@ -335,8 +363,13 @@ export async function executePreviewCheckoutConcurrencyRuntime(input: {
       config,
       environment: input.environment,
     });
-  } catch {
-    fail("RUNTIME_PREFLIGHT_FAILED");
+  } catch (error) {
+    fail(
+      "RUNTIME_PREFLIGHT_FAILED",
+      error instanceof PreviewCheckoutRuntimePreflightStageError
+        ? error.stageCode
+        : "PREFLIGHT_INTERNAL_FAILED",
+    );
   }
   validatePreflight(preflight);
 
@@ -421,9 +454,15 @@ export async function runPreviewCheckoutConcurrencyRuntimeCli(input: {
       error instanceof PreviewCheckoutRuntimeError
         ? error.code
         : "RUNTIME_UNEXPECTED_FAILURE";
-    input.stderr.write(
-      `${JSON.stringify({ verdict: "BLOCKED", error_code: errorCode })}\n`,
-    );
+    const blocked =
+      error instanceof PreviewCheckoutRuntimeError && error.stageCode
+        ? {
+            verdict: "BLOCKED",
+            error_code: errorCode,
+            stage_code: error.stageCode,
+          }
+        : { verdict: "BLOCKED", error_code: errorCode };
+    input.stderr.write(`${JSON.stringify(blocked)}\n`);
     return 1;
   }
 }

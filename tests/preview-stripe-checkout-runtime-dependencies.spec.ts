@@ -9,7 +9,9 @@ import {
 } from "../scripts/preview-stripe-checkout-runtime-dependencies";
 import {
   PREVIEW_CHECKOUT_RUNTIME_ENV_NAMES,
+  PreviewCheckoutRuntimeError,
   executePreviewCheckoutConcurrencyRuntime,
+  type PreviewCheckoutRuntimePreflightStageCode,
 } from "../scripts/preview-stripe-checkout-runtime";
 
 const OWNER_ID = "44444444-4444-4444-8444-444444444444";
@@ -21,9 +23,155 @@ const APP_ORIGIN = "https://synthetic-preview.invalid";
 const SUPABASE_ORIGIN = "https://synthetic-preview.supabase.co";
 const AUTH_COOKIE = "sb-synthetic-auth-token=synthetic-session-material";
 const STRIPE_KEY = "sk_test_synthetic-runtime-material";
+const RAW_PREFLIGHT_MARKER = "raw-preflight-provider-detail";
 
 function hash(value: string) {
   return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+type DiagnosticStage =
+  | "supabase-configuration"
+  | "supabase-origin"
+  | "supabase-anon"
+  | "supabase-service-role"
+  | "supabase-auth"
+  | "owner"
+  | "preview-deployment"
+  | "stripe-account"
+  | "harness-adapter";
+
+function diagnosticEnvironment(
+  stage: DiagnosticStage,
+): Record<string, string | undefined> {
+  return {
+    AUTOPDF_PREVIEW_HARNESS_EXPECTED_SUPABASE_ORIGIN_SHA256:
+      stage === "supabase-configuration"
+        ? undefined
+        : stage === "supabase-origin"
+          ? hash("https://different-preview.supabase.co")
+          : hash(SUPABASE_ORIGIN),
+    AUTOPDF_PREVIEW_HARNESS_SUPABASE_URL: SUPABASE_ORIGIN,
+    AUTOPDF_PREVIEW_HARNESS_SUPABASE_ANON_KEY: "sb_publishable_x",
+    AUTOPDF_PREVIEW_HARNESS_SUPABASE_SERVICE_ROLE_KEY: "sb_secret_x",
+    [PREVIEW_CHECKOUT_RUNTIME_ENV_NAMES.appOrigin]: APP_ORIGIN,
+    [PREVIEW_CHECKOUT_RUNTIME_ENV_NAMES.expectedAppOriginHash]:
+      hash(APP_ORIGIN),
+    [PREVIEW_CHECKOUT_RUNTIME_ENV_NAMES.expectedOwnerHash]:
+      stage === "owner" ? hash("different-owner") : hash(OWNER_ID),
+    [PREVIEW_CHECKOUT_RUNTIME_ENV_NAMES.authCookie]: AUTH_COOKIE,
+    [PREVIEW_CHECKOUT_RUNTIME_ENV_NAMES.stripeSecretKey]: STRIPE_KEY,
+    [PREVIEW_CHECKOUT_RUNTIME_ENV_NAMES.execute]:
+      "APPROVED_PREVIEW_CHECKOUT_CONCURRENCY",
+  };
+}
+
+function diagnosticPorts(stage: DiagnosticStage): PreviewCheckoutRuntimePorts {
+  let credentialReadCount = 0;
+  const fetchImpl: typeof fetch = async (input) => {
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.href
+          : input.url,
+    );
+    if (url.pathname === "/auth/v1/settings") {
+      credentialReadCount += 1;
+      if (
+        (stage === "supabase-anon" && credentialReadCount === 1) ||
+        (stage === "supabase-service-role" && credentialReadCount === 2)
+      ) {
+        throw new Error(RAW_PREFLIGHT_MARKER);
+      }
+      return new Response("{}", { status: 200 });
+    }
+    if (url.pathname === "/api/internal/stripe-preview-smoke") {
+      if (stage === "preview-deployment") {
+        throw new Error(RAW_PREFLIGHT_MARKER);
+      }
+      return Response.json(
+        { ok: false, state: "blocked", error_code: "AUTH_REQUIRED" },
+        { status: 401 },
+      );
+    }
+    throw new Error(RAW_PREFLIGHT_MARKER);
+  };
+
+  return {
+    fetchImpl,
+    expectedStripeAccountHash: hash(ACCOUNT_ID),
+    createStripe() {
+      return {
+        accounts: {
+          async retrieve() {
+            if (stage === "stripe-account") {
+              throw new Error(RAW_PREFLIGHT_MARKER);
+            }
+            return { id: ACCOUNT_ID };
+          },
+        },
+      } as never;
+    },
+    createAdminClient() {
+      if (stage === "harness-adapter") {
+        throw new Error(RAW_PREFLIGHT_MARKER);
+      }
+      return {} as never;
+    },
+    async authenticate() {
+      if (stage === "supabase-auth") {
+        throw new Error(RAW_PREFLIGHT_MARKER);
+      }
+      return {
+        user: { id: OWNER_ID, is_anonymous: false } as never,
+        cookieHeader: AUTH_COOKIE,
+        protectionCookie: "synthetic-protection=present",
+      };
+    },
+  };
+}
+
+for (const [stage, expectedStageCode] of [
+  ["supabase-configuration", "PREFLIGHT_SUPABASE_CONFIGURATION_FAILED"],
+  ["supabase-origin", "PREFLIGHT_SUPABASE_ORIGIN_TRUST_ROOT_FAILED"],
+  ["supabase-anon", "PREFLIGHT_SUPABASE_ANON_CREDENTIAL_FAILED"],
+  [
+    "supabase-service-role",
+    "PREFLIGHT_SUPABASE_SERVICE_ROLE_CREDENTIAL_FAILED",
+  ],
+  ["supabase-auth", "PREFLIGHT_SUPABASE_AUTH_FAILED"],
+  ["owner", "PREFLIGHT_OWNER_IDENTITY_FAILED"],
+  ["preview-deployment", "PREFLIGHT_PREVIEW_DEPLOYMENT_FAILED"],
+  ["stripe-account", "PREFLIGHT_STRIPE_ACCOUNT_FAILED"],
+  ["harness-adapter", "PREFLIGHT_HARNESS_ADAPTER_FAILED"],
+] as const satisfies readonly (readonly [
+  DiagnosticStage,
+  PreviewCheckoutRuntimePreflightStageCode,
+])[]) {
+  test(`${stage} failure maps to a fixed privacy-safe preflight stage code`, async () => {
+    let caught: unknown;
+    try {
+      await executePreviewCheckoutConcurrencyRuntime({
+        environment: diagnosticEnvironment(stage),
+        argv: [],
+        dependencies: createRealPreviewCheckoutRuntimeDependencies(
+          diagnosticPorts(stage),
+        ),
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(PreviewCheckoutRuntimeError);
+    expect(caught).toMatchObject({
+      code: "RUNTIME_PREFLIGHT_FAILED",
+      stageCode: expectedStageCode,
+    });
+    expect(String((caught as Error).message)).not.toContain(
+      RAW_PREFLIGHT_MARKER,
+    );
+    expect(String((caught as Error).stack)).not.toContain(RAW_PREFLIGHT_MARKER);
+  });
 }
 
 test("only the explicit in-progress 409 is classified as a safe loser", async () => {

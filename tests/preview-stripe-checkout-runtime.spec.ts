@@ -5,6 +5,7 @@ import { expect, test } from "@playwright/test";
 import {
   PREVIEW_CHECKOUT_RUNTIME_ENV_NAMES,
   PreviewCheckoutRuntimeError,
+  PreviewCheckoutRuntimePreflightStageError,
   executePreviewCheckoutConcurrencyRuntime,
   runPreviewCheckoutConcurrencyRuntimeCli,
   type PreviewCheckoutRuntimeBaseline,
@@ -194,6 +195,7 @@ test("preflight failure stops before fixture, Checkout, or cleanup", async () =>
     execute({ dependencies: dependency.value }),
   ).rejects.toMatchObject({
     code: "RUNTIME_PREFLIGHT_FAILED",
+    stageCode: "PREFLIGHT_INTERNAL_FAILED",
   });
   expect(runtime.calls).toEqual({
     baseline: 0,
@@ -201,6 +203,34 @@ test("preflight failure stops before fixture, Checkout, or cleanup", async () =>
     execute: 0,
     cleanup: 0,
   });
+});
+
+test("CLI preserves the top-level preflight code and adds only a fixed stage code", async () => {
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  const dependency = dependencies({
+    preflightError: new PreviewCheckoutRuntimePreflightStageError(
+      "PREFLIGHT_SUPABASE_AUTH_FAILED",
+    ),
+  });
+
+  const exitCode = await runPreviewCheckoutConcurrencyRuntimeCli({
+    environment: environment(),
+    argv: [],
+    dependencies: dependency.value,
+    stdout: {
+      write: (value: unknown) => stdout.push(String(value)),
+    } as never,
+    stderr: {
+      write: (value: unknown) => stderr.push(String(value)),
+    } as never,
+  });
+
+  expect(exitCode).toBe(1);
+  expect(stdout).toEqual([]);
+  expect(stderr).toEqual([
+    '{"verdict":"BLOCKED","error_code":"RUNTIME_PREFLIGHT_FAILED","stage_code":"PREFLIGHT_SUPABASE_AUTH_FAILED"}\n',
+  ]);
 });
 
 for (const [name, preflight] of [
@@ -216,7 +246,10 @@ for (const [name, preflight] of [
     const dependency = dependencies({ harness: runtime.harness, preflight });
     await expect(
       execute({ dependencies: dependency.value }),
-    ).rejects.toMatchObject({ code: "RUNTIME_PREFLIGHT_FAILED" });
+    ).rejects.toMatchObject({
+      code: "RUNTIME_PREFLIGHT_FAILED",
+      stageCode: "PREFLIGHT_RESULT_VALIDATION_FAILED",
+    });
     expect(runtime.calls).toEqual({
       baseline: 0,
       prepare: 0,
