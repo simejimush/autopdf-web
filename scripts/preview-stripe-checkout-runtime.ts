@@ -1,5 +1,8 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 
+// @ts-expect-error Node's built-in TypeScript runner requires the explicit suffix.
+import { runtimeBaselineFixtureValid } from "./preview-stripe-checkout-fixture-contract.ts";
+
 const EXECUTE_APPROVAL = "APPROVED_PREVIEW_CHECKOUT_CONCURRENCY";
 const REQUEST_COUNT = 2 as const;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
@@ -301,15 +304,7 @@ function validatePreflight(result: RuntimePreflightResult) {
 }
 
 function validateBaseline(baseline: PreviewCheckoutRuntimeBaseline) {
-  if (
-    baseline.activeCheckoutAttemptCount !== 0 ||
-    baseline.customerCount !== 0 ||
-    baseline.checkoutSessionCount !== 0 ||
-    baseline.subscriptionCount !== 0 ||
-    baseline.effectivePlan !== "free" ||
-    baseline.billingStatus !== "none" ||
-    baseline.paid
-  ) {
+  if (!runtimeBaselineFixtureValid(baseline)) {
     fail("RUNTIME_FIXTURE_INVALID");
   }
 }

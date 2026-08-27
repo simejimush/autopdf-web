@@ -1,5 +1,7 @@
 // @ts-expect-error Node's built-in TypeScript runner requires the explicit suffix.
 import * as PrivacyHarness from "./preview-stripe-checkout-privacy-harness.ts";
+// @ts-expect-error Node's built-in TypeScript runner requires the explicit suffix.
+import { runtimeFixtureRowValid } from "./preview-stripe-checkout-fixture-contract.ts";
 
 const { executePrivacySafeCheckoutHarness } = PrivacyHarness;
 type PrivacySafeHarnessResult = PrivacyHarness.PrivacySafeHarnessResult;
@@ -171,21 +173,7 @@ function validateFixtureRows(
   if (fixture.ownerHandle !== ownerHandle) {
     fail("HARNESS_FIXTURE_OWNER_MISMATCH");
   }
-  if (
-    fixture.plan !== "free" ||
-    fixture.billingStatus !== "none" ||
-    fixture.paid ||
-    !isSafeCount(fixture.activeOrTrialingSubscriptionCount) ||
-    !isSafeCount(fixture.activeCheckoutAttemptCount) ||
-    !isSafeCount(fixture.customerCount) ||
-    !isSafeCount(fixture.checkoutSessionCount) ||
-    !isSafeCount(fixture.subscriptionCount) ||
-    fixture.activeOrTrialingSubscriptionCount !== 0 ||
-    fixture.activeCheckoutAttemptCount !== 0 ||
-    fixture.customerCount !== 0 ||
-    fixture.checkoutSessionCount !== 0 ||
-    fixture.subscriptionCount !== 0
-  ) {
+  if (!runtimeFixtureRowValid(fixture)) {
     fail("HARNESS_FIXTURE_STATE_INVALID");
   }
 }

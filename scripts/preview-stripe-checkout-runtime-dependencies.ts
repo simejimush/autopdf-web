@@ -14,11 +14,14 @@ import { EXPECTED_PREVIEW_STRIPE_ACCOUNT_SHA256 } from "../src/lib/billing/contr
 // @ts-expect-error Node's built-in TypeScript runner requires the explicit suffix.
 import * as PrivacyAdapter from "./preview-stripe-checkout-privacy-adapter.ts";
 // @ts-expect-error Node's built-in TypeScript runner requires the explicit suffix.
+import * as FixtureContract from "./preview-stripe-checkout-fixture-contract.ts";
+// @ts-expect-error Node's built-in TypeScript runner requires the explicit suffix.
 import * as Runtime from "./preview-stripe-checkout-runtime.ts";
 // @ts-expect-error Node's built-in TypeScript runner requires the explicit suffix.
 import * as SupabasePreflight from "./preview-supabase-identity-preflight.ts";
 
 const { createPreviewCheckoutHarnessAdapter } = PrivacyAdapter;
+const { effectiveFixturePlan, fixtureBillingStatus } = FixtureContract;
 const {
   PreviewSupabaseIdentityPreflightError,
   runPreviewSupabaseIdentityPreflight,
@@ -282,32 +285,6 @@ function isAttemptRow(value: unknown, ownerId: string): value is AttemptRow {
   );
 }
 
-function effectivePlan(profile: ProfileRow) {
-  if (
-    (profile.billing_status === "active" ||
-      profile.billing_status === "trialing") &&
-    (profile.plan === "pro" || profile.plan === "pro_plus")
-  ) {
-    return profile.plan;
-  }
-  if (
-    profile.billing_status === "canceled" &&
-    profile.current_period_end &&
-    Date.parse(profile.current_period_end) > Date.now() &&
-    (profile.plan === "pro" || profile.plan === "pro_plus")
-  ) {
-    return profile.plan;
-  }
-  return "free" as const;
-}
-
-function billingStatus(profile: ProfileRow) {
-  if (profile.billing_status === null) return "none" as const;
-  if (profile.billing_status === "active") return "active" as const;
-  if (profile.billing_status === "trialing") return "trialing" as const;
-  return "other" as const;
-}
-
 async function loadProfile(admin: SupabaseClient, ownerId: string) {
   const { data, error } = await admin
     .from("user_profiles")
@@ -479,11 +456,11 @@ function fixtureRow(
   state: FixtureState,
   ownerHandle: PreviewHarnessOwnerHandle,
 ) {
-  const plan = effectivePlan(state.profile);
+  const plan = effectiveFixturePlan(state.profile);
   return Object.freeze({
     ownerHandle,
     plan,
-    billingStatus: billingStatus(state.profile),
+    billingStatus: fixtureBillingStatus(state.profile),
     paid: plan !== "free",
     activeOrTrialingSubscriptionCount:
       state.stripe.activeOrTrialingSubscriptionCount,
@@ -611,14 +588,14 @@ async function restoreProfile(input: {
 }
 
 function baselineResult(state: FixtureState): PreviewCheckoutRuntimeBaseline {
-  const plan = effectivePlan(state.profile);
+  const plan = effectiveFixturePlan(state.profile);
   return Object.freeze({
     activeCheckoutAttemptCount: state.attempts.length,
     customerCount: state.stripe.customerIds.size,
     checkoutSessionCount: state.stripe.sessionIds.size,
     subscriptionCount: state.stripe.subscriptionIds.size,
     effectivePlan: plan,
-    billingStatus: billingStatus(state.profile),
+    billingStatus: fixtureBillingStatus(state.profile),
     paid: plan !== "free",
   });
 }
@@ -771,7 +748,7 @@ export function createRealPreviewCheckoutRuntimeDependencies(
                 baseline.profile,
                 state.profile,
               ),
-              fixtureFree: effectivePlan(state.profile) === "free",
+              fixtureFree: effectiveFixturePlan(state.profile) === "free",
               fixtureUnsubscribed:
                 state.stripe.subscriptionIds.size === 0 &&
                 state.profile.billing_subscription_id === null,
@@ -836,7 +813,7 @@ export function createRealPreviewCheckoutRuntimeDependencies(
               finalState.stripe.sessionIds.size !== 0 ||
               finalState.stripe.subscriptionIds.size !== 0 ||
               !paidFieldsMatch(baseline.profile, finalState.profile) ||
-              effectivePlan(finalState.profile) !== "free"
+              effectiveFixturePlan(finalState.profile) !== "free"
             ) {
               fail();
             }
