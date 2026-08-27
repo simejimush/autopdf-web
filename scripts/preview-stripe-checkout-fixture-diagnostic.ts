@@ -28,7 +28,9 @@ export class PreviewCheckoutFixtureDiagnosticError extends Error {
   constructor(
     readonly code:
       | "FIXTURE_DIAGNOSTIC_PREFLIGHT_FAILED"
-      | "FIXTURE_DIAGNOSTIC_DB_READ_FAILED"
+      | "FIXTURE_DIAGNOSTIC_PROFILE_READ_FAILED"
+      | "FIXTURE_DIAGNOSTIC_ATTEMPTS_READ_FAILED"
+      | "FIXTURE_DIAGNOSTIC_BOTH_DB_READS_FAILED"
       | "FIXTURE_DIAGNOSTIC_STRIPE_READ_FAILED",
   ) {
     super(code);

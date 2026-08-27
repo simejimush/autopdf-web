@@ -16,6 +16,7 @@ import {
   runPreviewCheckoutFixtureDiagnosticCli,
   type PreviewCheckoutFixtureDiagnosticDependencies,
 } from "../scripts/preview-stripe-checkout-fixture-diagnostic";
+import { resolveFixtureDiagnosticDbReads } from "../scripts/preview-stripe-checkout-fixture-diagnostic-dependencies";
 
 const APPROVAL = "APPROVED_PREVIEW_FIXTURE_READ_DIAGNOSTIC";
 const SENSITIVE_MARKERS = [
@@ -146,19 +147,147 @@ for (const [name, override, field] of [
   });
 }
 
-test("DB read failure is normalized without a raw error", async () => {
+type DbReadMock = Readonly<{
+  data: readonly unknown[] | null;
+  error: Error | null;
+}>;
+
+const dbReadSuccess: DbReadMock = { data: [], error: null };
+const dbReadFailure: DbReadMock = {
+  data: null,
+  error: new Error(SENSITIVE_MARKERS.join(":")),
+};
+
+async function dbReadFailureCode(input: {
+  profileRead(): PromiseLike<DbReadMock>;
+  attemptsRead(): PromiseLike<DbReadMock>;
+}) {
+  try {
+    await resolveFixtureDiagnosticDbReads(input);
+  } catch (error) {
+    return error instanceof PreviewCheckoutFixtureDiagnosticError
+      ? error.code
+      : "UNEXPECTED";
+  }
+  return "SUCCESS";
+}
+
+test("both DB reads succeed without changing the fixture state path", async () => {
+  await expect(
+    resolveFixtureDiagnosticDbReads({
+      profileRead: async () => dbReadSuccess,
+      attemptsRead: async () => dbReadSuccess,
+    }),
+  ).resolves.toEqual({
+    profileResult: dbReadSuccess,
+    attemptResult: dbReadSuccess,
+  });
+});
+
+for (const [name, profileRead, attemptsRead, expected] of [
+  [
+    "profile query error",
+    async () => dbReadFailure,
+    async () => dbReadSuccess,
+    "FIXTURE_DIAGNOSTIC_PROFILE_READ_FAILED",
+  ],
+  [
+    "attempts query error",
+    async () => dbReadSuccess,
+    async () => dbReadFailure,
+    "FIXTURE_DIAGNOSTIC_ATTEMPTS_READ_FAILED",
+  ],
+  [
+    "both query errors",
+    async () => dbReadFailure,
+    async () => dbReadFailure,
+    "FIXTURE_DIAGNOSTIC_BOTH_DB_READS_FAILED",
+  ],
+  [
+    "profile rejection",
+    async () => Promise.reject(new Error(SENSITIVE_MARKERS.join(":"))),
+    async () => dbReadSuccess,
+    "FIXTURE_DIAGNOSTIC_PROFILE_READ_FAILED",
+  ],
+  [
+    "attempts rejection",
+    async () => dbReadSuccess,
+    async () => Promise.reject(new Error(SENSITIVE_MARKERS.join(":"))),
+    "FIXTURE_DIAGNOSTIC_ATTEMPTS_READ_FAILED",
+  ],
+  [
+    "both rejections",
+    async () => Promise.reject(new Error(SENSITIVE_MARKERS.join(":"))),
+    async () => Promise.reject(new Error(SENSITIVE_MARKERS.join(":"))),
+    "FIXTURE_DIAGNOSTIC_BOTH_DB_READS_FAILED",
+  ],
+] as const) {
+  test(`${name} maps to a fixed DB stage code without raw error exposure`, async () => {
+    const errorCode = await dbReadFailureCode({ profileRead, attemptsRead });
+    expect(errorCode).toBe(expected);
+    expect(errorCode).not.toContain("synthetic");
+  });
+}
+
+test("a DB-stage failure stops before a later Stripe inspection", async () => {
+  let profileReadCalls = 0;
+  let attemptsReadCalls = 0;
+  let stripeInspectionCalls = 0;
   const report = await execute(
     dependencies(async () => {
-      throw new PreviewCheckoutFixtureDiagnosticError(
-        "FIXTURE_DIAGNOSTIC_DB_READ_FAILED",
-      );
+      await resolveFixtureDiagnosticDbReads({
+        profileRead: async () => {
+          profileReadCalls += 1;
+          return dbReadFailure;
+        },
+        attemptsRead: async () => {
+          attemptsReadCalls += 1;
+          return dbReadSuccess;
+        },
+      });
+      stripeInspectionCalls += 1;
+      return validObservation();
     }),
   );
   expect(report).toMatchObject({
     verdict: "BLOCKED",
-    error_code: "FIXTURE_DIAGNOSTIC_DB_READ_FAILED",
+    error_code: "FIXTURE_DIAGNOSTIC_PROFILE_READ_FAILED",
     overall_fixture_valid: "unknown",
   });
+  expect(profileReadCalls).toBe(1);
+  expect(attemptsReadCalls).toBe(1);
+  expect(stripeInspectionCalls).toBe(0);
+});
+
+test("a raw DB read rejection never reaches CLI output", async () => {
+  const stdout: string[] = [];
+  const exitCode = await runPreviewCheckoutFixtureDiagnosticCli({
+    environment: {
+      [PREVIEW_FIXTURE_DIAGNOSTIC_ENV_NAMES.execute]: APPROVAL,
+    },
+    argv: [],
+    dependencies: dependencies(async () => {
+      await resolveFixtureDiagnosticDbReads({
+        profileRead: async () =>
+          Promise.reject(new Error(SENSITIVE_MARKERS.join(":"))),
+        attemptsRead: async () => dbReadSuccess,
+      });
+      return validObservation();
+    }),
+    stdout: {
+      write: (value: unknown) => stdout.push(String(value)),
+    } as never,
+  });
+
+  expect(exitCode).toBe(1);
+  expect(stdout).toHaveLength(1);
+  expect(JSON.parse(stdout[0])).toMatchObject({
+    verdict: "BLOCKED",
+    error_code: "FIXTURE_DIAGNOSTIC_PROFILE_READ_FAILED",
+  });
+  for (const marker of SENSITIVE_MARKERS) {
+    expect(stdout[0]).not.toContain(marker);
+  }
 });
 
 test("Stripe read failure preserves safe DB classifications", async () => {

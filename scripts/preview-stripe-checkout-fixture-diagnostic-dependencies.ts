@@ -85,7 +85,9 @@ const DEFAULT_PORTS: PreviewCheckoutFixtureDiagnosticPorts = Object.freeze({
 function fail(
   code:
     | "FIXTURE_DIAGNOSTIC_PREFLIGHT_FAILED"
-    | "FIXTURE_DIAGNOSTIC_DB_READ_FAILED"
+    | "FIXTURE_DIAGNOSTIC_PROFILE_READ_FAILED"
+    | "FIXTURE_DIAGNOSTIC_ATTEMPTS_READ_FAILED"
+    | "FIXTURE_DIAGNOSTIC_BOTH_DB_READS_FAILED"
     | "FIXTURE_DIAGNOSTIC_STRIPE_READ_FAILED",
 ): never {
   throw new PreviewCheckoutFixtureDiagnosticError(code);
@@ -203,23 +205,51 @@ async function authenticate(input: {
   return user.id;
 }
 
+type FixtureDbReadResult = Readonly<{ error: unknown }>;
+
+export async function resolveFixtureDiagnosticDbReads<
+  TProfile extends FixtureDbReadResult,
+  TAttempts extends FixtureDbReadResult,
+>(input: {
+  profileRead(): PromiseLike<TProfile>;
+  attemptsRead(): PromiseLike<TAttempts>;
+}): Promise<Readonly<{ profileResult: TProfile; attemptResult: TAttempts }>> {
+  const [profileSettled, attemptsSettled] = await Promise.allSettled([
+    Promise.resolve().then(input.profileRead),
+    Promise.resolve().then(input.attemptsRead),
+  ]);
+  const profileRejected = profileSettled.status === "rejected";
+  const attemptsRejected = attemptsSettled.status === "rejected";
+
+  if (profileRejected && attemptsRejected) {
+    fail("FIXTURE_DIAGNOSTIC_BOTH_DB_READS_FAILED");
+  }
+  if (profileRejected) fail("FIXTURE_DIAGNOSTIC_PROFILE_READ_FAILED");
+  if (attemptsRejected) fail("FIXTURE_DIAGNOSTIC_ATTEMPTS_READ_FAILED");
+
+  const profileResult = profileSettled.value;
+  const attemptResult = attemptsSettled.value;
+  const profileErrored = Boolean(profileResult.error);
+  const attemptsErrored = Boolean(attemptResult.error);
+
+  if (profileErrored && attemptsErrored) {
+    fail("FIXTURE_DIAGNOSTIC_BOTH_DB_READS_FAILED");
+  }
+  if (profileErrored) fail("FIXTURE_DIAGNOSTIC_PROFILE_READ_FAILED");
+  if (attemptsErrored) fail("FIXTURE_DIAGNOSTIC_ATTEMPTS_READ_FAILED");
+
+  return Object.freeze({ profileResult, attemptResult });
+}
+
 async function inspectDb(input: { admin: SupabaseClient; ownerId: string }) {
-  let profileResult: Awaited<ReturnType<typeof loadProfiles>>;
-  let attemptResult: Awaited<ReturnType<typeof loadAttempts>>;
-  try {
-    [profileResult, attemptResult] = await Promise.all([
-      loadProfiles(input.admin, input.ownerId),
-      loadAttempts(input.admin, input.ownerId),
-    ]);
-  } catch {
-    fail("FIXTURE_DIAGNOSTIC_DB_READ_FAILED");
-  }
-  if (profileResult.error || attemptResult.error) {
-    fail("FIXTURE_DIAGNOSTIC_DB_READ_FAILED");
-  }
+  const { profileResult, attemptResult } =
+    await resolveFixtureDiagnosticDbReads({
+      profileRead: () => loadProfiles(input.admin, input.ownerId),
+      attemptsRead: () => loadAttempts(input.admin, input.ownerId),
+    });
   const profiles = Array.isArray(profileResult.data) ? profileResult.data : [];
   const attemptsArray = Array.isArray(attemptResult.data);
-  const attempts = attemptsArray ? attemptResult.data : [];
+  const attempts: unknown[] = attemptsArray ? (attemptResult.data ?? []) : [];
   const profile =
     profiles.length === 1 &&
     isProfileRow(profiles[0]) &&
