@@ -9,6 +9,8 @@ type PreviewCheckoutFixtureDiagnosticErrorCode =
   FixtureContract.PreviewCheckoutFixtureDiagnosticErrorCode;
 type PreviewCheckoutFixtureDiagnosticReport =
   FixtureContract.PreviewCheckoutFixtureDiagnosticReport;
+type PreviewCheckoutAttemptsReadFailureClassification =
+  FixtureContract.PreviewCheckoutAttemptsReadFailureClassification;
 
 const EXECUTE_APPROVAL = "APPROVED_PREVIEW_FIXTURE_READ_DIAGNOSTIC";
 
@@ -32,6 +34,7 @@ export class PreviewCheckoutFixtureDiagnosticError extends Error {
       | "FIXTURE_DIAGNOSTIC_ATTEMPTS_READ_FAILED"
       | "FIXTURE_DIAGNOSTIC_BOTH_DB_READS_FAILED"
       | "FIXTURE_DIAGNOSTIC_STRIPE_READ_FAILED",
+    readonly attemptsReadFailure?: PreviewCheckoutAttemptsReadFailureClassification,
   ) {
     super(code);
     this.name = "PreviewCheckoutFixtureDiagnosticError";
@@ -40,11 +43,15 @@ export class PreviewCheckoutFixtureDiagnosticError extends Error {
 
 function blockedUnknownReport(
   errorCode: PreviewCheckoutFixtureDiagnosticErrorCode,
+  attemptsReadFailure?: PreviewCheckoutAttemptsReadFailureClassification,
 ): PreviewCheckoutFixtureDiagnosticReport {
   return Object.freeze({
     ...evaluatePreviewCheckoutFixtureObservation(unknownFixtureObservation()),
     verdict: "BLOCKED",
     error_code: errorCode,
+    ...(attemptsReadFailure
+      ? { attempts_read_failure: attemptsReadFailure }
+      : {}),
   });
 }
 
@@ -71,6 +78,9 @@ export async function executePreviewCheckoutFixtureDiagnostic(input: {
       error instanceof PreviewCheckoutFixtureDiagnosticError
         ? error.code
         : "FIXTURE_DIAGNOSTIC_INTERNAL_FAILED",
+      error instanceof PreviewCheckoutFixtureDiagnosticError
+        ? error.attemptsReadFailure
+        : undefined,
     );
   }
 }

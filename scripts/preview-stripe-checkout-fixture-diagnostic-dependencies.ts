@@ -26,6 +26,8 @@ type PreviewCheckoutFixtureObservation =
   FixtureContract.PreviewCheckoutFixtureObservation;
 type PreviewCheckoutFixtureDiagnosticDependencies =
   Diagnostic.PreviewCheckoutFixtureDiagnosticDependencies;
+type PreviewCheckoutAttemptsReadFailureClassification =
+  FixtureContract.PreviewCheckoutAttemptsReadFailureClassification;
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -89,8 +91,9 @@ function fail(
     | "FIXTURE_DIAGNOSTIC_ATTEMPTS_READ_FAILED"
     | "FIXTURE_DIAGNOSTIC_BOTH_DB_READS_FAILED"
     | "FIXTURE_DIAGNOSTIC_STRIPE_READ_FAILED",
+  attemptsReadFailure?: PreviewCheckoutAttemptsReadFailureClassification,
 ): never {
-  throw new PreviewCheckoutFixtureDiagnosticError(code);
+  throw new PreviewCheckoutFixtureDiagnosticError(code, attemptsReadFailure);
 }
 
 function requiredEnvironment(environment: HarnessEnvironment, name: string) {
@@ -205,7 +208,76 @@ async function authenticate(input: {
   return user.id;
 }
 
-type FixtureDbReadResult = Readonly<{ error: unknown }>;
+type FixtureDbReadResult = Readonly<{
+  error: unknown;
+  status?: unknown;
+}>;
+
+const TRANSPORT_ATTEMPTS_READ_FAILURE = Object.freeze({
+  failure_kind: "TRANSPORT",
+  http_status_class: "UNKNOWN",
+  provider_code_class: "UNKNOWN",
+} as const satisfies PreviewCheckoutAttemptsReadFailureClassification);
+
+const UNKNOWN_ATTEMPTS_READ_FAILURE = Object.freeze({
+  failure_kind: "UNKNOWN",
+  http_status_class: "UNKNOWN",
+  provider_code_class: "UNKNOWN",
+} as const satisfies PreviewCheckoutAttemptsReadFailureClassification);
+
+function classifyHttpStatus(
+  status: unknown,
+): PreviewCheckoutAttemptsReadFailureClassification["http_status_class"] {
+  if (typeof status !== "number" || !Number.isSafeInteger(status)) {
+    return "UNKNOWN";
+  }
+  if (status >= 400 && status <= 499) return "4XX";
+  if (status >= 500 && status <= 599) return "5XX";
+  return "OTHER";
+}
+
+function classifyProviderCode(
+  code: string,
+): PreviewCheckoutAttemptsReadFailureClassification["provider_code_class"] {
+  switch (code) {
+    case "42703":
+      return "POSTGRES_UNDEFINED_COLUMN";
+    case "42P01":
+      return "POSTGRES_UNDEFINED_TABLE";
+    case "42501":
+      return "POSTGRES_INSUFFICIENT_PRIVILEGE";
+    case "PGRST204":
+      return "POSTGREST_COLUMN_NOT_FOUND";
+    case "PGRST205":
+      return "POSTGREST_TABLE_NOT_FOUND";
+    default:
+      return "UNKNOWN";
+  }
+}
+
+function classifyAttemptsResultFailure(
+  result: FixtureDbReadResult,
+): PreviewCheckoutAttemptsReadFailureClassification {
+  if (result.status === 0) return TRANSPORT_ATTEMPTS_READ_FAILURE;
+  try {
+    if (
+      !result.error ||
+      typeof result.error !== "object" ||
+      Array.isArray(result.error) ||
+      !("code" in result.error) ||
+      typeof result.error.code !== "string"
+    ) {
+      return UNKNOWN_ATTEMPTS_READ_FAILURE;
+    }
+    return Object.freeze({
+      failure_kind: "POSTGREST",
+      http_status_class: classifyHttpStatus(result.status),
+      provider_code_class: classifyProviderCode(result.error.code),
+    });
+  } catch {
+    return UNKNOWN_ATTEMPTS_READ_FAILURE;
+  }
+}
 
 export async function resolveFixtureDiagnosticDbReads<
   TProfile extends FixtureDbReadResult,
@@ -222,10 +294,18 @@ export async function resolveFixtureDiagnosticDbReads<
   const attemptsRejected = attemptsSettled.status === "rejected";
 
   if (profileRejected && attemptsRejected) {
-    fail("FIXTURE_DIAGNOSTIC_BOTH_DB_READS_FAILED");
+    fail(
+      "FIXTURE_DIAGNOSTIC_BOTH_DB_READS_FAILED",
+      TRANSPORT_ATTEMPTS_READ_FAILURE,
+    );
   }
   if (profileRejected) fail("FIXTURE_DIAGNOSTIC_PROFILE_READ_FAILED");
-  if (attemptsRejected) fail("FIXTURE_DIAGNOSTIC_ATTEMPTS_READ_FAILED");
+  if (attemptsRejected) {
+    fail(
+      "FIXTURE_DIAGNOSTIC_ATTEMPTS_READ_FAILED",
+      TRANSPORT_ATTEMPTS_READ_FAILURE,
+    );
+  }
 
   const profileResult = profileSettled.value;
   const attemptResult = attemptsSettled.value;
@@ -233,10 +313,18 @@ export async function resolveFixtureDiagnosticDbReads<
   const attemptsErrored = Boolean(attemptResult.error);
 
   if (profileErrored && attemptsErrored) {
-    fail("FIXTURE_DIAGNOSTIC_BOTH_DB_READS_FAILED");
+    fail(
+      "FIXTURE_DIAGNOSTIC_BOTH_DB_READS_FAILED",
+      classifyAttemptsResultFailure(attemptResult),
+    );
   }
   if (profileErrored) fail("FIXTURE_DIAGNOSTIC_PROFILE_READ_FAILED");
-  if (attemptsErrored) fail("FIXTURE_DIAGNOSTIC_ATTEMPTS_READ_FAILED");
+  if (attemptsErrored) {
+    fail(
+      "FIXTURE_DIAGNOSTIC_ATTEMPTS_READ_FAILED",
+      classifyAttemptsResultFailure(attemptResult),
+    );
+  }
 
   return Object.freeze({ profileResult, attemptResult });
 }

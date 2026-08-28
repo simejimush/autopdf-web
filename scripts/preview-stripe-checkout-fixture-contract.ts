@@ -33,6 +33,18 @@ export type PreviewCheckoutFixtureDiagnosticErrorCode =
   | "FIXTURE_DIAGNOSTIC_STATE_INVALID"
   | "FIXTURE_DIAGNOSTIC_INTERNAL_FAILED";
 
+export type PreviewCheckoutAttemptsReadFailureClassification = Readonly<{
+  failure_kind: "TRANSPORT" | "POSTGREST" | "UNKNOWN";
+  http_status_class: "4XX" | "5XX" | "OTHER" | "UNKNOWN";
+  provider_code_class:
+    | "POSTGRES_UNDEFINED_COLUMN"
+    | "POSTGRES_UNDEFINED_TABLE"
+    | "POSTGRES_INSUFFICIENT_PRIVILEGE"
+    | "POSTGREST_COLUMN_NOT_FOUND"
+    | "POSTGREST_TABLE_NOT_FOUND"
+    | "UNKNOWN";
+}>;
+
 export type PreviewCheckoutFixtureDiagnosticReport = Readonly<{
   verdict: "READY" | "BLOCKED";
   error_code: PreviewCheckoutFixtureDiagnosticErrorCode;
@@ -51,6 +63,7 @@ export type PreviewCheckoutFixtureDiagnosticReport = Readonly<{
   db_fixture_valid: FixtureDiagnosticFlag;
   stripe_fixture_valid: FixtureDiagnosticFlag;
   overall_fixture_valid: FixtureDiagnosticFlag;
+  attempts_read_failure?: PreviewCheckoutAttemptsReadFailureClassification;
 }>;
 
 export function effectiveFixturePlan(profile: {

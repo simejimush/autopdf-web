@@ -21,7 +21,9 @@ import { resolveFixtureDiagnosticDbReads } from "../scripts/preview-stripe-check
 const APPROVAL = "APPROVED_PREVIEW_FIXTURE_READ_DIAGNOSTIC";
 const SENSITIVE_MARKERS = [
   "synthetic-user-id-marker",
+  "44444444-4444-4444-8444-444444444444",
   "synthetic-email-marker@example.invalid",
+  "https://synthetic-preview.supabase.co/rest/v1/stripe_checkout_attempts",
   "cus_synthetic-marker",
   "cs_synthetic-marker",
   "sub_synthetic-marker",
@@ -78,6 +80,7 @@ test("all fixture conditions pass only as one overall valid result", async () =>
     stripe_fixture_valid: true,
     overall_fixture_valid: true,
   });
+  expect(report).not.toHaveProperty("attempts_read_failure");
 });
 
 test("explicit diagnostic approval is required before dependency access", async () => {
@@ -149,7 +152,8 @@ for (const [name, override, field] of [
 
 type DbReadMock = Readonly<{
   data: readonly unknown[] | null;
-  error: Error | null;
+  error: unknown;
+  status?: unknown;
 }>;
 
 const dbReadSuccess: DbReadMock = { data: [], error: null };
@@ -162,14 +166,24 @@ async function dbReadFailureCode(input: {
   profileRead(): PromiseLike<DbReadMock>;
   attemptsRead(): PromiseLike<DbReadMock>;
 }) {
+  const error = await captureDbReadFailure(input);
+  return error instanceof PreviewCheckoutFixtureDiagnosticError
+    ? error.code
+    : error
+      ? "UNEXPECTED"
+      : "SUCCESS";
+}
+
+async function captureDbReadFailure(input: {
+  profileRead(): PromiseLike<DbReadMock>;
+  attemptsRead(): PromiseLike<DbReadMock>;
+}) {
   try {
     await resolveFixtureDiagnosticDbReads(input);
   } catch (error) {
-    return error instanceof PreviewCheckoutFixtureDiagnosticError
-      ? error.code
-      : "UNEXPECTED";
+    return error;
   }
-  return "SUCCESS";
+  return undefined;
 }
 
 test("both DB reads succeed without changing the fixture state path", async () => {
@@ -182,6 +196,129 @@ test("both DB reads succeed without changing the fixture state path", async () =
     profileResult: dbReadSuccess,
     attemptResult: dbReadSuccess,
   });
+});
+
+test("attempts transport rejection retains only a fixed transport classification", async () => {
+  const error = await captureDbReadFailure({
+    profileRead: async () => dbReadSuccess,
+    attemptsRead: async () =>
+      Promise.reject(new Error(SENSITIVE_MARKERS.join(":"))),
+  });
+  expect(error).toMatchObject({
+    code: "FIXTURE_DIAGNOSTIC_ATTEMPTS_READ_FAILED",
+    attemptsReadFailure: {
+      failure_kind: "TRANSPORT",
+      http_status_class: "UNKNOWN",
+      provider_code_class: "UNKNOWN",
+    },
+  });
+  expect(JSON.stringify(error)).not.toContain(SENSITIVE_MARKERS.join(":"));
+});
+
+test("attempts result errors retain status class and allowlisted provider classification", async () => {
+  for (const [status, code, statusClass, providerClass] of [
+    [400, "42703", "4XX", "POSTGRES_UNDEFINED_COLUMN"],
+    [404, "PGRST204", "4XX", "POSTGREST_COLUMN_NOT_FOUND"],
+    [500, "XX000", "5XX", "UNKNOWN"],
+    [302, "42703", "OTHER", "POSTGRES_UNDEFINED_COLUMN"],
+  ] as const) {
+    const error = await captureDbReadFailure({
+      profileRead: async () => dbReadSuccess,
+      attemptsRead: async () => ({
+        data: null,
+        status,
+        error: {
+          code,
+          message: SENSITIVE_MARKERS.join(":"),
+          details: SENSITIVE_MARKERS.join(":"),
+          hint: SENSITIVE_MARKERS.join(":"),
+        },
+      }),
+    });
+    expect(error).toMatchObject({
+      code: "FIXTURE_DIAGNOSTIC_ATTEMPTS_READ_FAILED",
+      attemptsReadFailure: {
+        failure_kind: "POSTGREST",
+        http_status_class: statusClass,
+        provider_code_class: providerClass,
+      },
+    });
+    const serialized = JSON.stringify(error);
+    for (const marker of SENSITIVE_MARKERS) {
+      expect(serialized).not.toContain(marker);
+    }
+  }
+});
+
+test("status zero is classified as transport without inspecting provider text", async () => {
+  const error = await captureDbReadFailure({
+    profileRead: async () => dbReadSuccess,
+    attemptsRead: async () => ({
+      data: null,
+      status: 0,
+      error: {
+        code: "",
+        message: SENSITIVE_MARKERS.join(":"),
+      },
+    }),
+  });
+  expect(error).toMatchObject({
+    attemptsReadFailure: {
+      failure_kind: "TRANSPORT",
+      http_status_class: "UNKNOWN",
+      provider_code_class: "UNKNOWN",
+    },
+  });
+});
+
+test("unknown and malformed attempts errors fail closed", async () => {
+  const throwingCode = Object.defineProperty({}, "code", {
+    get() {
+      throw new Error(SENSITIVE_MARKERS.join(":"));
+    },
+  });
+  for (const result of [
+    {
+      data: null,
+      status: 418,
+      error: { code: "UNLISTED", message: SENSITIVE_MARKERS.join(":") },
+      expectedKind: "POSTGREST",
+      expectedStatus: "4XX",
+    },
+    {
+      data: null,
+      status: 400,
+      error: { message: SENSITIVE_MARKERS.join(":") },
+      expectedKind: "UNKNOWN",
+      expectedStatus: "UNKNOWN",
+    },
+    {
+      data: null,
+      status: "400",
+      error: SENSITIVE_MARKERS.join(":"),
+      expectedKind: "UNKNOWN",
+      expectedStatus: "UNKNOWN",
+    },
+    {
+      data: null,
+      status: 400,
+      error: throwingCode,
+      expectedKind: "UNKNOWN",
+      expectedStatus: "UNKNOWN",
+    },
+  ] as const) {
+    const error = await captureDbReadFailure({
+      profileRead: async () => dbReadSuccess,
+      attemptsRead: async () => result,
+    });
+    expect(error).toMatchObject({
+      attemptsReadFailure: {
+        failure_kind: result.expectedKind,
+        http_status_class: result.expectedStatus,
+        provider_code_class: "UNKNOWN",
+      },
+    });
+  }
 });
 
 for (const [name, profileRead, attemptsRead, expected] of [
@@ -254,6 +391,7 @@ test("a DB-stage failure stops before a later Stripe inspection", async () => {
     error_code: "FIXTURE_DIAGNOSTIC_PROFILE_READ_FAILED",
     overall_fixture_valid: "unknown",
   });
+  expect(report).not.toHaveProperty("attempts_read_failure");
   expect(profileReadCalls).toBe(1);
   expect(attemptsReadCalls).toBe(1);
   expect(stripeInspectionCalls).toBe(0);
@@ -287,6 +425,52 @@ test("a raw DB read rejection never reaches CLI output", async () => {
   });
   for (const marker of SENSITIVE_MARKERS) {
     expect(stdout[0]).not.toContain(marker);
+  }
+});
+
+test("attempts classification reaches CLI without provider or identifier material", async () => {
+  const stdout: string[] = [];
+  const exitCode = await runPreviewCheckoutFixtureDiagnosticCli({
+    environment: {
+      [PREVIEW_FIXTURE_DIAGNOSTIC_ENV_NAMES.execute]: APPROVAL,
+    },
+    argv: [],
+    dependencies: dependencies(async () => {
+      await resolveFixtureDiagnosticDbReads({
+        profileRead: async () => dbReadSuccess,
+        attemptsRead: async () => ({
+          data: null,
+          status: 400,
+          error: {
+            code: "42703",
+            message: SENSITIVE_MARKERS.join(":"),
+            details: SENSITIVE_MARKERS.join(":"),
+            hint: SENSITIVE_MARKERS.join(":"),
+          },
+        }),
+      });
+      return validObservation();
+    }),
+    stdout: {
+      write: (value: unknown) => stdout.push(String(value)),
+    } as never,
+  });
+
+  expect(exitCode).toBe(1);
+  expect(JSON.parse(stdout[0])).toMatchObject({
+    verdict: "BLOCKED",
+    error_code: "FIXTURE_DIAGNOSTIC_ATTEMPTS_READ_FAILED",
+    attempts_read_failure: {
+      failure_kind: "POSTGREST",
+      http_status_class: "4XX",
+      provider_code_class: "POSTGRES_UNDEFINED_COLUMN",
+    },
+  });
+  for (const marker of SENSITIVE_MARKERS) {
+    expect(stdout[0]).not.toContain(marker);
+  }
+  for (const forbiddenKey of ["message", "details", "hint", "raw_error"]) {
+    expect(stdout[0]).not.toContain(forbiddenKey);
   }
 });
 
@@ -454,4 +638,17 @@ test("real diagnostic dependency surface contains read paths only", () => {
   expect(source).not.toContain("prepareFixture");
   expect(source).not.toContain("executeConcurrency");
   expect(source).not.toMatch(/method:\s*["']POST["']/);
+  expect(source).toContain('.from("stripe_checkout_attempts")');
+  expect(source).toContain(".select(ATTEMPT_SELECT)");
+  expect(source).toContain('.eq("user_id", ownerId)');
+  expect(source).toContain('.in("status", [...ACTIVE_ATTEMPT_STATUSES])');
+  expect(source).toContain('.order("created_at", { ascending: false })');
+  expect(source).toContain(".limit(2)");
+  expect(source).not.toMatch(/\.(single|maybeSingle)\s*\(/);
+  expect(source.indexOf("await stripe.accounts.retrieve()")).toBeLessThan(
+    source.indexOf("const db = await inspectDb"),
+  );
+  expect(source.indexOf("const db = await inspectDb")).toBeLessThan(
+    source.indexOf("stripeObservation = await inspectStripe"),
+  );
 });
