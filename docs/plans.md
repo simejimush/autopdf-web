@@ -435,6 +435,52 @@ Pro+は、大量運用・高頻度処理・複数人管理が必要な上位ユ�
 - 今回の外部環境変化だけを理由に、AI機能、大規模UI、新しい自動分類システム、アーキテクチャ変更をローンチ前MVPへ追加しない。
 - ローンチ前に行うProduct変更は、後述するレビューで必要と判断した最小限のLP表現修正に限定する。
 
+### Launch prerequisite：Cost Safety / Unit Economics
+
+Cost Safety / Unit Economicsは、ローンチ後の最適化ではなく、LP・ポジショニング最終レビューより前に完了が必要な正式なローンチ前必須課題とする。目的は、高額請求、赤字、課金事故を防ぎ、Proユーザー1人の利用上限でも月額980円（税込）の売上を大きく超える変動原価が発生しにくい構造を確認することである。
+
+この判断は平均利用では行わない。ヘビーユーザー、bot、bug、retry暴走、重複実行、悪意ある最大利用を前提に、保守的な上限利用で評価する。Proを高価な処理まで完全無制限として設計せず、必要なら十分大きい有限上限を設ける。既存の「ルール数無制限」はルール作成数に関するProduct方針であり、Gmail取得、PDF生成、Drive保存、AI利用などの高コスト処理が無制限であることを意味しない。
+
+#### 正式レビュー対象（要決定・要実装・要検証）
+
+以下は今回の文書追加によって実装済みとみなさない。Cost Safetyレビューで、数値・責任範囲・実装箇所・検証結果を確定する。
+
+1. 1件のメール処理あたりの保守的な実コスト
+   - Vercel Functions、Supabase、Gmail API、Google Drive API、PDF生成、OpenAIを使うPro機能、通信量、DB write、ログ、添付保存を含める。
+2. Pro月額980円（税込）で安全な月間最大処理件数
+   - Stripe決済コストを含め、上限利用時でも十分な安全マージンと利益を残せる件数を定める。
+3. application側guardrail
+   - 月間処理件数、日次上限、短時間rate limit、同時実行数、Cron 1回あたりの最大処理数、retry最大回数、PDF / 添付サイズ上限、timeoutを有限値で定める。
+   - idempotency、同一メール重複防止、同一rule多重実行防止を、外部write前に評価できる設計にする。
+4. 高価な処理より前のgate順序
+   1. 認証 / ownership
+   2. 契約状態
+   3. global kill switch / emergency stop
+   4. rate limit
+   5. quota
+   6. idempotency / reservation
+   7. execution lock
+   8. Gmail取得
+   9. size / safety判定
+   10. PDF生成
+   11. Drive保存
+5. infrastructure側の非常停止・請求保護
+   - Vercel Spend Management、bot / DDoS対策、Supabase Spend Cap、system-wide global quota、global kill switch / emergency stopの利用可否と運用手順を確認する。
+   - Vercel / SupabaseのSpend Capだけに依存せず、application側の有限gateを前提にする。VPS移行は現時点の前提にしない。
+6. 異常系
+   - botによるAPI連打、Cronバグによる大量実行、webhook再送、Gmail / Drive API retry loop、同一job重複実行、大容量メール / 添付、悪意あるProユーザーによる最大利用を、上記gateで停止・抑制できるか確認する。
+
+#### 完了判定
+
+`COST_SAFETY_AND_UNIT_ECONOMICS_APPROVED`は、次のすべてを根拠付きで満たした場合だけ使用する。この文書への記載だけで完了扱いにはしない。
+
+- Proユーザー1人が許可上限まで使っても、保守的試算で許容原価内に収まり、利益を残せる。
+- 月間、日次、短時間、同時実行を有限gateで停止できる。
+- Cron、retry、bot、重複実行がsystem-wideに無制限増幅しない。
+- quota超過や重複を、可能な限りGmail取得、PDF生成、Drive保存より前にfail closedできる。
+- 同一メール / 同一rule競合による重複外部writeを、ローンチ許容範囲まで抑止できる。
+- Vercel / Supabase等のinfrastructure側請求保護と非常停止手段を確認済みである。
+
 ### Positioning：継続的な自動処理を中心に伝える
 
 価値訴求は「GmailをPDF化する」だけでなく、次を中心にする。
