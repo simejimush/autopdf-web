@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { executeRule } from "@/lib/runs/executeRule";
-import { createManualRun } from "@/lib/runs/manualRunRepository";
 import { isFreePlanOverflowRule } from "@/lib/rules/freePlanLimit";
+import { claimExecutionGuard } from "@/lib/cost-safety/executionGuard";
+import { getRunErrorMessage } from "@/lib/runs/getRunErrorMessage";
 
 export const runtime = "nodejs";
 
@@ -71,29 +72,38 @@ export async function POST(_req: NextRequest, context: RouteContext) {
       );
     }
 
-    let run;
-    try {
-      run = await createManualRun({
-        userId: user.id,
-        ruleId: rule.id,
-      });
-    } catch {
+    const claim = await claimExecutionGuard({
+      userId: user.id,
+      ruleId: rule.id,
+      trigger: "manual",
+    });
+
+    if (!claim.claimed) {
+      const safe = getRunErrorMessage(claim.errorCode);
+      const status =
+        claim.errorCode === "USER_RATE_LIMIT_EXCEEDED" ||
+        claim.errorCode === "SYSTEM_LIMIT_EXCEEDED"
+          ? 429
+          : claim.errorCode === "GUARD_STORE_FAILED"
+            ? 503
+            : 409;
       return NextResponse.json(
-        { error: "Failed to create run" },
-        { status: 500 },
+        { error: safe.action ?? safe.message, code: claim.errorCode },
+        { status },
       );
     }
 
     const result = await executeRule({
       ruleId: rule.id,
       userId: user.id,
-      runId: run.id,
+      runId: claim.runId,
+      leaseIdHash: claim.leaseIdHash,
       trigger: "manual",
     });
 
     return NextResponse.json({
       ok: result.ok,
-      runId: run.id,
+      runId: claim.runId,
       message: result.message,
     });
   } catch {

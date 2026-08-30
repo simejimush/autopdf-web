@@ -9,7 +9,7 @@ import {
 import { uploadFileToDrive, uploadPdfToDrive } from "@/lib/google/drive";
 import { getRunErrorMessage } from "@/lib/runs/getRunErrorMessage";
 import { normalizeRunErrorCode } from "@/lib/runs/normalizeRunErrorCode";
-import { finalizeRunForUser } from "@/lib/runs/runUpdateRepository";
+import { finalizeGuardedExecution } from "@/lib/runs/guardedExecutionRepository";
 import {
   getProcessedEmailState,
   recordProcessedEmail,
@@ -44,6 +44,7 @@ type ExecuteRuleParams = {
   ruleId: string;
   userId: string;
   runId: string;
+  leaseIdHash: string;
   trigger: "manual" | "cron";
 };
 
@@ -160,10 +161,14 @@ function getTotalByteLength(bytes: readonly Uint8Array[]) {
 async function finalizeFreeMonthlyLimit(params: {
   runId: string;
   userId: string;
+  ruleId: string;
+  leaseIdHash: string;
 }): Promise<ExecuteResult> {
-  await finalizeRunForUser({
+  await finalizeGuardedExecution({
     runId: params.runId,
     userId: params.userId,
+    ruleId: params.ruleId,
+    leaseIdHash: params.leaseIdHash,
     finalization: {
       status: "error",
       errorCode: "FREE_MONTHLY_LIMIT_EXCEEDED",
@@ -430,9 +435,11 @@ export async function executeRule(
     if (!messageIds.length) {
       const message = "No emails found";
 
-      await finalizeRunForUser({
+      await finalizeGuardedExecution({
         runId: params.runId,
         userId: params.userId,
+        ruleId: params.ruleId,
+        leaseIdHash: params.leaseIdHash,
         finalization: {
           status: "success",
           processedCount: 0,
@@ -468,9 +475,11 @@ export async function executeRule(
     if (processedEmailState.exists) {
       const message = "Skipped 1 already processed email";
 
-      await finalizeRunForUser({
+      await finalizeGuardedExecution({
         runId: params.runId,
         userId: params.userId,
+        ruleId: params.ruleId,
+        leaseIdHash: params.leaseIdHash,
         finalization: {
           status: "success",
           processedCount: 0,
@@ -501,6 +510,8 @@ export async function executeRule(
       return finalizeFreeMonthlyLimit({
         runId: params.runId,
         userId: params.userId,
+        ruleId: params.ruleId,
+        leaseIdHash: params.leaseIdHash,
       });
     }
 
@@ -669,6 +680,8 @@ export async function executeRule(
       return finalizeFreeMonthlyLimit({
         runId: params.runId,
         userId: params.userId,
+        ruleId: params.ruleId,
+        leaseIdHash: params.leaseIdHash,
       });
     }
 
@@ -746,9 +759,11 @@ export async function executeRule(
         ? `Saved ${savedCount} files to Drive`
         : "Saved 1 PDF to Drive";
 
-    await finalizeRunForUser({
+    await finalizeGuardedExecution({
       runId: params.runId,
       userId: params.userId,
+      ruleId: params.ruleId,
+      leaseIdHash: params.leaseIdHash,
       finalization: {
         status: "success",
         processedCount: 1,
@@ -786,9 +801,11 @@ export async function executeRule(
       ? `${userFacing.title}。${detail}`
       : userFacing.title;
 
-    await finalizeRunForUser({
+    await finalizeGuardedExecution({
       runId: params.runId,
       userId: params.userId,
+      ruleId: params.ruleId,
+      leaseIdHash: params.leaseIdHash,
       finalization: {
         status: "error",
         errorCode,

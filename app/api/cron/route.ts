@@ -1,19 +1,11 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { executeRule } from "@/lib/runs/executeRule";
-import { createCronRun } from "@/lib/runs/cronRunRepository";
 import { getFreePlanOverflowRuleIds } from "@/lib/rules/freePlanLimit";
+import { claimExecutionGuard } from "@/lib/cost-safety/executionGuard";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-const RUN_STORE_ERROR_CODES = new Set([
-  "RUN_STORE_INPUT_INVALID",
-  "RUN_STORE_FAILED",
-  "RUN_STORE_RESULT_MISSING",
-  "RUN_STORE_RESULT_DUPLICATE",
-  "RUN_STORE_RESULT_MISMATCH",
-]);
 
 type RuleRow = {
   id?: string;
@@ -132,26 +124,21 @@ export async function GET(req: Request) {
         continue;
       }
 
-      let run;
-      try {
-        run = await createCronRun({
-          userId: rule.user_id,
-          ruleId: rule.id,
-        });
-      } catch (error) {
+      const claim = await claimExecutionGuard({
+        userId: rule.user_id,
+        ruleId: rule.id,
+        trigger: "cron",
+      });
+
+      if (!claim.claimed) {
         ng++;
-        console.error("[cron] Failed to create run");
+        console.error("[cron] Execution guard rejected", {
+          code: claim.errorCode,
+        });
         results.push({
           id: rule.id,
           ok: false,
-          error:
-            error &&
-            typeof error === "object" &&
-            "code" in error &&
-            typeof error.code === "string" &&
-            RUN_STORE_ERROR_CODES.has(error.code)
-              ? error.code
-              : "RUN_STORE_FAILED",
+          error: claim.errorCode,
         });
         continue;
       }
@@ -159,7 +146,8 @@ export async function GET(req: Request) {
       const result = await executeRule({
         ruleId: rule.id,
         userId: rule.user_id,
-        runId: run.id,
+        runId: claim.runId,
+        leaseIdHash: claim.leaseIdHash,
         trigger: "cron",
       });
 
@@ -171,7 +159,7 @@ export async function GET(req: Request) {
       results.push({
         id: rule.id,
         ok: result.ok,
-        runId: run.id,
+        runId: claim.runId,
         message: result.message,
         ...(result.ok ? {} : { error: result.errorCode ?? "UNKNOWN" }),
       });

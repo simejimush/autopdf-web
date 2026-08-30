@@ -152,6 +152,41 @@ export function getRunErrorMessage(
         action: "しばらくしてから再実行してください。",
       };
 
+    case "SYSTEM_LIMIT_EXCEEDED":
+      return {
+        title: "現在、実行上限に達しています",
+        message: "システム全体の安全上限により処理を開始できませんでした。",
+        action: "時間をおいてから再実行してください。",
+      };
+
+    case "USER_RATE_LIMIT_EXCEEDED":
+      return {
+        title: "短時間の実行上限に達しました",
+        message: "安全のため、短時間に開始できる実行数を制限しています。",
+        action: "少し時間をおいてから再実行してください。",
+      };
+
+    case "EXECUTION_CONCURRENCY_LIMIT":
+      return {
+        title: "別の処理を実行中です",
+        message: "同時に開始できる処理数の上限に達しています。",
+        action: "実行中の処理が終わってから再実行してください。",
+      };
+
+    case "RUN_ALREADY_RUNNING":
+      return {
+        title: "このルールは実行中です",
+        message: "同じルールの重複実行を安全のため停止しました。",
+        action: "現在の実行が終わってから再実行してください。",
+      };
+
+    case "GUARD_STORE_FAILED":
+      return {
+        title: "安全確認を完了できませんでした",
+        message: "実行前の安全確認に失敗したため処理を開始していません。",
+        action: "時間をおいてから再実行してください。",
+      };
+
     default:
       return {
         title: "処理に失敗しました",

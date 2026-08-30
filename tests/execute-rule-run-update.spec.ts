@@ -12,12 +12,15 @@ const OTHER_USER_ID = "55555555-5555-4555-8555-555555555555";
 const RULE_ID = "66666666-6666-4666-8666-666666666666";
 const RUN_ID = "88888888-8888-4888-8888-888888888888";
 const MESSAGE_ID = "gmail-message-id";
+const LEASE_ID_HASH = "a".repeat(64);
 
 type Trigger = "manual" | "cron";
 
 type FinalizeCall = {
   runId: string;
   userId: string;
+  ruleId: string;
+  leaseIdHash: string;
   finalization:
     | {
         status: "success";
@@ -192,6 +195,7 @@ function loadExecuteRule(options?: {
         ruleId: string;
         userId: string;
         runId: string;
+        leaseIdHash: string;
         trigger: Trigger;
       }) => Promise<{
         ok: boolean;
@@ -205,9 +209,9 @@ function loadExecuteRule(options?: {
   };
   const localRequire = (specifier: string) => {
     if (specifier === "@/lib/supabase/admin") return { supabaseAdmin };
-    if (specifier === "@/lib/runs/runUpdateRepository") {
+    if (specifier === "@/lib/runs/guardedExecutionRepository") {
       return {
-        async finalizeRunForUser(input: FinalizeCall) {
+        async finalizeGuardedExecution(input: FinalizeCall) {
           calls.order.push(`run:${input.finalization.status}`);
           calls.finalizations.push(input);
           if (options?.finalizeError) throw options.finalizeError;
@@ -446,6 +450,7 @@ function loadExecuteRule(options?: {
       ruleId: RULE_ID,
       userId: USER_ID,
       runId: RUN_ID,
+      leaseIdHash: LEASE_ID_HASH,
       trigger: options?.trigger ?? "manual",
     },
   };
@@ -468,6 +473,8 @@ test("manual and cron no-message success finalize the owned run with zero counts
       {
         runId: RUN_ID,
         userId: USER_ID,
+        ruleId: RULE_ID,
+        leaseIdHash: LEASE_ID_HASH,
         finalization: {
           status: "success",
           processedCount: 0,
@@ -560,6 +567,8 @@ test("a final Free-limit recheck stops before any Drive upload", async () => {
     {
       runId: RUN_ID,
       userId: USER_ID,
+      ruleId: RULE_ID,
+      leaseIdHash: LEASE_ID_HASH,
       finalization: {
         status: "error",
         errorCode: "FREE_MONTHLY_LIMIT_EXCEEDED",
@@ -823,6 +832,8 @@ test("normal and partially-saved success finalize exact owner counts", async () 
     {
       runId: RUN_ID,
       userId: USER_ID,
+      ruleId: RULE_ID,
+      leaseIdHash: LEASE_ID_HASH,
       finalization: {
         status: "success",
         processedCount: 1,

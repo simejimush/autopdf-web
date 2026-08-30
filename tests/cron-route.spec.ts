@@ -13,6 +13,7 @@ const USER_ID = "44444444-4444-4444-8444-444444444444";
 const RULE_ID = "66666666-6666-4666-8666-666666666666";
 const SECOND_RULE_ID = "77777777-7777-4777-8777-777777777777";
 const RUN_ID = "88888888-8888-4888-8888-888888888888";
+const LEASE_ID_HASH = "a".repeat(64);
 
 type Rule = {
   id?: string;
@@ -23,8 +24,8 @@ type Rule = {
 function loadRoute(options?: {
   rules?: Rule[];
   ruleError?: { message: string } | null;
-  repositoryErrorFor?: string;
-  repositoryError?: unknown;
+  guardErrorFor?: string;
+  guardErrorCode?: string;
   executeErrorFor?: string;
   cronSecret?: string;
   omitCronSecret?: boolean;
@@ -47,6 +48,7 @@ function loadRoute(options?: {
       ruleId: string;
       userId: string;
       runId: string;
+      leaseIdHash: string;
       trigger: string;
     }>,
     logs: [] as unknown[][],
@@ -95,22 +97,20 @@ function loadRoute(options?: {
         },
       };
     }
-    if (specifier === "@/lib/runs/cronRunRepository") {
+    if (specifier === "@/lib/cost-safety/executionGuard") {
       return {
-        async createCronRun(input: { userId: string; ruleId: string }) {
+        async claimExecutionGuard(input: { userId: string; ruleId: string }) {
           calls.repository.push(input);
-          if (options?.repositoryErrorFor === input.ruleId) {
-            throw (
-              options.repositoryError ?? {
-                code: "RUN_STORE_FAILED",
-                message: "raw repository detail",
-              }
-            );
+          if (options?.guardErrorFor === input.ruleId) {
+            return {
+              claimed: false,
+              errorCode: options.guardErrorCode ?? "GUARD_STORE_FAILED",
+            };
           }
           return {
-            id: input.ruleId === RULE_ID ? RUN_ID : SECOND_RULE_ID,
-            status: "running",
-            started_at: "2026-08-03T00:00:00.000Z",
+            claimed: true,
+            runId: input.ruleId === RULE_ID ? RUN_ID : SECOND_RULE_ID,
+            leaseIdHash: LEASE_ID_HASH,
           };
         },
       };
@@ -121,6 +121,7 @@ function loadRoute(options?: {
           ruleId: string;
           userId: string;
           runId: string;
+          leaseIdHash: string;
           trigger: string;
         }) {
           calls.execute.push(input);
@@ -249,13 +250,14 @@ test("preserves rule selection and delegates owned identities before execution",
   });
   expect(route.calls.ruleSelect).toEqual(["*"]);
   expect(route.calls.repository).toEqual([
-    { userId: USER_ID, ruleId: RULE_ID },
+    { userId: USER_ID, ruleId: RULE_ID, trigger: "cron" },
   ]);
   expect(route.calls.execute).toEqual([
     {
       ruleId: RULE_ID,
       userId: USER_ID,
       runId: RUN_ID,
+      leaseIdHash: LEASE_ID_HASH,
       trigger: "cron",
     },
   ]);
@@ -264,15 +266,14 @@ test("preserves rule selection and delegates owned identities before execution",
   expect(route.source).not.toContain(".insert({");
 });
 
-test("repository failure is safe, stops that rule, and continues other rules", async () => {
-  const rawError = "raw repository detail";
+test("guard failure is safe, stops that rule, and continues other rules", async () => {
   const route = loadRoute({
     rules: [
       { id: RULE_ID, user_id: USER_ID, is_active: true },
       { id: SECOND_RULE_ID, user_id: USER_ID, is_active: true },
     ],
-    repositoryErrorFor: RULE_ID,
-    repositoryError: { code: "RUN_STORE_FAILED", message: rawError },
+    guardErrorFor: RULE_ID,
+    guardErrorCode: "GUARD_STORE_FAILED",
   });
   const response = await route.GET(authorizedRequest());
   const text = await response.clone().text();
@@ -285,6 +286,7 @@ test("repository failure is safe, stops that rule, and continues other rules", a
       ruleId: SECOND_RULE_ID,
       userId: USER_ID,
       runId: SECOND_RULE_ID,
+      leaseIdHash: LEASE_ID_HASH,
       trigger: "cron",
     },
   ]);
@@ -292,11 +294,32 @@ test("repository failure is safe, stops that rule, and continues other rules", a
   expect(body.results[0]).toEqual({
     id: RULE_ID,
     ok: false,
-    error: "RUN_STORE_FAILED",
+    error: "GUARD_STORE_FAILED",
   });
-  expect(text).not.toContain(rawError);
   expect(text).not.toContain(SECRET);
-  expect(JSON.stringify(route.calls.errors)).not.toContain(rawError);
+  expect(route.source).not.toContain("createCronRun");
+});
+
+test("each expected guard rejection skips execution", async () => {
+  for (const errorCode of [
+    "SYSTEM_LIMIT_EXCEEDED",
+    "USER_RATE_LIMIT_EXCEEDED",
+    "EXECUTION_CONCURRENCY_LIMIT",
+    "RUN_ALREADY_RUNNING",
+  ]) {
+    const route = loadRoute({
+      guardErrorFor: RULE_ID,
+      guardErrorCode: errorCode,
+    });
+    const response = await route.GET(authorizedRequest());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      ok: 0,
+      ng: 1,
+      results: [{ id: RULE_ID, ok: false, error: errorCode }],
+    });
+    expect(route.calls.execute).toHaveLength(0);
+  }
 });
 
 test("malformed and duplicate rule rows fail closed before repository access", async () => {

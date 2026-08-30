@@ -10,6 +10,7 @@ const USER_ID = "44444444-4444-4444-8444-444444444444";
 const OTHER_USER_ID = "55555555-5555-4555-8555-555555555555";
 const RULE_ID = "66666666-6666-4666-8666-666666666666";
 const RUN_ID = "88888888-8888-4888-8888-888888888888";
+const LEASE_ID_HASH = "a".repeat(64);
 
 function unreadableRequest() {
   const calls = { json: 0, text: 0, body: 0 };
@@ -40,7 +41,7 @@ function loadRoute(options?: {
   rule?: { id: string; user_id: string } | null;
   ruleError?: { message: string } | null;
   overflow?: boolean;
-  repositoryError?: Error;
+  guardErrorCode?: string;
   executeResult?: { ok: boolean; message: string };
   executeError?: Error;
 }) {
@@ -65,6 +66,7 @@ function loadRoute(options?: {
       ruleId: string;
       userId: string;
       runId: string;
+      leaseIdHash: string;
       trigger: string;
     }>,
   };
@@ -163,19 +165,26 @@ function loadRoute(options?: {
         },
       };
     }
-    if (specifier === "@/lib/runs/manualRunRepository") {
+    if (specifier === "@/lib/cost-safety/executionGuard") {
       return {
-        async createManualRun(input: { userId: string; ruleId: string }) {
-          calls.order.push("run_create");
+        async claimExecutionGuard(input: { userId: string; ruleId: string }) {
+          calls.order.push("guard_claim");
           calls.repository.push(input);
-          if (options?.repositoryError) {
-            throw options.repositoryError;
+          if (options?.guardErrorCode) {
+            return { claimed: false, errorCode: options.guardErrorCode };
           }
           return {
-            id: RUN_ID,
-            status: "running",
-            started_at: "2026-08-03T00:00:00.000Z",
+            claimed: true,
+            runId: RUN_ID,
+            leaseIdHash: LEASE_ID_HASH,
           };
+        },
+      };
+    }
+    if (specifier === "@/lib/runs/getRunErrorMessage") {
+      return {
+        getRunErrorMessage() {
+          return { title: "safe", message: "safe", action: "Retry later" };
         },
       };
     }
@@ -185,6 +194,7 @@ function loadRoute(options?: {
           ruleId: string;
           userId: string;
           runId: string;
+          leaseIdHash: string;
           trigger: string;
         }) {
           calls.order.push("execute_rule");
@@ -308,20 +318,21 @@ test("owned IDs create the run before exact executeRule delegation", async () =>
     message: "Run complete",
   });
   expect(route.calls.repository).toEqual([
-    { userId: USER_ID, ruleId: RULE_ID },
+    { userId: USER_ID, ruleId: RULE_ID, trigger: "manual" },
   ]);
   expect(route.calls.execute).toEqual([
     {
       ruleId: RULE_ID,
       userId: USER_ID,
       runId: RUN_ID,
+      leaseIdHash: LEASE_ID_HASH,
       trigger: "manual",
     },
   ]);
   expect(route.calls.order).toEqual([
     "rule_lookup",
     "overflow_check",
-    "run_create",
+    "guard_claim",
     "execute_rule",
   ]);
   expect(route.calls.jwtRunInsert).toHaveLength(0);
@@ -331,19 +342,33 @@ test("owned IDs create the run before exact executeRule delegation", async () =>
   expect(route.source).not.toContain("console.");
 });
 
-test("repository failures stop execution and hide raw run errors", async () => {
-  const rawError = "raw run insert service-role details";
-  const route = loadRoute({ repositoryError: new Error(rawError) });
+test("guard store failures stop execution without legacy fallback", async () => {
+  const route = loadRoute({ guardErrorCode: "GUARD_STORE_FAILED" });
   const response = await route.POST(unreadableRequest().request, context());
-  const text = await response.clone().text();
 
-  expect(response.status).toBe(500);
-  expect(await response.json()).toEqual({ error: "Failed to create run" });
+  expect(response.status).toBe(503);
+  expect(await response.json()).toEqual({
+    error: "Retry later",
+    code: "GUARD_STORE_FAILED",
+  });
   expect(route.calls.repository).toHaveLength(1);
   expect(route.calls.execute).toHaveLength(0);
-  expect(text).not.toContain(rawError);
-  expect(text).not.toContain(USER_ID);
-  expect(text).not.toContain(RULE_ID);
+  expect(route.source).not.toContain("createManualRun");
+});
+
+test("every expected guard rejection stops before execution", async () => {
+  for (const [errorCode, status] of [
+    ["SYSTEM_LIMIT_EXCEEDED", 429],
+    ["USER_RATE_LIMIT_EXCEEDED", 429],
+    ["EXECUTION_CONCURRENCY_LIMIT", 409],
+    ["RUN_ALREADY_RUNNING", 409],
+  ] as const) {
+    const route = loadRoute({ guardErrorCode: errorCode });
+    const response = await route.POST(unreadableRequest().request, context());
+    expect(response.status).toBe(status);
+    expect(await response.json()).toMatchObject({ code: errorCode });
+    expect(route.calls.execute).toHaveLength(0);
+  }
 });
 
 test("executeRule failure results preserve the existing successful HTTP response", async () => {

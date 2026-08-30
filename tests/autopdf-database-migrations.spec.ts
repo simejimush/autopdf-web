@@ -20,6 +20,8 @@ const FORWARD_RLS_AUTO_ENABLE_ACL_NAME =
 const REFRESH_FINALIZE_LEASE_REMEDIATION_NAME =
   "20260811134704_protect_google_refresh_finalize_lease_ownership.sql";
 const STRIPE_SAFETY_NAME = "20260815102644_stripe_safety_contracts.sql";
+const EXECUTION_GUARD_NAME =
+  "20260830220000_add_cost_safety_execution_guard.sql";
 const LEGACY_RLS_AUTO_ENABLE_ACL_SHA256 =
   "caa4291b7f0fd6f704c36473c99e7263f12e5e6cc79d726a81d19059ec42e198";
 
@@ -55,6 +57,7 @@ test("fixes the AutoPDF migration filename and dependency order", () => {
     FORWARD_RLS_AUTO_ENABLE_ACL_NAME,
     REFRESH_FINALIZE_LEASE_REMEDIATION_NAME,
     STRIPE_SAFETY_NAME,
+    EXECUTION_GUARD_NAME,
   ]);
   expect(normalizedSql(BASELINE_NAME)).not.toContain("credential_version");
   expect(normalizedSql(HARDENING_NAME)).toContain(
