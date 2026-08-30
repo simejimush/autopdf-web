@@ -653,6 +653,39 @@ test("size guards stop before AI, PDF, and Drive with safe run codes", async () 
   expect(tooManyAttachments.calls.order).not.toContain("drive:pdf");
 });
 
+test("only TIMEOUT is Slack-notified among the new cost safety run codes", async () => {
+  const sizeCases = [
+    loadExecuteRule({
+      messageIds: [MESSAGE_ID],
+      bodyText: "a".repeat(100 * 1024 + 1),
+    }),
+    loadExecuteRule({
+      messageIds: [MESSAGE_ID],
+      attachments: Array.from({ length: 6 }, (_, index) => ({
+        filename: `invoice-${index}.pdf`,
+        mimeType: "application/pdf",
+        attachmentId: `attachment-${index}`,
+        size: 3,
+      })),
+    }),
+  ];
+
+  for (const harness of sizeCases) {
+    await harness.executeRule(harness.input);
+    expect(harness.calls.slack).toHaveLength(0);
+    expect(harness.calls.userNotify).toHaveLength(0);
+  }
+
+  const timeout = loadExecuteRule({
+    messageIds: [MESSAGE_ID],
+    failAt: "search",
+    errorCode: "TIMEOUT",
+  });
+  await timeout.executeRule(timeout.input);
+  expect(timeout.calls.slack).toHaveLength(1);
+  expect(timeout.calls.userNotify).toHaveLength(0);
+});
+
 test("generated PDF size guard stops before Drive", async () => {
   const harness = loadExecuteRule({
     messageIds: [MESSAGE_ID],

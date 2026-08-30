@@ -35,7 +35,10 @@ function normalizeDocumentType(value?: string | null) {
   return null;
 }
 
-const OPENAI_INPUT_ENVELOPE_BYTES = OPENAI_MAX_INPUT_TOKENS * 2;
+const SYSTEM_PROMPT =
+  "あなたはメール書類の分類器です。次の候補から最も近い1つだけを日本語で返してください: 領収書, 請求書, 見積書, 納品書, 明細, 書類。説明や記号は不要です。";
+const OPENAI_REQUEST_INPUT_LIMIT_BYTES = OPENAI_MAX_INPUT_TOKENS / 2;
+const OPENAI_USER_CONTENT_LIMIT_BYTES = OPENAI_REQUEST_INPUT_LIMIT_BYTES / 4;
 
 function clipUtf8Text(value: string, maxBytes: number) {
   let result = "";
@@ -49,6 +52,17 @@ function clipUtf8Text(value: string, maxBytes: number) {
   }
 
   return result;
+}
+
+function createRequestInput(userContent: string) {
+  return [
+    { role: "system", content: SYSTEM_PROMPT },
+    { role: "user", content: userContent },
+  ];
+}
+
+function getRequestInputByteLength(input: unknown) {
+  return Buffer.byteLength(JSON.stringify(input), "utf8");
 }
 
 function extractOutputText(data: unknown) {
@@ -112,19 +126,24 @@ export async function detectDocumentTypeWithAi(
     return null;
   }
 
-  const subject = clipUtf8Text(params.subject ?? "", 600);
-  const from = clipUtf8Text(params.from ?? "", 400);
+  const subject = clipUtf8Text(params.subject ?? "", 128);
+  const from = clipUtf8Text(params.from ?? "", 128);
   const bodyText = clipUtf8Text(
     params.bodyText ?? "",
-    OPENAI_INPUT_ENVELOPE_BYTES,
+    OPENAI_USER_CONTENT_LIMIT_BYTES,
   );
   const attachmentFilenames = (params.attachmentFilenames ?? [])
-    .map((name) => clipUtf8Text(name, 240))
+    .map((name) => clipUtf8Text(name, 64))
     .slice(0, 5);
-  const aiInput = clipUtf8Text(
+  const userContent = clipUtf8Text(
     JSON.stringify({ subject, from, bodyText, attachmentFilenames }),
-    OPENAI_INPUT_ENVELOPE_BYTES,
+    OPENAI_USER_CONTENT_LIMIT_BYTES,
   );
+  const input = createRequestInput(userContent);
+
+  if (getRequestInputByteLength(input) > OPENAI_REQUEST_INPUT_LIMIT_BYTES) {
+    return null;
+  }
 
   const requestTimeoutMs = Math.min(
     params.timeoutMs ?? OPENAI_TIMEOUT_MS,
@@ -144,17 +163,7 @@ export async function detectDocumentTypeWithAi(
         model,
         temperature: 0,
         max_output_tokens: OPENAI_MAX_OUTPUT_TOKENS,
-        input: [
-          {
-            role: "system",
-            content:
-              "あなたはメール書類の分類器です。次の候補から最も近い1つだけを日本語で返してください: 領収書, 請求書, 見積書, 納品書, 明細, 書類。説明や記号は不要です。",
-          },
-          {
-            role: "user",
-            content: aiInput,
-          },
-        ],
+        input,
       }),
       signal: controller.signal,
     });

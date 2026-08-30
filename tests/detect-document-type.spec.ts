@@ -6,7 +6,7 @@ import ts from "typescript";
 
 const AI_PATH = resolve(process.cwd(), "src/lib/ai/detectDocumentType.ts");
 
-function loadAiDetector() {
+function loadAiDetector(options?: { responseOk?: boolean }) {
   const source = readFileSync(AI_PATH, "utf8");
   const compiled = ts.transpileModule(source, {
     compilerOptions: {
@@ -41,7 +41,7 @@ function loadAiDetector() {
     fetch: async (url: string, init: RequestInit) => {
       fetchCalls.push([url, init]);
       return {
-        ok: true,
+        ok: options?.responseOk ?? true,
         async json() {
           return { output_text: "請求書", usage: {} };
         },
@@ -59,24 +59,41 @@ function loadAiDetector() {
   return { detect: loadedModule.exports.detectDocumentTypeWithAi, fetchCalls };
 }
 
-test("uses one bounded OpenAI request with signal, output cap, and byte envelope", async () => {
-  const harness = loadAiDetector();
-  const result = await harness.detect({
-    subject: "件名".repeat(1_000),
-    bodyText: "本文".repeat(10_000),
-    attachmentFilenames: Array.from({ length: 10 }, () =>
-      "添付.pdf".repeat(100),
-    ),
-    timeoutMs: 7_000,
-  });
+test("uses one bounded OpenAI request with signal, output cap, and final input byte cap", async () => {
+  for (const params of [
+    {
+      subject: "invoice".repeat(1_000),
+      bodyText: "body".repeat(10_000),
+      attachmentFilenames: Array.from({ length: 5 }, () =>
+        "file.pdf".repeat(100),
+      ),
+    },
+    {
+      subject: "請求書😀".repeat(1_000),
+      bodyText: '本文\\"\\n😀'.repeat(10_000),
+      attachmentFilenames: Array.from({ length: 5 }, () =>
+        '添付\\"😀.pdf'.repeat(100),
+      ),
+    },
+  ]) {
+    const harness = loadAiDetector();
+    const result = await harness.detect({ ...params, timeoutMs: 7_000 });
 
-  expect(result).toBe("請求書");
+    expect(result).toBe("請求書");
+    expect(harness.fetchCalls).toHaveLength(1);
+    const [, init] = harness.fetchCalls[0];
+    const payload = JSON.parse(String(init.body));
+    expect(payload.max_output_tokens).toBe(20);
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+    expect(
+      Buffer.byteLength(JSON.stringify(payload.input), "utf8"),
+    ).toBeLessThanOrEqual(2_000);
+  }
+});
+
+test("preserves the null fallback after a failed OpenAI response without retry", async () => {
+  const harness = loadAiDetector({ responseOk: false });
+
+  await expect(harness.detect({ bodyText: "本文" })).resolves.toBeNull();
   expect(harness.fetchCalls).toHaveLength(1);
-  const [, init] = harness.fetchCalls[0];
-  const payload = JSON.parse(String(init.body));
-  expect(payload.max_output_tokens).toBe(20);
-  expect(init.signal).toBeInstanceOf(AbortSignal);
-  expect(
-    Buffer.byteLength(payload.input[1].content, "utf8"),
-  ).toBeLessThanOrEqual(8_000);
 });
