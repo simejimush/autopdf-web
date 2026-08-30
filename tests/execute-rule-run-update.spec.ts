@@ -65,6 +65,7 @@ function loadExecuteRule(options?: {
   }>;
   bodyText?: string;
   pdfBytes?: Uint8Array;
+  executionDisabled?: boolean;
   failAt?: "rule" | "search" | "pdf" | "drive";
   errorCode?: string;
   errorStage?: string;
@@ -101,6 +102,10 @@ function loadExecuteRule(options?: {
     slack: [] as unknown[],
     userNotify: [] as unknown[],
     attachmentUploads: 0,
+    gmailSearches: 0,
+    gmailFetches: 0,
+    gmailAttachmentDownloads: 0,
+    killSwitchReads: 0,
     pdfCalls: 0,
     aiCalls: 0,
     limitChecks: [] as string[],
@@ -236,10 +241,12 @@ function loadExecuteRule(options?: {
     if (specifier === "@/lib/google/gmail") {
       return {
         async searchGmail() {
+          calls.gmailSearches += 1;
           if (options?.failAt === "search") throw codedError(errorCode);
           return options?.messageIds ?? [];
         },
         async getGmailMessage() {
+          calls.gmailFetches += 1;
           return {
             subject: "Invoice",
             from: "Billing <billing@example.com>",
@@ -253,6 +260,7 @@ function loadExecuteRule(options?: {
           };
         },
         async getGmailAttachment() {
+          calls.gmailAttachmentDownloads += 1;
           return new Uint8Array([1, 2, 3]);
         },
       };
@@ -367,6 +375,14 @@ function loadExecuteRule(options?: {
           stageRemainingMs: number;
         }) {
           return stageRemainingMs > 0 ? stageRemainingMs : null;
+        },
+      };
+    }
+    if (specifier === "@/lib/cost-safety/killSwitch") {
+      return {
+        readExecutionDisabledFromEnv() {
+          calls.killSwitchReads += 1;
+          return options?.executionDisabled ?? false;
         },
       };
     }
@@ -651,6 +667,60 @@ test("size guards stop before AI, PDF, and Drive with safe run codes", async () 
   });
   expect(tooManyAttachments.calls.pdfCalls).toBe(0);
   expect(tooManyAttachments.calls.order).not.toContain("drive:pdf");
+});
+
+test("kill switch stops both execution triggers before every high-cost stage", async () => {
+  for (const trigger of ["manual", "cron"] as const) {
+    const harness = loadExecuteRule({
+      trigger,
+      executionDisabled: true,
+      messageIds: [MESSAGE_ID],
+    });
+
+    const result = await harness.executeRule(harness.input);
+
+    expect(result).toMatchObject({
+      ok: false,
+      errorCode: "EXECUTION_DISABLED",
+    });
+    expect(harness.calls.killSwitchReads).toBe(1);
+    expect(harness.calls.gmailSearches).toBe(0);
+    expect(harness.calls.gmailFetches).toBe(0);
+    expect(harness.calls.gmailAttachmentDownloads).toBe(0);
+    expect(harness.calls.aiCalls).toBe(0);
+    expect(harness.calls.pdfCalls).toBe(0);
+    expect(harness.calls.attachmentUploads).toBe(0);
+    expect(harness.calls.processedLookups).toHaveLength(0);
+    expect(harness.calls.processedEmails).toHaveLength(0);
+    expect(harness.calls.limitChecks).toHaveLength(0);
+    expect(harness.calls.order).toEqual(["run:error"]);
+    expect(harness.calls.slack).toHaveLength(0);
+    expect(harness.calls.userNotify).toHaveLength(0);
+    expect(harness.calls.finalizations[0]).toMatchObject({
+      runId: RUN_ID,
+      userId: USER_ID,
+      finalization: {
+        status: "error",
+        errorCode: "EXECUTION_DISABLED",
+        resetCounts: false,
+      },
+    });
+  }
+});
+
+test("kill switch OFF preserves the existing execution path", async () => {
+  const harness = loadExecuteRule({
+    executionDisabled: false,
+    messageIds: [MESSAGE_ID],
+  });
+
+  const result = await harness.executeRule(harness.input);
+
+  expect(result).toMatchObject({ ok: true, processedCount: 1, savedCount: 1 });
+  expect(harness.calls.killSwitchReads).toBe(1);
+  expect(harness.calls.gmailSearches).toBe(1);
+  expect(harness.calls.pdfCalls).toBe(1);
+  expect(harness.calls.order).toContain("drive:pdf");
 });
 
 test("only TIMEOUT is Slack-notified among the new cost safety run codes", async () => {

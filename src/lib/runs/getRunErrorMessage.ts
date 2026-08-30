@@ -145,6 +145,13 @@ export function getRunErrorMessage(
         action: "時間をおいてから再実行してください。",
       };
 
+    case "EXECUTION_DISABLED":
+      return {
+        title: "自動処理は一時停止中です",
+        message: "安全のため、現在はメール処理を実行できません。",
+        action: "しばらくしてから再実行してください。",
+      };
+
     default:
       return {
         title: "処理に失敗しました",

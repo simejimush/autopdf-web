@@ -32,6 +32,7 @@ import {
   OPENAI_TIMEOUT_MS,
 } from "@/lib/cost-safety/limits";
 import { getAllowedStageTimeoutMs } from "@/lib/cost-safety/deadline";
+import { readExecutionDisabledFromEnv } from "@/lib/cost-safety/killSwitch";
 import {
   areAttachmentMetadataWithinLimits,
   isGeneratedPdfWithinLimit,
@@ -110,6 +111,7 @@ function createCostSafetyError(
   code:
     | "EMAIL_SIZE_LIMIT_EXCEEDED"
     | "ATTACHMENT_COUNT_LIMIT_EXCEEDED"
+    | "EXECUTION_DISABLED"
     | "TIMEOUT",
 ) {
   return Object.assign(new Error(code), { code });
@@ -405,6 +407,10 @@ export async function executeRule(
       });
     } else {
       effectivePlan = resolveEffectivePlan(profile);
+    }
+
+    if (readExecutionDisabledFromEnv()) {
+      throw createCostSafetyError("EXECUTION_DISABLED");
     }
 
     const messageIds = await searchGmail({
