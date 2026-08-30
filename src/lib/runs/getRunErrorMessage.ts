@@ -123,6 +123,28 @@ export function getRunErrorMessage(
         action: "翌月まで待つか、プランの変更をご検討ください。",
       };
 
+    case "ATTACHMENT_COUNT_LIMIT_EXCEEDED":
+      return {
+        title: "添付ファイル数が上限を超えています",
+        message: "このメールは安全に処理できる添付ファイル数を超えています。",
+        action: "添付ファイル数を確認してから再実行してください。",
+      };
+
+    case "EMAIL_SIZE_LIMIT_EXCEEDED":
+      return {
+        title: "メールまたはファイルのサイズが上限を超えています",
+        message: "このメールは安全に処理できるサイズを超えています。",
+        action: "メール本文または添付ファイルを確認してください。",
+      };
+
+    case "TIMEOUT":
+      return {
+        title: "処理時間の上限に達しました",
+        message:
+          "外部サービスの応答に時間がかかり、安全のため処理を停止しました。",
+        action: "時間をおいてから再実行してください。",
+      };
+
     default:
       return {
         title: "処理に失敗しました",

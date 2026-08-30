@@ -14,6 +14,9 @@ const ADDED_RUN_ERROR_CODES = [
   "DRIVE_UPLOAD_FAILED",
   "DB_INSERT_FAILED",
   "FREE_MONTHLY_LIMIT_EXCEEDED",
+  "EMAIL_SIZE_LIMIT_EXCEEDED",
+  "ATTACHMENT_COUNT_LIMIT_EXCEEDED",
+  "TIMEOUT",
 ] as const;
 
 test("preserves every known run error code exactly", () => {

@@ -12,6 +12,10 @@ const DRIVE_UPLOAD_STAGES = [
 
 export type DriveUploadStage = (typeof DRIVE_UPLOAD_STAGES)[number];
 
+export type DriveRequestBudget = {
+  getTimeoutMs: () => number | null;
+};
+
 const DRIVE_UPLOAD_STAGE_SET = new Set<DriveUploadStage>(DRIVE_UPLOAD_STAGES);
 
 const GOOGLE_CREDENTIAL_ERROR_CODES = new Set([
@@ -34,7 +38,30 @@ const GOOGLE_CREDENTIAL_ERROR_CODES = new Set([
   "GOOGLE_PERMISSION_DENIED",
   "GOOGLE_TOKEN_REFRESH_FAILED",
   "GOOGLE_REFRESH_OUTCOME_UNKNOWN",
+  "TIMEOUT",
 ]);
+
+function getDriveRequestOptions(params: {
+  budget?: DriveRequestBudget;
+  retryCount: 0 | 1;
+}) {
+  if (!params.budget) return undefined;
+
+  const timeout = params.budget.getTimeoutMs();
+  if (timeout === null) {
+    throw Object.assign(new Error("TIMEOUT"), { code: "TIMEOUT" });
+  }
+
+  return {
+    timeout,
+    retry: params.retryCount > 0,
+    retryConfig: {
+      retry: params.retryCount,
+      noResponseRetries: params.retryCount,
+      totalTimeout: timeout,
+    },
+  };
+}
 
 type DriveClient = ReturnType<typeof google.drive>;
 
@@ -91,15 +118,19 @@ async function findDriveFileByNameInFolderWithClient(params: {
   drive: DriveClient;
   folderId: string;
   filename: string;
+  budget?: DriveRequestBudget;
 }) {
   const folderId = escapeDriveQueryValue(params.folderId);
   const filename = escapeDriveQueryValue(params.filename);
 
-  const res = await params.drive.files.list({
-    q: `'${folderId}' in parents and name = '${filename}' and trashed = false`,
-    pageSize: 1,
-    fields: "files(id, webViewLink)",
-  });
+  const res = await params.drive.files.list(
+    {
+      q: `'${folderId}' in parents and name = '${filename}' and trashed = false`,
+      pageSize: 1,
+      fields: "files(id, webViewLink)",
+    },
+    getDriveRequestOptions({ budget: params.budget, retryCount: 1 }),
+  );
 
   const file = res.data.files?.[0];
 
@@ -117,6 +148,7 @@ export async function findDriveFileByNameInFolder(params: {
   userId: string;
   folderId: string;
   filename: string;
+  budget?: DriveRequestBudget;
 }) {
   const auth = await getOAuthClientForUser(params.userId);
   const drive = google.drive({ version: "v3", auth });
@@ -125,6 +157,7 @@ export async function findDriveFileByNameInFolder(params: {
     drive,
     folderId: params.folderId,
     filename: params.filename,
+    budget: params.budget,
   });
 }
 
@@ -134,6 +167,7 @@ export async function uploadFileToDrive(params: {
   filename: string;
   bytes: Uint8Array | Buffer;
   mimeType: string;
+  budget?: DriveRequestBudget;
 }) {
   let drive: DriveClient;
 
@@ -152,6 +186,7 @@ export async function uploadFileToDrive(params: {
       drive,
       folderId: params.folderId,
       filename: params.filename,
+      budget: params.budget,
     });
   } catch (error) {
     throwDriveUploadError(error, "drive_create_auth");
@@ -183,18 +218,21 @@ export async function uploadFileToDrive(params: {
 
   try {
     logDriveStage("drive_create_request");
-    res = await drive.files.create({
-      requestBody: {
-        name: params.filename,
-        parents: [params.folderId],
-        mimeType: params.mimeType,
+    res = await drive.files.create(
+      {
+        requestBody: {
+          name: params.filename,
+          parents: [params.folderId],
+          mimeType: params.mimeType,
+        },
+        media: {
+          mimeType: params.mimeType,
+          body: mediaBody,
+        },
+        fields: "id, webViewLink",
       },
-      media: {
-        mimeType: params.mimeType,
-        body: mediaBody,
-      },
-      fields: "id, webViewLink",
-    });
+      getDriveRequestOptions({ budget: params.budget, retryCount: 0 }),
+    );
   } catch (error) {
     throwDriveUploadError(error, "drive_create_request");
   }
@@ -210,6 +248,7 @@ export async function uploadPdfToDrive(params: {
   folderId: string;
   filename: string;
   pdfBytes: Uint8Array;
+  budget?: DriveRequestBudget;
 }) {
   return uploadFileToDrive({
     userId: params.userId,
@@ -217,5 +256,6 @@ export async function uploadPdfToDrive(params: {
     filename: params.filename,
     bytes: params.pdfBytes,
     mimeType: "application/pdf",
+    budget: params.budget,
   });
 }

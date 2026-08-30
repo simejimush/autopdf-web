@@ -25,6 +25,19 @@ import {
   normalizeFileNameFormatForPlan,
   type FileNameFormat,
 } from "@/lib/rules/fileNameFormat";
+import {
+  DRIVE_CUMULATIVE_TIMEOUT_MS,
+  EXECUTION_ABSOLUTE_DEADLINE_MS,
+  GMAIL_CUMULATIVE_TIMEOUT_MS,
+  OPENAI_TIMEOUT_MS,
+} from "@/lib/cost-safety/limits";
+import { getAllowedStageTimeoutMs } from "@/lib/cost-safety/deadline";
+import {
+  areAttachmentMetadataWithinLimits,
+  isGeneratedPdfWithinLimit,
+  isRawEmailBodyWithinLimit,
+  isTotalDriveWriteWithinLimit,
+} from "@/lib/cost-safety/sizeLimits";
 
 type ExecuteRuleParams = {
   ruleId: string;
@@ -49,6 +62,9 @@ const SLACK_NOTIFY_ERROR_CODES = new Set([
   "DRIVE_FOLDER_INVALID",
   "DRIVE_UPLOAD_FAILED",
   "DB_INSERT_FAILED",
+  "EMAIL_SIZE_LIMIT_EXCEEDED",
+  "ATTACHMENT_COUNT_LIMIT_EXCEEDED",
+  "TIMEOUT",
   "UNKNOWN",
 ]);
 
@@ -91,6 +107,55 @@ const ALLOWED_ATTACHMENT_MIME_TYPES = new Set([
 
 const FREE_MONTHLY_LIMIT_MESSAGE =
   "Freeプランの今月のPDF保存上限（10件）に達しています。翌月まで待つか、Proプランへの変更をご検討ください。";
+
+function createCostSafetyError(
+  code:
+    | "EMAIL_SIZE_LIMIT_EXCEEDED"
+    | "ATTACHMENT_COUNT_LIMIT_EXCEEDED"
+    | "TIMEOUT",
+) {
+  return Object.assign(new Error(code), { code });
+}
+
+function getRemainingStageTimeoutMs(params: {
+  executionStartedAtMs: number;
+  stageStartedAtMs: number;
+  stageBudgetMs: number;
+}): number | null {
+  const elapsedMs = Date.now() - params.stageStartedAtMs;
+  const stageRemainingMs = params.stageBudgetMs - elapsedMs;
+
+  return getAllowedStageTimeoutMs({
+    executionStartedAtMs: params.executionStartedAtMs,
+    currentTimeMs: Date.now(),
+    stageRemainingMs,
+  });
+}
+
+function getRequiredStageTimeoutMs(params: {
+  executionStartedAtMs: number;
+  stageStartedAtMs: number;
+  stageBudgetMs: number;
+}): number {
+  const timeout = getRemainingStageTimeoutMs(params);
+  if (timeout === null) throw createCostSafetyError("TIMEOUT");
+  return timeout;
+}
+
+function getAttachmentMetadataBytes(attachments: GmailAttachment[]) {
+  return attachments.map((attachment) => attachment.size);
+}
+
+function getTotalByteLength(bytes: readonly Uint8Array[]) {
+  let total = 0;
+
+  for (const value of bytes) {
+    total += value.byteLength;
+    if (!Number.isSafeInteger(total)) return null;
+  }
+
+  return total;
+}
 
 async function finalizeFreeMonthlyLimit(params: {
   runId: string;
@@ -310,6 +375,9 @@ function buildAttachmentFilename(params: {
 export async function executeRule(
   params: ExecuteRuleParams,
 ): Promise<ExecuteResult> {
+  const executionStartedAtMs = Date.now();
+  const gmailStageStartedAtMs = executionStartedAtMs;
+
   try {
     const { data: rule } = await supabaseAdmin
       .from("rules")
@@ -345,6 +413,14 @@ export async function executeRule(
       userId: params.userId,
       query: rule.gmail_query,
       maxResults: 1,
+      budget: {
+        getTimeoutMs: () =>
+          getRemainingStageTimeoutMs({
+            executionStartedAtMs,
+            stageStartedAtMs: gmailStageStartedAtMs,
+            stageBudgetMs: GMAIL_CUMULATIVE_TIMEOUT_MS,
+          }),
+      },
     });
 
     if (!messageIds.length) {
@@ -427,6 +503,14 @@ export async function executeRule(
     const message = await getGmailMessage({
       userId: params.userId,
       messageId,
+      budget: {
+        getTimeoutMs: () =>
+          getRemainingStageTimeoutMs({
+            executionStartedAtMs,
+            stageStartedAtMs: gmailStageStartedAtMs,
+            stageBudgetMs: GMAIL_CUMULATIVE_TIMEOUT_MS,
+          }),
+      },
     });
 
     const bodyText =
@@ -434,13 +518,9 @@ export async function executeRule(
         ? message.bodyText
         : "";
 
-    const pdfBytes = await emailToPdfBytes({
-      subject: message.subject,
-      from: message.from,
-      date: message.date,
-      snippet: message.snippet,
-      bodyText,
-    });
+    if (!isRawEmailBodyWithinLimit(bodyText)) {
+      throw createCostSafetyError("EMAIL_SIZE_LIMIT_EXCEEDED");
+    }
 
     const emailDate = formatEmailDateForFilename(message.date);
     const safeSubject = sanitizeFilename(message.subject, "email").slice(0, 80);
@@ -458,6 +538,65 @@ export async function executeRule(
       ? message.attachments
       : [];
 
+    const attachmentMetadataBytes = getAttachmentMetadataBytes(attachments);
+    const totalAttachmentMetadataBytes = attachmentMetadataBytes.reduce(
+      (total, size) => total + size,
+      0,
+    );
+
+    if (attachments.length > 5) {
+      throw createCostSafetyError("ATTACHMENT_COUNT_LIMIT_EXCEEDED");
+    }
+
+    if (
+      !areAttachmentMetadataWithinLimits({
+        count: attachments.length,
+        declaredByteSizes: attachmentMetadataBytes,
+        totalDeclaredBytes: totalAttachmentMetadataBytes,
+      })
+    ) {
+      throw createCostSafetyError("EMAIL_SIZE_LIMIT_EXCEEDED");
+    }
+
+    const downloadedAttachments: Array<{
+      attachment: GmailAttachment;
+      bytes: Uint8Array;
+    }> = [];
+
+    for (const attachment of attachments) {
+      if (!isAllowedAttachment(attachment)) continue;
+
+      const attachmentBytes = await getGmailAttachment({
+        userId: params.userId,
+        messageId,
+        attachmentId: attachment.attachmentId,
+        budget: {
+          getTimeoutMs: () =>
+            getRemainingStageTimeoutMs({
+              executionStartedAtMs,
+              stageStartedAtMs: gmailStageStartedAtMs,
+              stageBudgetMs: GMAIL_CUMULATIVE_TIMEOUT_MS,
+            }),
+        },
+      });
+
+      if (attachmentBytes.byteLength !== attachment.size) {
+        throw createCostSafetyError("EMAIL_SIZE_LIMIT_EXCEEDED");
+      }
+
+      downloadedAttachments.push({ attachment, bytes: attachmentBytes });
+    }
+
+    const downloadedAttachmentBytes = getTotalByteLength(
+      downloadedAttachments.map(({ bytes }) => bytes),
+    );
+    if (
+      downloadedAttachmentBytes === null ||
+      downloadedAttachmentBytes > totalAttachmentMetadataBytes
+    ) {
+      throw createCostSafetyError("EMAIL_SIZE_LIMIT_EXCEEDED");
+    }
+
     const fallbackDocumentType = detectDocumentTypeForFilename({
       subject: message.subject,
       bodyText,
@@ -474,10 +613,42 @@ export async function executeRule(
           attachmentFilenames: attachments.map(
             (attachment) => attachment.filename,
           ),
+          timeoutMs: getRequiredStageTimeoutMs({
+            executionStartedAtMs,
+            stageStartedAtMs: executionStartedAtMs,
+            stageBudgetMs: OPENAI_TIMEOUT_MS,
+          }),
         })
       : null;
 
     const documentType = aiDocumentType ?? fallbackDocumentType;
+
+    getRequiredStageTimeoutMs({
+      executionStartedAtMs,
+      stageStartedAtMs: executionStartedAtMs,
+      stageBudgetMs: EXECUTION_ABSOLUTE_DEADLINE_MS,
+    });
+
+    const pdfBytes = await emailToPdfBytes({
+      subject: message.subject,
+      from: message.from,
+      date: message.date,
+      snippet: message.snippet,
+      bodyText,
+    });
+
+    if (!isGeneratedPdfWithinLimit(pdfBytes.byteLength)) {
+      throw createCostSafetyError("EMAIL_SIZE_LIMIT_EXCEEDED");
+    }
+
+    const totalDriveWriteBytes =
+      pdfBytes.byteLength + downloadedAttachmentBytes;
+    if (
+      !Number.isSafeInteger(totalDriveWriteBytes) ||
+      !isTotalDriveWriteWithinLimit(totalDriveWriteBytes)
+    ) {
+      throw createCostSafetyError("EMAIL_SIZE_LIMIT_EXCEEDED");
+    }
 
     const filename = buildPdfFilename({
       emailDate,
@@ -497,27 +668,31 @@ export async function executeRule(
       });
     }
 
+    const driveStageStartedAtMs = Date.now();
+    const driveBudget = {
+      getTimeoutMs: () =>
+        getRemainingStageTimeoutMs({
+          executionStartedAtMs,
+          stageStartedAtMs: driveStageStartedAtMs,
+          stageBudgetMs: DRIVE_CUMULATIVE_TIMEOUT_MS,
+        }),
+    };
+
     const driveResult = await uploadPdfToDrive({
       userId: params.userId,
       folderId: rule.drive_folder_id,
       filename,
       pdfBytes,
+      budget: driveBudget,
     });
 
     let savedAttachmentCount = 0;
-    let skippedAttachmentCount = 0;
+    const skippedAttachmentCount = attachments.filter(
+      (attachment) => !isAllowedAttachment(attachment),
+    ).length;
 
-    for (const [index, attachment] of attachments.entries()) {
-      if (!isAllowedAttachment(attachment)) {
-        skippedAttachmentCount += 1;
-        continue;
-      }
-
-      const attachmentBytes = await getGmailAttachment({
-        userId: params.userId,
-        messageId,
-        attachmentId: attachment.attachmentId,
-      });
+    for (const [index, entry] of downloadedAttachments.entries()) {
+      const { attachment, bytes: attachmentBytes } = entry;
 
       const attachmentFilename = buildAttachmentFilename({
         emailDate,
@@ -532,6 +707,7 @@ export async function executeRule(
         filename: attachmentFilename,
         bytes: attachmentBytes,
         mimeType: attachment.mimeType || "application/octet-stream",
+        budget: driveBudget,
       });
 
       savedAttachmentCount += 1;

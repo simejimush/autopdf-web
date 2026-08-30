@@ -61,7 +61,10 @@ function loadExecuteRule(options?: {
     filename: string;
     mimeType: string;
     attachmentId: string;
+    size?: number;
   }>;
+  bodyText?: string;
+  pdfBytes?: Uint8Array;
   failAt?: "rule" | "search" | "pdf" | "drive";
   errorCode?: string;
   errorStage?: string;
@@ -98,6 +101,8 @@ function loadExecuteRule(options?: {
     slack: [] as unknown[],
     userNotify: [] as unknown[],
     attachmentUploads: 0,
+    pdfCalls: 0,
+    aiCalls: 0,
     limitChecks: [] as string[],
     consoleErrors: [] as unknown[][],
   };
@@ -240,8 +245,11 @@ function loadExecuteRule(options?: {
             from: "Billing <billing@example.com>",
             date: "2026-08-04T00:00:00.000Z",
             snippet: "snippet",
-            bodyText: "invoice body",
-            attachments: options?.attachments ?? [],
+            bodyText: options?.bodyText ?? "invoice body",
+            attachments: (options?.attachments ?? []).map((attachment) => ({
+              ...attachment,
+              size: attachment.size ?? 3,
+            })),
           };
         },
         async getGmailAttachment() {
@@ -252,8 +260,9 @@ function loadExecuteRule(options?: {
     if (specifier === "@/lib/pdf/emailToPdf") {
       return {
         async emailToPdfBytes() {
+          calls.pdfCalls += 1;
           if (options?.failAt === "pdf") throw codedError(errorCode);
-          return new Uint8Array([1, 2, 3]);
+          return options?.pdfBytes ?? new Uint8Array([1, 2, 3]);
         },
       };
     }
@@ -306,6 +315,7 @@ function loadExecuteRule(options?: {
     if (specifier === "@/lib/ai/detectDocumentType") {
       return {
         async detectDocumentTypeWithAi() {
+          calls.aiCalls += 1;
           return null;
         },
       };
@@ -341,6 +351,56 @@ function loadExecuteRule(options?: {
         },
       };
     }
+    if (specifier === "@/lib/cost-safety/limits") {
+      return {
+        DRIVE_CUMULATIVE_TIMEOUT_MS: 30_000,
+        EXECUTION_ABSOLUTE_DEADLINE_MS: 60_000,
+        GMAIL_CUMULATIVE_TIMEOUT_MS: 15_000,
+        OPENAI_TIMEOUT_MS: 8_000,
+      };
+    }
+    if (specifier === "@/lib/cost-safety/deadline") {
+      return {
+        getAllowedStageTimeoutMs({
+          stageRemainingMs,
+        }: {
+          stageRemainingMs: number;
+        }) {
+          return stageRemainingMs > 0 ? stageRemainingMs : null;
+        },
+      };
+    }
+    if (specifier === "@/lib/cost-safety/sizeLimits") {
+      return {
+        areAttachmentMetadataWithinLimits(input: {
+          count: number;
+          declaredByteSizes: number[];
+          totalDeclaredBytes: number;
+        }) {
+          return (
+            input.count <= 5 &&
+            input.declaredByteSizes.every(
+              (size) =>
+                Number.isSafeInteger(size) &&
+                size >= 0 &&
+                size <= 10 * 1024 * 1024,
+            ) &&
+            input.declaredByteSizes.reduce((total, size) => total + size, 0) ===
+              input.totalDeclaredBytes &&
+            input.totalDeclaredBytes <= 25 * 1024 * 1024
+          );
+        },
+        isGeneratedPdfWithinLimit(size: number) {
+          return size <= 10 * 1024 * 1024;
+        },
+        isRawEmailBodyWithinLimit(value: string) {
+          return Buffer.byteLength(value, "utf8") <= 100 * 1024;
+        },
+        isTotalDriveWriteWithinLimit(size: number) {
+          return size <= 35 * 1024 * 1024;
+        },
+      };
+    }
     throw new Error(`Unexpected executeRule dependency: ${specifier}`);
   };
 
@@ -358,6 +418,8 @@ function loadExecuteRule(options?: {
     Date,
     Error,
     Set,
+    Number,
+    Buffer,
   });
 
   return {
@@ -553,6 +615,58 @@ test("only the first Gmail search result is looked up and processed", async () =
     { userId: USER_ID, ruleId: RULE_ID, gmailMessageId: MESSAGE_ID },
   ]);
   expect(harness.calls.processedEmails[0].gmailMessageId).toBe(MESSAGE_ID);
+});
+
+test("size guards stop before AI, PDF, and Drive with safe run codes", async () => {
+  const oversizedBody = loadExecuteRule({
+    messageIds: [MESSAGE_ID],
+    bodyText: "a".repeat(100 * 1024 + 1),
+  });
+  const bodyResult = await oversizedBody.executeRule(oversizedBody.input);
+
+  expect(bodyResult).toMatchObject({
+    ok: false,
+    errorCode: "EMAIL_SIZE_LIMIT_EXCEEDED",
+  });
+  expect(oversizedBody.calls.aiCalls).toBe(0);
+  expect(oversizedBody.calls.pdfCalls).toBe(0);
+  expect(oversizedBody.calls.order).not.toContain("drive:pdf");
+
+  const tooManyAttachments = loadExecuteRule({
+    messageIds: [MESSAGE_ID],
+    attachments: Array.from({ length: 6 }, (_, index) => ({
+      filename: `invoice-${index}.pdf`,
+      mimeType: "application/pdf",
+      attachmentId: `attachment-${index}`,
+      size: 3,
+    })),
+  });
+  const attachmentResult = await tooManyAttachments.executeRule(
+    tooManyAttachments.input,
+  );
+
+  expect(attachmentResult).toMatchObject({
+    ok: false,
+    errorCode: "ATTACHMENT_COUNT_LIMIT_EXCEEDED",
+  });
+  expect(tooManyAttachments.calls.pdfCalls).toBe(0);
+  expect(tooManyAttachments.calls.order).not.toContain("drive:pdf");
+});
+
+test("generated PDF size guard stops before Drive", async () => {
+  const harness = loadExecuteRule({
+    messageIds: [MESSAGE_ID],
+    pdfBytes: new Uint8Array(10 * 1024 * 1024 + 1),
+  });
+
+  const result = await harness.executeRule(harness.input);
+
+  expect(result).toMatchObject({
+    ok: false,
+    errorCode: "EMAIL_SIZE_LIMIT_EXCEEDED",
+  });
+  expect(harness.calls.pdfCalls).toBe(1);
+  expect(harness.calls.order).not.toContain("drive:pdf");
 });
 
 test("normal and partially-saved success finalize exact owner counts", async () => {

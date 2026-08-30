@@ -1,4 +1,9 @@
 import { logAiUsage } from "@/lib/ai/logAiUsage";
+import {
+  OPENAI_MAX_INPUT_TOKENS,
+  OPENAI_MAX_OUTPUT_TOKENS,
+  OPENAI_TIMEOUT_MS,
+} from "@/lib/cost-safety/limits";
 
 type DetectDocumentTypeParams = {
   userId?: string | null;
@@ -8,6 +13,7 @@ type DetectDocumentTypeParams = {
   from?: string | null;
   bodyText?: string | null;
   attachmentFilenames?: string[];
+  timeoutMs?: number;
 };
 
 const ALLOWED_DOCUMENT_TYPES = new Set([
@@ -29,8 +35,20 @@ function normalizeDocumentType(value?: string | null) {
   return null;
 }
 
-function clipText(value: string, maxLength: number) {
-  return value.length > maxLength ? value.slice(0, maxLength) : value;
+const OPENAI_INPUT_ENVELOPE_BYTES = OPENAI_MAX_INPUT_TOKENS * 2;
+
+function clipUtf8Text(value: string, maxBytes: number) {
+  let result = "";
+  let usedBytes = 0;
+
+  for (const character of value) {
+    const characterBytes = Buffer.byteLength(character, "utf8");
+    if (usedBytes + characterBytes > maxBytes) break;
+    result += character;
+    usedBytes += characterBytes;
+  }
+
+  return result;
 }
 
 function extractOutputText(data: unknown) {
@@ -94,12 +112,26 @@ export async function detectDocumentTypeWithAi(
     return null;
   }
 
-  const subject = clipText(params.subject ?? "", 300);
-  const from = clipText(params.from ?? "", 200);
-  const bodyText = clipText(params.bodyText ?? "", 1200);
+  const subject = clipUtf8Text(params.subject ?? "", 600);
+  const from = clipUtf8Text(params.from ?? "", 400);
+  const bodyText = clipUtf8Text(
+    params.bodyText ?? "",
+    OPENAI_INPUT_ENVELOPE_BYTES,
+  );
   const attachmentFilenames = (params.attachmentFilenames ?? [])
-    .map((name) => clipText(name, 120))
-    .slice(0, 10);
+    .map((name) => clipUtf8Text(name, 240))
+    .slice(0, 5);
+  const aiInput = clipUtf8Text(
+    JSON.stringify({ subject, from, bodyText, attachmentFilenames }),
+    OPENAI_INPUT_ENVELOPE_BYTES,
+  );
+
+  const requestTimeoutMs = Math.min(
+    params.timeoutMs ?? OPENAI_TIMEOUT_MS,
+    OPENAI_TIMEOUT_MS,
+  );
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
 
   try {
     const res = await fetch("https://api.openai.com/v1/responses", {
@@ -111,7 +143,7 @@ export async function detectDocumentTypeWithAi(
       body: JSON.stringify({
         model,
         temperature: 0,
-        max_output_tokens: 20,
+        max_output_tokens: OPENAI_MAX_OUTPUT_TOKENS,
         input: [
           {
             role: "system",
@@ -120,15 +152,11 @@ export async function detectDocumentTypeWithAi(
           },
           {
             role: "user",
-            content: JSON.stringify({
-              subject,
-              from,
-              bodyText,
-              attachmentFilenames,
-            }),
+            content: aiInput,
           },
         ],
       }),
+      signal: controller.signal,
     });
 
     if (!res.ok) {
@@ -169,12 +197,9 @@ export async function detectDocumentTypeWithAi(
 
     return normalizeDocumentType(outputText);
   } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Unknown AI classification error";
-
-    console.warn("[detectDocumentTypeWithAi] failed:", message);
+    console.warn("[detectDocumentTypeWithAi] failed", {
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
 
     await logAiUsage({
       userId: params.userId,
@@ -188,5 +213,7 @@ export async function detectDocumentTypeWithAi(
     });
 
     return null;
+  } finally {
+    clearTimeout(timeout);
   }
 }

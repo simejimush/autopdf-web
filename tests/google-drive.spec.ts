@@ -38,14 +38,17 @@ function loadDrive(options?: {
     auth: 0,
     drive: 0,
     list: 0,
+    listOptions: [] as unknown[],
     create: [] as DriveRequest[],
+    createOptions: [] as unknown[],
     uploadedBytes: [] as Buffer[],
     info: [] as unknown[][],
   };
   const driveClient = {
     files: {
-      async list() {
+      async list(...args: unknown[]) {
         calls.list += 1;
+        calls.listOptions.push(args[1]);
         return {
           data: {
             files: options?.existing
@@ -54,8 +57,9 @@ function loadDrive(options?: {
           },
         };
       },
-      async create(request: DriveRequest) {
+      async create(request: DriveRequest, requestOptions?: unknown) {
         calls.create.push(request);
+        calls.createOptions.push(requestOptions);
         if (options?.createError) throw options.createError;
 
         const chunks: Buffer[] = [];
@@ -84,6 +88,7 @@ function loadDrive(options?: {
         folderId: string;
         filename: string;
         pdfBytes: Uint8Array;
+        budget?: { getTimeoutMs: () => number | null };
       }) => Promise<{ fileId: string; webViewLink: string | null }>;
     },
   };
@@ -175,6 +180,35 @@ test("uploadPdfToDrive fixes the PDF media contract", async () => {
   expect(harness.calls.create[0].requestBody.mimeType).toBe("application/pdf");
   expect(harness.calls.create[0].media.mimeType).toBe("application/pdf");
   expect(harness.calls.create[0].requestBody.parents).toHaveLength(1);
+});
+
+test("uses bounded lookup retry and never retries Drive create", async () => {
+  const harness = loadDrive();
+  const budget = { getTimeoutMs: () => 12_345 };
+
+  await harness.uploadPdfToDrive({
+    userId: "user-id",
+    folderId: "private-folder-marker",
+    filename: "private-filename-marker.pdf",
+    pdfBytes: new Uint8Array([7, 8, 9]),
+    budget,
+  });
+
+  expect(harness.calls.listOptions).toEqual([
+    {
+      timeout: 12_345,
+      retry: true,
+      retryConfig: { retry: 1, noResponseRetries: 1, totalTimeout: 12_345 },
+    },
+  ]);
+  expect(harness.calls.createOptions).toEqual([
+    {
+      timeout: 12_345,
+      retry: false,
+      retryConfig: { retry: 0, noResponseRetries: 0, totalTimeout: 12_345 },
+    },
+  ]);
+  expect(harness.calls.create).toHaveLength(1);
 });
 
 test("an existing file skips create and records only safe booleans", async () => {

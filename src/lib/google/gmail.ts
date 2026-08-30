@@ -8,6 +8,25 @@ export type GmailAttachment = {
   size: number;
 };
 
+export type GmailRequestBudget = {
+  getTimeoutMs: () => number | null;
+};
+
+function getGmailRequestOptions(budget?: GmailRequestBudget) {
+  if (!budget) return undefined;
+
+  const timeout = budget.getTimeoutMs();
+  if (timeout === null) {
+    throw Object.assign(new Error("TIMEOUT"), { code: "TIMEOUT" });
+  }
+
+  return {
+    timeout,
+    retry: true,
+    retryConfig: { retry: 1, noResponseRetries: 1, totalTimeout: timeout },
+  };
+}
+
 function decodeBase64Url(input?: string | null) {
   if (!input) return "";
   return decodeBase64UrlToBuffer(input).toString("utf-8");
@@ -23,8 +42,9 @@ async function readPartBodyData(params: {
   gmail: gmail_v1.Gmail;
   messageId: string;
   part?: gmail_v1.Schema$MessagePart;
+  budget?: GmailRequestBudget;
 }) {
-  const { gmail, messageId, part } = params;
+  const { gmail, messageId, part, budget } = params;
   if (!part?.body) return "";
 
   if (part.body.data) {
@@ -32,11 +52,14 @@ async function readPartBodyData(params: {
   }
 
   if (part.body.attachmentId) {
-    const res = await gmail.users.messages.attachments.get({
-      userId: "me",
-      messageId,
-      id: part.body.attachmentId,
-    });
+    const res = await gmail.users.messages.attachments.get(
+      {
+        userId: "me",
+        messageId,
+        id: part.body.attachmentId,
+      },
+      getGmailRequestOptions(budget),
+    );
     return decodeBase64Url(res.data.data);
   }
 
@@ -74,14 +97,15 @@ async function collectPartsByMime(params: {
   messageId: string;
   part?: gmail_v1.Schema$MessagePart;
   mimeType: string;
+  budget?: GmailRequestBudget;
 }): Promise<string[]> {
-  const { gmail, messageId, part, mimeType } = params;
+  const { gmail, messageId, part, mimeType, budget } = params;
   if (!part) return [];
 
   const out: string[] = [];
 
   if (part.mimeType === mimeType) {
-    const text = await readPartBodyData({ gmail, messageId, part });
+    const text = await readPartBodyData({ gmail, messageId, part, budget });
     if (text.trim()) out.push(text);
   }
 
@@ -92,6 +116,7 @@ async function collectPartsByMime(params: {
         messageId,
         part: child,
         mimeType,
+        budget,
       })),
     );
   }
@@ -129,8 +154,9 @@ async function extractBodyText(params: {
   gmail: gmail_v1.Gmail;
   messageId: string;
   payload?: gmail_v1.Schema$MessagePart;
+  budget?: GmailRequestBudget;
 }) {
-  const { gmail, messageId, payload } = params;
+  const { gmail, messageId, payload, budget } = params;
   if (!payload) return "";
 
   const plainTexts = (
@@ -139,6 +165,7 @@ async function extractBodyText(params: {
       messageId,
       part: payload,
       mimeType: "text/plain",
+      budget,
     })
   )
     .map((x) => x.trim())
@@ -150,6 +177,7 @@ async function extractBodyText(params: {
       messageId,
       part: payload,
       mimeType: "text/html",
+      budget,
     })
   )
     .map((x) => stripHtml(x))
@@ -168,7 +196,12 @@ async function extractBodyText(params: {
     return htmlJoined;
   }
 
-  const fallback = await readPartBodyData({ gmail, messageId, part: payload });
+  const fallback = await readPartBodyData({
+    gmail,
+    messageId,
+    part: payload,
+    budget,
+  });
   return fallback.trim();
 }
 
@@ -176,19 +209,24 @@ export async function searchGmail({
   userId,
   query,
   maxResults = 10,
+  budget,
 }: {
   userId: string;
   query: string;
   maxResults?: number;
+  budget?: GmailRequestBudget;
 }) {
   const oauth2Client = await getOAuthClientForUser(userId);
   const gmail = google.gmail({ version: "v1", auth: oauth2Client });
 
-  const res = await gmail.users.messages.list({
-    userId: "me",
-    q: query,
-    maxResults,
-  });
+  const res = await gmail.users.messages.list(
+    {
+      userId: "me",
+      q: query,
+      maxResults,
+    },
+    getGmailRequestOptions(budget),
+  );
 
   return (res.data.messages ?? []).map((m) => m.id!).filter(Boolean);
 }
@@ -196,18 +234,23 @@ export async function searchGmail({
 export async function getGmailMessage({
   userId,
   messageId,
+  budget,
 }: {
   userId: string;
   messageId: string;
+  budget?: GmailRequestBudget;
 }) {
   const oauth2Client = await getOAuthClientForUser(userId);
   const gmail = google.gmail({ version: "v1", auth: oauth2Client });
 
-  const res = await gmail.users.messages.get({
-    userId: "me",
-    id: messageId,
-    format: "full",
-  });
+  const res = await gmail.users.messages.get(
+    {
+      userId: "me",
+      id: messageId,
+      format: "full",
+    },
+    getGmailRequestOptions(budget),
+  );
 
   const headers = res.data.payload?.headers ?? [];
 
@@ -219,6 +262,7 @@ export async function getGmailMessage({
     gmail,
     messageId,
     payload: res.data.payload,
+    budget,
   });
 
   const bodyText = bodyTextRaw.trim() || (res.data.snippet ?? "").trim();
@@ -239,19 +283,24 @@ export async function getGmailAttachment({
   userId,
   messageId,
   attachmentId,
+  budget,
 }: {
   userId: string;
   messageId: string;
   attachmentId: string;
+  budget?: GmailRequestBudget;
 }) {
   const oauth2Client = await getOAuthClientForUser(userId);
   const gmail = google.gmail({ version: "v1", auth: oauth2Client });
 
-  const res = await gmail.users.messages.attachments.get({
-    userId: "me",
-    messageId,
-    id: attachmentId,
-  });
+  const res = await gmail.users.messages.attachments.get(
+    {
+      userId: "me",
+      messageId,
+      id: attachmentId,
+    },
+    getGmailRequestOptions(budget),
+  );
 
   return decodeBase64UrlToBuffer(res.data.data);
 }
