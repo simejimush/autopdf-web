@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { expect, test } from "@playwright/test";
 
@@ -59,9 +60,109 @@ test("Migration A is transactional, bounded, and preflights before mutation", ()
   expect(normalized).toContain(
     "execution guard canonical identity columns are missing or drifted",
   );
+  expect(normalized).toContain("if present_count = 0 and function_count = 0");
+  expect(normalized).toContain("if present_count <> 7 or function_count <> 3");
+});
+
+test("preflight rejects non-canonical lease constraints, indexes, RLS, owner, and ACL", () => {
+  expect(normalized).toContain("c.convalidated");
+  expect(normalized).toContain("pg_catalog.pg_get_expr(c.conbin");
+  expect(normalized).toContain(
+    "execution guard lease table constraints drifted",
+  );
+  expect(normalized).toContain("pg_catalog.pg_get_indexdef(x.indexrelid)");
+  expect(normalized).toContain("execution guard lease table indexes drifted");
+  expect(normalized).toContain("x.indisvalid and x.indisready and x.indislive");
+  expect(normalized).toContain("c.relrowsecurity");
+  expect(normalized).toContain("c.relforcerowsecurity");
+  expect(normalized).toContain("pg_catalog.pg_get_userbyid(c.relowner)");
+  expect(normalized).toContain("pg_catalog.aclexplode(");
+  expect(normalized).toContain(
+    "execution guard lease table owner, rls, policy, or acl drifted",
+  );
+  expect(normalized).toContain(
+    "createindexrule_execution_leases_expires_idxonpublic.rule_execution_leasesusingbtree(expires_at)",
+  );
+  expect(normalized).toContain(
+    "createindexrule_execution_leases_user_acquired_idxonpublic.rule_execution_leasesusingbtree(user_id,acquired_atdesc)",
+  );
+});
+
+test("preflight rejects wrong same-name or equivalent runs indexes and unsafe started_at", () => {
+  expect(normalized).toContain("runs_started_at_attnum");
+  expect(normalized).toContain(
+    "x.indoption::smallint[] = array[3]::smallint[]",
+  );
+  expect(normalized).toContain(
+    "pg_catalog.pg_get_expr(d.adbin, d.adrelid) = 'now()'",
+  );
+  expect(normalized).toContain("a.attnotnull");
+  expect(normalized).toContain(
+    "execution guard equivalent runs system index has an unexpected name",
+  );
+  expect(normalized).toContain("execution guard system index is drifted");
+  expect(normalized).toContain(
+    "createindexruns_system_started_at_idxonpublic.runsusingbtree(started_atdesc)",
+  );
+});
+
+test("preflight rejects RPC signature, body, owner, security, search_path, and ACL drift", () => {
+  expect(normalized).toContain("pg_catalog.pg_get_function_identity_arguments");
+  expect(normalized).toContain("pg_catalog.pg_get_function_result");
+  expect(normalized).toContain("pg_catalog.md5(pg_catalog.replace(p.prosrc");
+  expect(normalized).not.toContain("__claim_source_hash__");
+  expect(normalized).toContain("function_row.owner <> 'postgres'");
+  expect(normalized).toContain("or not function_row.prosecdef");
+  expect(normalized).toContain(
+    "function_row.proconfig is distinct from array['search_path=\"\"']::text[]",
+  );
+  expect(normalized).toContain("execute_acl_count <> 2");
+  expect(normalized).toContain("unexpected_execute_acl_count <> 0");
+  expect(normalized).toContain(
+    "public.% canonical function metadata or body drifted",
+  );
+  expect(normalized).toContain("public.% canonical function acl drifted");
+});
+
+test("canonical replay fingerprints match every function body created by Migration A", () => {
+  const declaredHashes = [
+    ...sql.matchAll(
+      /function_source_hashes constant text\[\] := array\[([\s\S]*?)\];/g,
+    ),
+  ][0]?.[1].match(/[0-9a-f]{32}/g);
+  const createdHashes = [
+    ...sql.matchAll(
+      /create or replace function public\.(claim_guarded_execution|finalize_guarded_execution|list_cron_candidates)\([\s\S]*?as \$function\$([\s\S]*?)\$function\$;/g,
+    ),
+  ].map((match) =>
+    createHash("md5").update(match[2].replace(/\r\n/g, "\n")).digest("hex"),
+  );
+
+  expect(createdHashes).toHaveLength(3);
+  expect(declaredHashes).toEqual(createdHashes);
+});
+
+test("preflight allows only fully absent creation or exact canonical replay", () => {
+  expect(normalized).toContain(
+    "if present_count = 0 and function_count = 0 then",
+  );
+  expect(normalized).toContain("return;\n  end if;");
+  expect(normalized).toContain(
+    "if present_count <> 7 or function_count <> 3 then",
+  );
+  expect(normalized).toContain(
+    "create table if not exists public.rule_execution_leases",
+  );
+  expect(normalized).toContain(
+    "create or replace function public.claim_guarded_execution(",
+  );
 });
 
 test("creates only the execution lease shape, constraints, and non-duplicate indexes", () => {
+  const leaseTableDefinition = normalized.match(
+    /create table if not exists public\.rule_execution_leases \([\s\S]*?\n\);/,
+  )?.[0];
+  expect(leaseTableDefinition).toBeTruthy();
   expect(normalized).toContain(
     "create table if not exists public.rule_execution_leases",
   );
@@ -84,7 +185,7 @@ test("creates only the execution lease shape, constraints, and non-duplicate ind
     "on public.rule_execution_leases (user_id, acquired_at desc)",
   );
   expect(normalized).toContain("on public.runs (started_at desc)");
-  expect(normalized).not.toMatch(/foreign key|\breferences\b/);
+  expect(leaseTableDefinition).not.toMatch(/foreign key|\breferences\b/);
   expect(normalized).not.toContain("processed_emails");
   expect(normalized).not.toContain("quota_counter");
 });
@@ -95,6 +196,8 @@ test("claim RPC atomically fixes every execution-attempt and concurrency limit",
   );
   expect(normalized).toContain("pg_advisory_xact_lock");
   expect(normalized).toContain("autopdf_execution_guard_v1");
+  expect(normalized).not.toContain("p_now");
+  expect(normalized).toContain("v_now := pg_catalog.statement_timestamp()");
   expect(normalized).toContain(
     `interval '${EXECUTION_LEASE_TTL_MS / 1000} seconds'`,
   );
@@ -122,7 +225,17 @@ test("claim RPC atomically fixes every execution-attempt and concurrency limit",
     `from public.rule_execution_leases) >= ${SYSTEM_CONCURRENT_EXECUTION_LIMIT}`,
   );
   expect(normalized).toContain(
-    "delete from public.rule_execution_leases l\n  where l.expires_at <= p_now",
+    "delete from public.rule_execution_leases l\n  where l.expires_at <= v_now",
+  );
+  expect(normalized).toContain(
+    "pg_catalog.date_trunc('day', v_now at time zone 'utc') at time zone 'utc'",
+  );
+  expect(normalized).toContain(
+    "pg_catalog.date_trunc('month', v_now at time zone 'utc') at time zone 'utc'",
+  );
+  expect(normalized).toContain("'run started', v_now");
+  expect(normalized).toContain(
+    "p_rule_id, p_user_id, v_run_id, p_lease_id_hash,\n    v_now, v_lease_expires_at, v_now",
   );
   expect(normalized.indexOf("insert into public.runs")).toBeGreaterThan(
     normalized.indexOf("'execution_concurrency_limit'::text"),
@@ -147,6 +260,7 @@ test("finalize RPC binds every identity and rolls terminal update and release to
   expect(normalized).toContain("and l.run_id = p_run_id");
   expect(normalized).toContain("and l.lease_id_hash = p_lease_id_hash");
   expect(normalized).toContain("and r.status = 'running'");
+  expect(normalized).toContain("finished_at = v_now");
   expect(normalized).toContain("if v_updated_count <> 1 then");
   expect(normalized).toContain("if v_deleted_count <> 1 then");
   expect(normalized).toContain(
@@ -170,6 +284,9 @@ test("new table and RPCs are service-role-only with fixed security boundaries", 
   );
   expect(normalized).toContain(
     "alter table public.rule_execution_leases force row level security",
+  );
+  expect(normalized).toContain(
+    "alter table public.rule_execution_leases owner to postgres",
   );
   expect(normalized).toContain("security definer\nset search_path = ''");
   expect(normalized).toContain("owner to postgres");

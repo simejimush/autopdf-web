@@ -74,17 +74,6 @@ function validateIdentity(input: {
   }
 }
 
-function getNow(dependencies: Readonly<{ now: () => string }>): string {
-  let now: string;
-  try {
-    now = dependencies.now();
-  } catch {
-    fail();
-  }
-  if (!isIsoTimestamp(now)) fail();
-  return now;
-}
-
 function isCount(value: unknown): value is number {
   return Number.isSafeInteger(value) && Number(value) >= 0;
 }
@@ -124,7 +113,6 @@ export function createGuardedExecutionRepository(
     getClient: () =>
       | GuardedExecutionSupabaseClient
       | Promise<GuardedExecutionSupabaseClient>;
-    now: () => string;
     createLeaseIdHash: () => string;
   }>,
 ) {
@@ -155,7 +143,6 @@ export function createGuardedExecutionRepository(
       fail();
     }
 
-    const now = getNow(dependencies);
     validateIdentity({ ...input, leaseIdHash });
     if (!["manual", "cron"].includes(input.trigger)) {
       fail();
@@ -166,15 +153,13 @@ export function createGuardedExecutionRepository(
       p_rule_id: input.ruleId,
       p_trigger: input.trigger,
       p_lease_id_hash: leaseIdHash,
-      p_now: now,
     });
 
     if (row.outcome === "CLAIMED") {
       if (
         typeof row.run_id !== "string" ||
         !UUID_PATTERN.test(row.run_id) ||
-        !isIsoTimestamp(row.lease_expires_at) ||
-        Date.parse(row.lease_expires_at) <= Date.parse(now)
+        !isIsoTimestamp(row.lease_expires_at)
       ) {
         fail();
       }
@@ -218,7 +203,6 @@ export function createGuardedExecutionRepository(
 
     const finalization = input.finalization;
     validateFinalization(finalization);
-    const now = getNow(dependencies);
     const row = await callRpc("finalize_guarded_execution", {
       p_run_id: input.runId,
       p_user_id: input.userId,
@@ -234,7 +218,6 @@ export function createGuardedExecutionRepository(
       p_message: finalization.message,
       p_error_code:
         finalization.status === "error" ? finalization.errorCode : null,
-      p_now: now,
     });
 
     if (

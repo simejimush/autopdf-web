@@ -57,6 +57,11 @@ type ExecuteResult = {
   message: string;
 };
 
+type TerminalOutcome = {
+  result: ExecuteResult;
+  finalization: Parameters<typeof finalizeGuardedExecution>[0]["finalization"];
+};
+
 const SLACK_NOTIFY_ERROR_CODES = new Set([
   "GOOGLE_TOKEN_INVALID",
   "GOOGLE_REFRESH_OUTCOME_UNKNOWN",
@@ -158,32 +163,22 @@ function getTotalByteLength(bytes: readonly Uint8Array[]) {
   return total;
 }
 
-async function finalizeFreeMonthlyLimit(params: {
-  runId: string;
-  userId: string;
-  ruleId: string;
-  leaseIdHash: string;
-}): Promise<ExecuteResult> {
-  await finalizeGuardedExecution({
-    runId: params.runId,
-    userId: params.userId,
-    ruleId: params.ruleId,
-    leaseIdHash: params.leaseIdHash,
+function getFreeMonthlyLimitOutcome(): TerminalOutcome {
+  return {
     finalization: {
       status: "error",
       errorCode: "FREE_MONTHLY_LIMIT_EXCEEDED",
       resetCounts: true,
       message: FREE_MONTHLY_LIMIT_MESSAGE,
     },
-  });
-
-  return {
-    ok: false,
-    processedCount: 0,
-    savedCount: 0,
-    skippedCount: 0,
-    errorCode: "FREE_MONTHLY_LIMIT_EXCEEDED",
-    message: FREE_MONTHLY_LIMIT_MESSAGE,
+    result: {
+      ok: false,
+      processedCount: 0,
+      savedCount: 0,
+      skippedCount: 0,
+      errorCode: "FREE_MONTHLY_LIMIT_EXCEEDED",
+      message: FREE_MONTHLY_LIMIT_MESSAGE,
+    },
   };
 }
 
@@ -382,6 +377,46 @@ export async function executeRule(
 ): Promise<ExecuteResult> {
   const executionStartedAtMs = Date.now();
   const gmailStageStartedAtMs = executionStartedAtMs;
+  let terminalFinalizeAttempted = false;
+  let terminalFinalizeSucceeded = false;
+  let terminalOutcome: TerminalOutcome | null = null;
+
+  async function finalizeTerminal(outcome: TerminalOutcome): Promise<void> {
+    if (terminalFinalizeAttempted) {
+      throw Object.assign(
+        new Error("Execution finalization state is unknown"),
+        {
+          code: "GUARD_STORE_FAILED",
+        },
+      );
+    }
+
+    terminalFinalizeAttempted = true;
+    terminalOutcome = outcome;
+
+    try {
+      await finalizeGuardedExecution({
+        runId: params.runId,
+        userId: params.userId,
+        ruleId: params.ruleId,
+        leaseIdHash: params.leaseIdHash,
+        finalization: outcome.finalization,
+      });
+      terminalFinalizeSucceeded = true;
+    } catch (error) {
+      console.error("[executeRule] terminal finalize failed", {
+        code: "GUARD_STORE_FAILED",
+        errorName: error instanceof Error ? error.name : "UnknownError",
+        stage: "terminal_finalize",
+      });
+      throw Object.assign(
+        new Error("Execution finalization state is unknown"),
+        {
+          code: "GUARD_STORE_FAILED",
+        },
+      );
+    }
+  }
 
   try {
     const { data: rule } = await supabaseAdmin
@@ -435,11 +470,7 @@ export async function executeRule(
     if (!messageIds.length) {
       const message = "No emails found";
 
-      await finalizeGuardedExecution({
-        runId: params.runId,
-        userId: params.userId,
-        ruleId: params.ruleId,
-        leaseIdHash: params.leaseIdHash,
+      const outcome: TerminalOutcome = {
         finalization: {
           status: "success",
           processedCount: 0,
@@ -447,21 +478,24 @@ export async function executeRule(
           skippedCount: 0,
           message,
         },
-      });
+        result: {
+          ok: true,
+          processedCount: 0,
+          savedCount: 0,
+          skippedCount: 0,
+          errorCode: null,
+          message,
+        },
+      };
+
+      await finalizeTerminal(outcome);
 
       await updateGoogleConnectionHealth({
         userId: params.userId,
         event: "success",
       });
 
-      return {
-        ok: true,
-        processedCount: 0,
-        savedCount: 0,
-        skippedCount: 0,
-        errorCode: null,
-        message,
-      };
+      return outcome.result;
     }
 
     const messageId = messageIds[0];
@@ -475,11 +509,7 @@ export async function executeRule(
     if (processedEmailState.exists) {
       const message = "Skipped 1 already processed email";
 
-      await finalizeGuardedExecution({
-        runId: params.runId,
-        userId: params.userId,
-        ruleId: params.ruleId,
-        leaseIdHash: params.leaseIdHash,
+      const outcome: TerminalOutcome = {
         finalization: {
           status: "success",
           processedCount: 0,
@@ -487,32 +517,32 @@ export async function executeRule(
           skippedCount: 1,
           message,
         },
-      });
+        result: {
+          ok: true,
+          processedCount: 0,
+          savedCount: 0,
+          skippedCount: 1,
+          errorCode: null,
+          message,
+        },
+      };
+
+      await finalizeTerminal(outcome);
 
       await updateGoogleConnectionHealth({
         userId: params.userId,
         event: "success",
       });
 
-      return {
-        ok: true,
-        processedCount: 0,
-        savedCount: 0,
-        skippedCount: 1,
-        errorCode: null,
-        message,
-      };
+      return outcome.result;
     }
 
     const monthlyLimit = await checkFreeMonthlyPdfSaveLimit(params.userId);
 
     if (!monthlyLimit.ok) {
-      return finalizeFreeMonthlyLimit({
-        runId: params.runId,
-        userId: params.userId,
-        ruleId: params.ruleId,
-        leaseIdHash: params.leaseIdHash,
-      });
+      const outcome = getFreeMonthlyLimitOutcome();
+      await finalizeTerminal(outcome);
+      return outcome.result;
     }
 
     const message = await getGmailMessage({
@@ -677,12 +707,9 @@ export async function executeRule(
     const uploadLimit = await checkFreeMonthlyPdfSaveLimit(params.userId);
 
     if (!uploadLimit.ok) {
-      return finalizeFreeMonthlyLimit({
-        runId: params.runId,
-        userId: params.userId,
-        ruleId: params.ruleId,
-        leaseIdHash: params.leaseIdHash,
-      });
+      const outcome = getFreeMonthlyLimitOutcome();
+      await finalizeTerminal(outcome);
+      return outcome.result;
     }
 
     const driveStageStartedAtMs = Date.now();
@@ -759,11 +786,7 @@ export async function executeRule(
         ? `Saved ${savedCount} files to Drive`
         : "Saved 1 PDF to Drive";
 
-    await finalizeGuardedExecution({
-      runId: params.runId,
-      userId: params.userId,
-      ruleId: params.ruleId,
-      leaseIdHash: params.leaseIdHash,
+    const outcome: TerminalOutcome = {
       finalization: {
         status: "success",
         processedCount: 1,
@@ -771,22 +794,37 @@ export async function executeRule(
         skippedCount: skippedAttachmentCount,
         message: successMessage,
       },
-    });
+      result: {
+        ok: true,
+        processedCount: 1,
+        savedCount,
+        skippedCount: skippedAttachmentCount,
+        errorCode: null,
+        message: successMessage,
+      },
+    };
+
+    await finalizeTerminal(outcome);
 
     await updateGoogleConnectionHealth({
       userId: params.userId,
       event: "success",
     });
 
-    return {
-      ok: true,
-      processedCount: 1,
-      savedCount,
-      skippedCount: skippedAttachmentCount,
-      errorCode: null,
-      message: successMessage,
-    };
+    return outcome.result;
   } catch (error) {
+    const finalizedOutcome = terminalOutcome as TerminalOutcome | null;
+    if (terminalFinalizeAttempted) {
+      if (!terminalFinalizeSucceeded || !finalizedOutcome) throw error;
+
+      console.error("[monitoring] Google connection health update failed", {
+        code: "GOOGLE_CONNECTION_HEALTH_UPDATE_FAILED",
+        errorName: error instanceof Error ? error.name : "UnknownError",
+        location: "execute_rule_success_health",
+      });
+      return finalizedOutcome.result;
+    }
+
     const errorCode = normalizeRunErrorCode(error);
     console.error("[executeRule] failed", {
       code: errorCode,
@@ -801,18 +839,24 @@ export async function executeRule(
       ? `${userFacing.title}。${detail}`
       : userFacing.title;
 
-    await finalizeGuardedExecution({
-      runId: params.runId,
-      userId: params.userId,
-      ruleId: params.ruleId,
-      leaseIdHash: params.leaseIdHash,
+    const outcome: TerminalOutcome = {
       finalization: {
         status: "error",
         errorCode,
         resetCounts: false,
         message: safeMessage,
       },
-    });
+      result: {
+        ok: false,
+        processedCount: 0,
+        savedCount: 0,
+        skippedCount: 0,
+        errorCode,
+        message: safeMessage,
+      },
+    };
+
+    await finalizeTerminal(outcome);
 
     if (SLACK_NOTIFY_ERROR_CODES.has(errorCode)) {
       try {
@@ -834,11 +878,20 @@ export async function executeRule(
       }
     }
 
-    await updateGoogleConnectionHealth({
-      userId: params.userId,
-      event: "error",
-      errorCode,
-    });
+    try {
+      await updateGoogleConnectionHealth({
+        userId: params.userId,
+        event: "error",
+        errorCode,
+      });
+    } catch (healthError) {
+      console.error("[monitoring] Google connection health update failed", {
+        code: "GOOGLE_CONNECTION_HEALTH_UPDATE_FAILED",
+        errorName:
+          healthError instanceof Error ? healthError.name : "UnknownError",
+        location: "execute_rule_error_health",
+      });
+    }
 
     if (USER_NOTIFY_ERROR_CODES.has(errorCode)) {
       try {
@@ -865,13 +918,6 @@ export async function executeRule(
       }
     }
 
-    return {
-      ok: false,
-      processedCount: 0,
-      savedCount: 0,
-      skippedCount: 0,
-      errorCode,
-      message: safeMessage,
-    };
+    return outcome.result;
   }
 }

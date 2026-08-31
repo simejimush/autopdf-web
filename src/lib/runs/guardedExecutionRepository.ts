@@ -13,7 +13,6 @@ const repository = createGuardedExecutionRepository({
     const { supabaseAdmin } = await import("@/lib/supabase/admin");
     return supabaseAdmin as unknown as GuardedExecutionSupabaseClient;
   },
-  now: () => new Date().toISOString(),
   createLeaseIdHash: () =>
     createHash("sha256").update(randomBytes(32)).digest("hex"),
 });

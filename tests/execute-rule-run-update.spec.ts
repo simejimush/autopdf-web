@@ -74,6 +74,7 @@ function loadExecuteRule(options?: {
   errorStage?: string;
   processedInsertError?: boolean;
   finalizeError?: Error;
+  healthError?: Error;
   slackError?: Error;
   userNotifyError?: Error;
   returnedRuleId?: string;
@@ -305,6 +306,7 @@ function loadExecuteRule(options?: {
       return {
         async updateGoogleConnectionHealth(input: unknown) {
           calls.health.push(input);
+          if (options?.healthError) throw options.healthError;
         },
       };
     }
@@ -1123,22 +1125,82 @@ test("processed-email repository failure records run error after Drive save with
   });
 });
 
-test("repository failure cannot be reported as success and executeRule has no direct Runs query", async () => {
+test("success finalizer failure stays uncertain and never attempts a second finalize", async () => {
   const harness = loadExecuteRule({
     messageIds: [],
-    finalizeError: new Error("Run update failed"),
+    finalizeError: new Error("raw run update failure"),
   });
 
-  await expect(harness.executeRule(harness.input)).rejects.toThrow(
-    "Run update failed",
+  await expect(harness.executeRule(harness.input)).rejects.toMatchObject({
+    code: "GUARD_STORE_FAILED",
+    message: "Execution finalization state is unknown",
+  });
+  expect(harness.calls.finalizations).toHaveLength(1);
+  expect(JSON.stringify(harness.calls.consoleErrors)).not.toContain(
+    "raw run update failure",
   );
-  expect(harness.calls.finalizations).toHaveLength(2);
   expect(harness.calls.forbiddenRunQueries).toHaveLength(0);
   expect(harness.calls.forbiddenProcessedQueries).toHaveLength(0);
   expect(harness.source).not.toContain('.from("runs")');
   expect(harness.source).not.toContain('.from("processed_emails")');
   expect(harness.source).not.toContain(".insert({\n        user_id:");
   expect(harness.source).not.toContain("raw service-role run update details");
+});
+
+test("error finalizer failure stays uncertain and never attempts a second finalize", async () => {
+  const harness = loadExecuteRule({
+    messageIds: [MESSAGE_ID],
+    failAt: "search",
+    errorCode: "TIMEOUT",
+    finalizeError: new Error("raw error finalize failure"),
+  });
+
+  await expect(harness.executeRule(harness.input)).rejects.toMatchObject({
+    code: "GUARD_STORE_FAILED",
+    message: "Execution finalization state is unknown",
+  });
+  expect(harness.calls.finalizations).toHaveLength(1);
+  expect(harness.calls.finalizations[0].finalization.status).toBe("error");
+  expect(JSON.stringify(harness.calls.consoleErrors)).not.toContain(
+    "raw error finalize failure",
+  );
+});
+
+test("success health failure cannot rewrite the finalized terminal outcome", async () => {
+  const harness = loadExecuteRule({
+    messageIds: [],
+    healthError: new Error("raw success health failure"),
+  });
+
+  await expect(harness.executeRule(harness.input)).resolves.toMatchObject({
+    ok: true,
+    errorCode: null,
+    message: "No emails found",
+  });
+  expect(harness.calls.finalizations).toHaveLength(1);
+  expect(harness.calls.finalizations[0].finalization.status).toBe("success");
+  expect(JSON.stringify(harness.calls.consoleErrors)).not.toContain(
+    "raw success health failure",
+  );
+});
+
+test("error health failure stays secondary to the finalized business error", async () => {
+  const harness = loadExecuteRule({
+    messageIds: [MESSAGE_ID],
+    failAt: "search",
+    errorCode: "GOOGLE_TOKEN_INVALID",
+    healthError: new Error("raw error health failure"),
+  });
+
+  await expect(harness.executeRule(harness.input)).resolves.toMatchObject({
+    ok: false,
+    errorCode: "GOOGLE_TOKEN_INVALID",
+  });
+  expect(harness.calls.finalizations).toHaveLength(1);
+  expect(harness.calls.finalizations[0].finalization.status).toBe("error");
+  expect(JSON.stringify(harness.calls.consoleErrors)).not.toContain(
+    "raw error health failure",
+  );
 });
 
 test("the authenticated owner is never replaced by a request-style alternate owner", async () => {

@@ -9,7 +9,6 @@ const USER_ID = "44444444-4444-4444-8444-444444444444";
 const RULE_ID = "66666666-6666-4666-8666-666666666666";
 const RUN_ID = "88888888-8888-4888-8888-888888888888";
 const LEASE_ID_HASH = "a".repeat(64);
-const NOW = "2026-08-30T12:00:00.000Z";
 const EXPIRES = "2026-08-30T12:01:15.000Z";
 
 type RpcResponse = Readonly<{ data: unknown; error: unknown }>;
@@ -30,7 +29,6 @@ function createHarness(responses: RpcResponse[]) {
   };
   const repository = createGuardedExecutionRepository({
     getClient: () => client,
-    now: () => NOW,
     createLeaseIdHash: () => LEASE_ID_HASH,
   });
 
@@ -83,10 +81,10 @@ test("valid claim passes only server-owned identity and returns the lease contra
         p_rule_id: RULE_ID,
         p_trigger: "manual",
         p_lease_id_hash: LEASE_ID_HASH,
-        p_now: NOW,
       },
     },
   ]);
+  expect(harness.calls[0].parameters).not.toHaveProperty("p_now");
 });
 
 test("preserves each fixed expected rejection without a run or lease", async () => {
@@ -191,6 +189,7 @@ test("valid success and error finalization use one guarded RPC", async () => {
       p_lease_id_hash: LEASE_ID_HASH,
       p_status: finalization.status,
     });
+    expect(harness.calls[0].parameters).not.toHaveProperty("p_now");
   }
 });
 
