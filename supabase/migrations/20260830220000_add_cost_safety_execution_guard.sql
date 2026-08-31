@@ -43,7 +43,7 @@ declare
   function_source_hashes constant text[] := array[
     '707dea2c3e22fe3cdeb45ea17e697a97',
     'acb72251d3979a718d8305c939445caf',
-    '9d1a6fee8f6ed41fe69edefe6653af31'
+    'f85ee47efbed376c6e552f058b32c28e'
   ];
   present_count integer;
   function_count integer;
@@ -201,7 +201,7 @@ begin
       and not exists (
         select 1
         from pg_catalog.aclexplode(
-          pg_catalog.coalesce(c.relacl, pg_catalog.acldefault('r', c.relowner))
+          coalesce(c.relacl, pg_catalog.acldefault('r', c.relowner))
         ) acl
         where acl.grantee <> c.relowner
       )
@@ -730,7 +730,7 @@ as $function$
         order by r.created_at asc, r.id asc
       ) as user_rank
     from public.rules r
-    where pg_catalog.coalesce(r.is_active, r.is_enabled, true) = true
+    where coalesce(r.is_active, r.is_enabled, true) = true
   )
   select ranked.rule_id, ranked.user_id
   from ranked

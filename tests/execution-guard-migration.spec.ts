@@ -62,6 +62,13 @@ test("Migration A is transactional, bounded, and preflights before mutation", ()
   );
   expect(normalized).toContain("if present_count = 0 and function_count = 0");
   expect(normalized).toContain("if present_count <> 7 or function_count <> 3");
+  expect(normalized).not.toContain("pg_catalog.coalesce");
+  expect(normalized).toContain(
+    "coalesce(c.relacl, pg_catalog.acldefault('r', c.relowner))",
+  );
+  expect(normalized).toContain(
+    "where coalesce(r.is_active, r.is_enabled, true) = true",
+  );
 });
 
 test("preflight rejects non-canonical lease constraints, indexes, RLS, owner, and ACL", () => {
