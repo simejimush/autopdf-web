@@ -1,19 +1,23 @@
 import "server-only";
 
+import { createHash, randomBytes } from "node:crypto";
 import {
-  createProcessedEmailRepository,
-  type ProcessedEmailSupabaseClient,
-} from "@/lib/runs/processedEmailRepositoryCore";
+  createProcessedEmailReservationRepository,
+  type ProcessedEmailReservationSupabaseClient,
+} from "@/lib/runs/processedEmailReservationRepositoryCore";
 
-const processedEmailRepository = createProcessedEmailRepository({
+const processedEmailRepository = createProcessedEmailReservationRepository({
   async getClient() {
     const { supabaseAdmin } = await import("@/lib/supabase/admin");
-    return supabaseAdmin as unknown as ProcessedEmailSupabaseClient;
+    return supabaseAdmin as unknown as ProcessedEmailReservationSupabaseClient;
   },
-  now: () => new Date().toISOString(),
+  createReservationIdHash: () =>
+    createHash("sha256").update(randomBytes(32)).digest("hex"),
 });
 
-export const recordProcessedEmail =
-  processedEmailRepository.recordProcessedEmail;
-export const getProcessedEmailState =
-  processedEmailRepository.getProcessedEmailState;
+export const reserveProcessedEmail =
+  processedEmailRepository.reserveProcessedEmail;
+export const markProcessedEmailDriveStarted =
+  processedEmailRepository.markProcessedEmailDriveStarted;
+export const completeProcessedEmail =
+  processedEmailRepository.completeProcessedEmail;

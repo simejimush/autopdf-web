@@ -44,8 +44,12 @@ function getServerMonthRange(now = new Date()): {
   monthStart: string;
   nextMonthStart: string;
 } {
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const monthStart = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+  );
+  const nextMonthStart = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1),
+  );
 
   return {
     monthStart: monthStart.toISOString(),
@@ -78,8 +82,9 @@ export async function getMonthlyPdfSaveUsage(userId: string): Promise<{
     .from("processed_emails")
     .select("id", { count: "exact", head: true })
     .eq("user_id", userId)
-    .gte("saved_at", monthStart)
-    .lt("saved_at", nextMonthStart);
+    .eq("processing_status", "completed")
+    .gte("completed_at", monthStart)
+    .lt("completed_at", nextMonthStart);
 
   if (error) {
     throw new Error("Failed to count monthly PDF saves");

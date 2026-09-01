@@ -82,14 +82,24 @@ function loadDrive(options?: {
         filename: string;
         bytes: Uint8Array | Buffer;
         mimeType: string;
-      }) => Promise<{ fileId: string; webViewLink: string | null }>;
+        onCreateRequestStarted?: () => void | Promise<void>;
+      }) => Promise<{
+        fileId: string;
+        webViewLink: string | null;
+        created: boolean;
+      }>;
       uploadPdfToDrive: (input: {
         userId: string;
         folderId: string;
         filename: string;
         pdfBytes: Uint8Array;
         budget?: { getTimeoutMs: () => number | null };
-      }) => Promise<{ fileId: string; webViewLink: string | null }>;
+        onCreateRequestStarted?: () => void | Promise<void>;
+      }) => Promise<{
+        fileId: string;
+        webViewLink: string | null;
+        created: boolean;
+      }>;
     },
   };
 
@@ -222,6 +232,7 @@ test("an existing file skips create and records only safe booleans", async () =>
   });
 
   expect(result.fileId).toBe("existing-file");
+  expect(result.created).toBe(false);
   expect(harness.calls.auth).toBe(1);
   expect(harness.calls.list).toBe(1);
   expect(harness.calls.create).toHaveLength(0);
@@ -261,7 +272,7 @@ test("media preparation fails closed before create with a fixed safe error", asy
   expect(JSON.stringify(error)).not.toContain("private-filename-marker");
 });
 
-test("create failures hide raw provider details and preserve credential codes", async () => {
+test("no-response and 5xx create failures are outcome-unknown without retry", async () => {
   const rawMarker = "raw-provider-request-secret-marker";
   const failed = loadDrive({ createError: new Error(rawMarker) });
   const safeError = await failed
@@ -274,11 +285,42 @@ test("create failures hide raw provider details and preserve credential codes", 
     .catch((caught) => caught);
 
   expect(safeError).toMatchObject({
-    code: "DRIVE_UPLOAD_FAILED",
+    code: "DRIVE_UPLOAD_OUTCOME_UNKNOWN",
     stage: "drive_create_request",
   });
   expect(safeError.message).not.toContain(rawMarker);
   expect(JSON.stringify(safeError)).not.toContain(rawMarker);
+
+  const unavailable = loadDrive({
+    createError: Object.assign(new Error(rawMarker), {
+      response: { status: 503 },
+    }),
+  });
+  await expect(
+    unavailable.uploadPdfToDrive({
+      userId: "user-id",
+      folderId: "private-folder-marker",
+      filename: "private-filename-marker.pdf",
+      pdfBytes: new Uint8Array([1]),
+    }),
+  ).rejects.toMatchObject({ code: "DRIVE_UPLOAD_OUTCOME_UNKNOWN" });
+  expect(unavailable.calls.create).toHaveLength(1);
+});
+
+test("explicit 4xx create failure is definite and credential codes are preserved", async () => {
+  const definite = loadDrive({
+    createError: Object.assign(new Error("raw provider detail"), {
+      response: { status: 400 },
+    }),
+  });
+  await expect(
+    definite.uploadPdfToDrive({
+      userId: "user-id",
+      folderId: "private-folder-marker",
+      filename: "private-filename-marker.pdf",
+      pdfBytes: new Uint8Array([1]),
+    }),
+  ).rejects.toMatchObject({ code: "DRIVE_UPLOAD_FAILED" });
 
   for (const code of [
     "GOOGLE_TOKEN_INVALID",
@@ -303,4 +345,34 @@ test("create failures hide raw provider details and preserve credential codes", 
 
     expect(caught).toBe(credentialError);
   }
+});
+
+test("the reservation callback runs once immediately before a new create", async () => {
+  const harness = loadDrive();
+  const order: string[] = [];
+  await harness.uploadPdfToDrive({
+    userId: "user-id",
+    folderId: "private-folder-marker",
+    filename: "private-filename-marker.pdf",
+    pdfBytes: new Uint8Array([1]),
+    onCreateRequestStarted() {
+      order.push("marked");
+      expect(harness.calls.create).toHaveLength(0);
+    },
+  });
+  expect(order).toEqual(["marked"]);
+  expect(harness.calls.create).toHaveLength(1);
+
+  const existing = loadDrive({ existing: true });
+  let existingCallbackCount = 0;
+  await existing.uploadPdfToDrive({
+    userId: "user-id",
+    folderId: "private-folder-marker",
+    filename: "private-filename-marker.pdf",
+    pdfBytes: new Uint8Array([1]),
+    onCreateRequestStarted() {
+      existingCallbackCount += 1;
+    },
+  });
+  expect(existingCallbackCount).toBe(0);
 });

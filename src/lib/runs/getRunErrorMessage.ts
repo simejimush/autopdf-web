@@ -79,6 +79,13 @@ export function getRunErrorMessage(
         action: "時間をおいて再実行してください。",
       };
 
+    case "DRIVE_UPLOAD_OUTCOME_UNKNOWN":
+      return {
+        title: "Google Driveへの保存結果を確認できませんでした",
+        message: "重複保存を避けるため、このメールの自動再実行を停止しました。",
+        action: "再実行せず、管理者に確認してください。",
+      };
+
     case "DRIVE_FOLDER_INVALID":
       return {
         title: "保存先フォルダを確認してください",
@@ -121,6 +128,27 @@ export function getRunErrorMessage(
         title: "今月の保存上限に達しました",
         message: "Freeプランの今月のPDF保存上限に達しています。",
         action: "翌月まで待つか、プランの変更をご検討ください。",
+      };
+
+    case "DAILY_PROCESSED_EMAIL_LIMIT_EXCEEDED":
+      return {
+        title: "本日の保存上限に達しました",
+        message: "安全のため、本日処理できるメール数を制限しています。",
+        action: "UTC日付の更新後に再実行してください。",
+      };
+
+    case "MONTHLY_PROCESSED_EMAIL_LIMIT_EXCEEDED":
+      return {
+        title: "今月の保存上限に達しました",
+        message: "現在のプランで今月処理できるメール数の上限です。",
+        action: "翌月まで待ってから再実行してください。",
+      };
+
+    case "DRIVE_BYTE_LIMIT_EXCEEDED":
+      return {
+        title: "今月の保存容量上限に達しました",
+        message: "Google Driveへ安全に保存できる容量の上限です。",
+        action: "翌月まで待ってから再実行してください。",
       };
 
     case "ATTACHMENT_COUNT_LIMIT_EXCEEDED":

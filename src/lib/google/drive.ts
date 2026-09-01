@@ -76,6 +76,16 @@ export class DriveUploadError extends Error {
   }
 }
 
+export class DriveUploadOutcomeUnknownError extends Error {
+  readonly code = "DRIVE_UPLOAD_OUTCOME_UNKNOWN";
+  readonly stage: DriveUploadStage = "drive_create_request";
+
+  constructor() {
+    super("DRIVE_UPLOAD_OUTCOME_UNKNOWN");
+    this.name = "DriveUploadOutcomeUnknownError";
+  }
+}
+
 function getExplicitErrorCode(error: unknown) {
   if (!error || typeof error !== "object") return undefined;
 
@@ -94,6 +104,39 @@ function throwDriveUploadError(error: unknown, stage: DriveUploadStage): never {
   }
 
   throw new DriveUploadError(stage);
+}
+
+function getDriveResponseStatus(error: unknown): number | null {
+  if (!error || typeof error !== "object") return null;
+  try {
+    if (
+      !("response" in error) ||
+      !error.response ||
+      typeof error.response !== "object"
+    ) {
+      return null;
+    }
+    const response = error.response as Record<string, unknown>;
+    return typeof response.status === "number" ? response.status : null;
+  } catch {
+    return null;
+  }
+}
+
+function throwDriveCreateError(error: unknown): never {
+  const code = getExplicitErrorCode(error);
+  if (
+    typeof code === "string" &&
+    code !== "TIMEOUT" &&
+    GOOGLE_CREDENTIAL_ERROR_CODES.has(code)
+  ) {
+    throw error;
+  }
+  const status = getDriveResponseStatus(error);
+  if (status === null || status >= 500) {
+    throw new DriveUploadOutcomeUnknownError();
+  }
+  throwDriveUploadError(error, "drive_create_request");
 }
 
 function logDriveStage(
@@ -168,6 +211,7 @@ export async function uploadFileToDrive(params: {
   bytes: Uint8Array | Buffer;
   mimeType: string;
   budget?: DriveRequestBudget;
+  onCreateRequestStarted?: () => void | Promise<void>;
 }) {
   let drive: DriveClient;
 
@@ -198,7 +242,7 @@ export async function uploadFileToDrive(params: {
 
   if (existing) {
     logDriveStage("drive_existing_match", { existingMatch: true });
-    return existing;
+    return { ...existing, created: false };
   }
 
   let mediaBody: Readable;
@@ -215,6 +259,10 @@ export async function uploadFileToDrive(params: {
   }
 
   let res;
+
+  if (params.onCreateRequestStarted) {
+    await params.onCreateRequestStarted();
+  }
 
   try {
     logDriveStage("drive_create_request");
@@ -234,12 +282,13 @@ export async function uploadFileToDrive(params: {
       getDriveRequestOptions({ budget: params.budget, retryCount: 0 }),
     );
   } catch (error) {
-    throwDriveUploadError(error, "drive_create_request");
+    throwDriveCreateError(error);
   }
 
   return {
     fileId: res.data.id!,
     webViewLink: res.data.webViewLink ?? null,
+    created: true,
   };
 }
 
@@ -249,6 +298,7 @@ export async function uploadPdfToDrive(params: {
   filename: string;
   pdfBytes: Uint8Array;
   budget?: DriveRequestBudget;
+  onCreateRequestStarted?: () => void | Promise<void>;
 }) {
   return uploadFileToDrive({
     userId: params.userId,
@@ -257,5 +307,6 @@ export async function uploadPdfToDrive(params: {
     bytes: params.pdfBytes,
     mimeType: "application/pdf",
     budget: params.budget,
+    onCreateRequestStarted: params.onCreateRequestStarted,
   });
 }

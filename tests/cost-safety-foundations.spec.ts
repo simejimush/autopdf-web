@@ -5,6 +5,10 @@ import { runInNewContext } from "node:vm";
 import ts from "typescript";
 
 const COST_SAFETY_DIR = resolve(process.cwd(), "src/lib/cost-safety");
+const freePlanLimitSource = readFileSync(
+  resolve(process.cwd(), "src/lib/rules/freePlanLimit.ts"),
+  "utf8",
+);
 
 type LoadedModule = Record<string, unknown>;
 
@@ -125,6 +129,20 @@ test("defines every Phase 2B cost safety limit exactly", () => {
     OPENAI_MAX_OUTPUT_TOKENS: 20,
     OPENAI_MAX_CALLS_PER_EMAIL: 1,
   });
+});
+
+test("keeps Free monthly 10 and reads only completed rows on UTC boundaries", () => {
+  expect(freePlanLimitSource).toContain(
+    "export const FREE_MONTHLY_PDF_SAVE_LIMIT = 10",
+  );
+  expect(freePlanLimitSource).toContain("now.getUTCFullYear()");
+  expect(freePlanLimitSource).toContain("now.getUTCMonth()");
+  expect(freePlanLimitSource).toContain(
+    '.eq("processing_status", "completed")',
+  );
+  expect(freePlanLimitSource).toContain('.gte("completed_at", monthStart)');
+  expect(freePlanLimitSource).toContain('.lt("completed_at", nextMonthStart)');
+  expect(freePlanLimitSource).not.toContain('.gte("saved_at", monthStart)');
 });
 
 test("measures raw email bodies by UTF-8 bytes at ASCII and multibyte boundaries", () => {

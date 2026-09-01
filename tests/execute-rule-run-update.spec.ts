@@ -57,6 +57,13 @@ function loadExecuteRule(options?: {
   messageIds?: string[];
   existingProcessed?: boolean;
   processedLookupError?: Error;
+  reservationErrorCode?:
+    | "ACTIVE_RESERVATION"
+    | "OUTCOME_UNKNOWN"
+    | "DAILY_PROCESSED_EMAIL_LIMIT_EXCEEDED"
+    | "FREE_MONTHLY_LIMIT_EXCEEDED"
+    | "MONTHLY_PROCESSED_EMAIL_LIMIT_EXCEEDED"
+    | "DRIVE_BYTE_LIMIT_EXCEEDED";
   limitOk?: boolean;
   limitResults?: boolean[];
   limitErrorAt?: number;
@@ -221,25 +228,72 @@ function loadExecuteRule(options?: {
     }
     if (specifier === "@/lib/runs/processedEmailRepository") {
       return {
-        async getProcessedEmailState(input: {
+        async reserveProcessedEmail(input: {
+          runId: string;
           userId: string;
           ruleId: string;
           gmailMessageId: string;
         }) {
-          calls.order.push("processed_email:lookup");
+          calls.order.push("processed_email:reserve");
           calls.processedLookups.push(input);
           if (options?.processedLookupError) {
             throw options.processedLookupError;
           }
-          return { exists: options?.existingProcessed ?? false };
+          if (options?.reservationErrorCode) {
+            return {
+              reserved: false,
+              completed: false,
+              errorCode: options.reservationErrorCode,
+            };
+          }
+          const checkIndex = calls.limitChecks.length;
+          calls.limitChecks.push(USER_ID);
+          if (options?.limitErrorAt === checkIndex) {
+            throw new Error("raw quota count failure");
+          }
+          const limitOk =
+            options?.limitResults?.at(-1) ?? options?.limitOk ?? true;
+          if (!limitOk) {
+            return {
+              reserved: false,
+              completed: false,
+              errorCode: "FREE_MONTHLY_LIMIT_EXCEEDED",
+            };
+          }
+          if (options?.existingProcessed) {
+            return { reserved: false, completed: true };
+          }
+          return {
+            reserved: true,
+            reservationIdHash: "b".repeat(64),
+            reservationExpiresAt: "2026-09-01T00:01:15.000Z",
+          };
         },
-        async recordProcessedEmail(input: ProcessedEmailCall) {
-          calls.order.push("processed_email:record");
-          calls.processedEmails.push(input);
+        async markProcessedEmailDriveStarted() {
+          calls.order.push("processed_email:mark_drive_started");
+        },
+        async completeProcessedEmail(input: {
+          userId: string;
+          ruleId: string;
+          gmailMessageId: string;
+          driveFileId: string;
+          driveWebViewLink: string | null;
+          driveFileName: string;
+        }) {
+          calls.order.push("processed_email:complete");
+          calls.processedEmails.push({
+            userId: input.userId,
+            ruleId: input.ruleId,
+            gmailMessageId: input.gmailMessageId,
+            drive: {
+              fileId: input.driveFileId,
+              webViewLink: input.driveWebViewLink,
+              fileName: input.driveFileName,
+            },
+          });
           if (options?.processedInsertError) {
             throw new Error("Processed email storage failed");
           }
-          return { id: "99999999-9999-4999-8999-999999999999" };
         },
       };
     }
@@ -280,19 +334,35 @@ function loadExecuteRule(options?: {
       };
     }
     if (specifier === "@/lib/google/drive") {
+      class DriveUploadOutcomeUnknownError extends Error {
+        code = "DRIVE_UPLOAD_OUTCOME_UNKNOWN";
+        stage = "drive_create_request";
+      }
       return {
-        async uploadPdfToDrive() {
+        DriveUploadOutcomeUnknownError,
+        async uploadPdfToDrive(input: {
+          onCreateRequestStarted?: () => Promise<void>;
+        }) {
           if (options?.failAt === "drive") {
             throw Object.assign(codedError(errorCode), {
               ...(options?.errorStage ? { stage: options.errorStage } : {}),
             });
           }
+          await input.onCreateRequestStarted?.();
           calls.order.push("drive:pdf");
-          return { fileId: "file-id", webViewLink: "https://safe.invalid" };
+          return {
+            fileId: "file-id",
+            webViewLink: "https://safe.invalid",
+            created: true,
+          };
         },
-        async uploadFileToDrive() {
+        async uploadFileToDrive(input: {
+          onCreateRequestStarted?: () => Promise<void>;
+        }) {
+          await input.onCreateRequestStarted?.();
           calls.order.push("drive:attachment");
           calls.attachmentUploads += 1;
+          return { fileId: "attachment-id", webViewLink: null, created: true };
         },
       };
     }
@@ -371,6 +441,7 @@ function loadExecuteRule(options?: {
         EXECUTION_ABSOLUTE_DEADLINE_MS: 60_000,
         GMAIL_CUMULATIVE_TIMEOUT_MS: 15_000,
         OPENAI_TIMEOUT_MS: 8_000,
+        TOTAL_DRIVE_WRITE_PER_EMAIL_LIMIT_BYTES: 35 * 1_024 * 1_024,
       };
     }
     if (specifier === "@/lib/cost-safety/deadline") {
@@ -505,15 +576,14 @@ test("already-processed and Free-limit outcomes preserve counts and messages", a
       errorCode: null,
       message: "Skipped 1 already processed email",
     });
-    expect(skipped.calls.processedLookups).toEqual([
-      {
-        userId: USER_ID,
-        ruleId: RULE_ID,
-        gmailMessageId: MESSAGE_ID,
-      },
-    ]);
+    expect(skipped.calls.processedLookups).toHaveLength(1);
+    expect(skipped.calls.processedLookups[0]).toMatchObject({
+      userId: USER_ID,
+      ruleId: RULE_ID,
+      gmailMessageId: MESSAGE_ID,
+    });
     expect(skipped.calls.order).toEqual([
-      "processed_email:lookup",
+      "processed_email:reserve",
       "run:success",
     ]);
     expect(skipped.calls.health).toEqual([
@@ -547,7 +617,72 @@ test("already-processed and Free-limit outcomes preserve counts and messages", a
   expect(limited.calls.limitChecks).toEqual([USER_ID]);
 });
 
-test("a final Free-limit recheck stops before any Drive upload", async () => {
+test("an active same-email reservation loses before every provider-capable stage", async () => {
+  const harness = loadExecuteRule({
+    messageIds: [MESSAGE_ID],
+    reservationErrorCode: "ACTIVE_RESERVATION",
+  });
+  const result = await harness.executeRule(harness.input);
+  expect(result).toMatchObject({
+    ok: true,
+    processedCount: 0,
+    savedCount: 0,
+    skippedCount: 1,
+  });
+  expect(harness.calls.gmailFetches).toBe(0);
+  expect(harness.calls.gmailAttachmentDownloads).toBe(0);
+  expect(harness.calls.aiCalls).toBe(0);
+  expect(harness.calls.pdfCalls).toBe(0);
+  expect(harness.calls.order).toEqual([
+    "processed_email:reserve",
+    "run:success",
+  ]);
+  expect(harness.calls.attachmentUploads).toBe(0);
+});
+
+test("every atomic quota rejection stops before Drive and keeps its formal code", async () => {
+  for (const errorCode of [
+    "DAILY_PROCESSED_EMAIL_LIMIT_EXCEEDED",
+    "FREE_MONTHLY_LIMIT_EXCEEDED",
+    "MONTHLY_PROCESSED_EMAIL_LIMIT_EXCEEDED",
+    "DRIVE_BYTE_LIMIT_EXCEEDED",
+  ] as const) {
+    const harness = loadExecuteRule({
+      messageIds: [MESSAGE_ID],
+      reservationErrorCode: errorCode,
+    });
+    const result = await harness.executeRule(harness.input);
+    expect(result).toMatchObject({ ok: false, errorCode });
+    expect(harness.calls.gmailFetches).toBe(0);
+    expect(harness.calls.pdfCalls).toBe(0);
+    expect(harness.calls.order).toEqual([
+      "processed_email:reserve",
+      "run:error",
+    ]);
+    expect(harness.calls.finalizations[0].finalization).toMatchObject({
+      status: "error",
+      errorCode,
+      resetCounts: true,
+    });
+  }
+});
+
+test("an existing outcome-unknown reservation blocks automatic Drive retry", async () => {
+  const harness = loadExecuteRule({
+    messageIds: [MESSAGE_ID],
+    reservationErrorCode: "OUTCOME_UNKNOWN",
+  });
+  const result = await harness.executeRule(harness.input);
+  expect(result).toMatchObject({
+    ok: false,
+    errorCode: "DRIVE_UPLOAD_OUTCOME_UNKNOWN",
+  });
+  expect(harness.calls.gmailFetches).toBe(0);
+  expect(harness.calls.pdfCalls).toBe(0);
+  expect(harness.calls.order).toEqual(["processed_email:reserve", "run:error"]);
+});
+
+test("the atomic Free-limit reservation stops before any Drive upload", async () => {
   const harness = loadExecuteRule({
     messageIds: [MESSAGE_ID],
     limitResults: [true, false],
@@ -561,8 +696,8 @@ test("a final Free-limit recheck stops before any Drive upload", async () => {
     processedCount: 0,
     savedCount: 0,
   });
-  expect(harness.calls.limitChecks).toEqual([USER_ID, USER_ID]);
-  expect(harness.calls.order).toEqual(["processed_email:lookup", "run:error"]);
+  expect(harness.calls.limitChecks).toEqual([USER_ID]);
+  expect(harness.calls.order).toEqual(["processed_email:reserve", "run:error"]);
   expect(harness.calls.processedEmails).toHaveLength(0);
   expect(harness.calls.attachmentUploads).toBe(0);
   expect(harness.calls.finalizations).toEqual([
@@ -576,23 +711,23 @@ test("a final Free-limit recheck stops before any Drive upload", async () => {
         errorCode: "FREE_MONTHLY_LIMIT_EXCEEDED",
         resetCounts: true,
         message:
-          "Freeプランの今月のPDF保存上限（10件）に達しています。翌月まで待つか、Proプランへの変更をご検討ください。",
+          "今月の保存上限に達しました。翌月まで待つか、プランの変更をご検討ください。",
       },
     },
   ]);
 });
 
-test("a failed final quota count fails closed before Drive upload", async () => {
+test("a failed atomic reservation fails closed before Drive upload", async () => {
   const harness = loadExecuteRule({
     messageIds: [MESSAGE_ID],
-    limitErrorAt: 1,
+    limitErrorAt: 0,
   });
 
   const result = await harness.executeRule(harness.input);
 
-  expect(result).toMatchObject({ ok: false, errorCode: "UNKNOWN" });
-  expect(harness.calls.limitChecks).toEqual([USER_ID, USER_ID]);
-  expect(harness.calls.order).toEqual(["processed_email:lookup", "run:error"]);
+  expect(result).toMatchObject({ ok: false, errorCode: "DB_INSERT_FAILED" });
+  expect(harness.calls.limitChecks).toEqual([USER_ID]);
+  expect(harness.calls.order).toEqual(["processed_email:reserve", "run:error"]);
   expect(harness.calls.processedEmails).toHaveLength(0);
   expect(harness.calls.attachmentUploads).toBe(0);
   expect(result.message).not.toContain("raw quota count failure");
@@ -619,15 +754,15 @@ test("lookup failure fails closed before Gmail fetch, PDF, or Drive and records 
     processedCount: 0,
     savedCount: 0,
     skippedCount: 0,
-    errorCode: "UNKNOWN",
+    errorCode: "DB_INSERT_FAILED",
   });
   expect(result.message).not.toContain(rawError);
-  expect(harness.calls.order).toEqual(["processed_email:lookup", "run:error"]);
+  expect(harness.calls.order).toEqual(["processed_email:reserve", "run:error"]);
   expect(harness.calls.processedEmails).toHaveLength(0);
   expect(harness.calls.attachmentUploads).toBe(0);
   expect(harness.calls.slack).toHaveLength(1);
   expect(harness.calls.health).toEqual([
-    { userId: USER_ID, event: "error", errorCode: "UNKNOWN" },
+    { userId: USER_ID, event: "error", errorCode: "DB_INSERT_FAILED" },
   ]);
 });
 
@@ -638,9 +773,12 @@ test("only the first Gmail search result is looked up and processed", async () =
   const result = await harness.executeRule(harness.input);
 
   expect(result).toMatchObject({ ok: true, processedCount: 1, savedCount: 1 });
-  expect(harness.calls.processedLookups).toEqual([
-    { userId: USER_ID, ruleId: RULE_ID, gmailMessageId: MESSAGE_ID },
-  ]);
+  expect(harness.calls.processedLookups).toHaveLength(1);
+  expect(harness.calls.processedLookups[0]).toMatchObject({
+    userId: USER_ID,
+    ruleId: RULE_ID,
+    gmailMessageId: MESSAGE_ID,
+  });
   expect(harness.calls.processedEmails[0].gmailMessageId).toBe(MESSAGE_ID);
 });
 
@@ -823,10 +961,11 @@ test("normal and partially-saved success finalize exact owner counts", async () 
     },
   ]);
   expect(harness.calls.order).toEqual([
-    "processed_email:lookup",
+    "processed_email:reserve",
+    "processed_email:mark_drive_started",
     "drive:pdf",
     "drive:attachment",
-    "processed_email:record",
+    "processed_email:complete",
     "run:success",
   ]);
   expect(harness.calls.forbiddenProcessedQueries).toHaveLength(0);
@@ -896,7 +1035,11 @@ test("known Google, DB, and unexpected failures share safe owned finalization", 
     { failAt: "search", errorCode: "GOOGLE_TOKEN_INVALID" },
     { failAt: "search", errorCode: "GOOGLE_TOKEN_REFRESH_FAILED" },
     { failAt: "drive", errorCode: "GOOGLE_PERMISSION_DENIED" },
-    { processedInsertError: true, errorCode: "DB_INSERT_FAILED" },
+    {
+      processedInsertError: true,
+      errorCode: "DB_INSERT_FAILED",
+      expectedErrorCode: "DRIVE_UPLOAD_OUTCOME_UNKNOWN",
+    },
     { failAt: "rule", errorCode: "UNKNOWN" },
   ] as const;
 
@@ -907,7 +1050,11 @@ test("known Google, DB, and unexpected failures share safe owned finalization", 
     });
     const result = await harness.executeRule(harness.input);
 
-    expect(result).toMatchObject({ ok: false, errorCode: scenario.errorCode });
+    const expectedErrorCode =
+      "expectedErrorCode" in scenario
+        ? scenario.expectedErrorCode
+        : scenario.errorCode;
+    expect(result).toMatchObject({ ok: false, errorCode: expectedErrorCode });
     expect(result.message).not.toContain(`raw ${scenario.errorCode} detail`);
     expect(harness.calls.finalizations).toHaveLength(1);
     expect(harness.calls.finalizations[0]).toMatchObject({
@@ -915,7 +1062,7 @@ test("known Google, DB, and unexpected failures share safe owned finalization", 
       userId: USER_ID,
       finalization: {
         status: "error",
-        errorCode: scenario.errorCode,
+        errorCode: expectedErrorCode,
         resetCounts: false,
       },
     });
@@ -1104,14 +1251,15 @@ test("processed-email repository failure records run error after Drive save with
     processedCount: 0,
     savedCount: 0,
     skippedCount: 0,
-    errorCode: "DB_INSERT_FAILED",
+    errorCode: "DRIVE_UPLOAD_OUTCOME_UNKNOWN",
   });
   expect(result.message).not.toContain("Processed email storage failed");
   expect(harness.calls.processedEmails).toHaveLength(1);
   expect(harness.calls.order).toEqual([
-    "processed_email:lookup",
+    "processed_email:reserve",
+    "processed_email:mark_drive_started",
     "drive:pdf",
-    "processed_email:record",
+    "processed_email:complete",
     "run:error",
   ]);
   expect(harness.calls.finalizations[0]).toMatchObject({
@@ -1119,7 +1267,7 @@ test("processed-email repository failure records run error after Drive save with
     userId: USER_ID,
     finalization: {
       status: "error",
-      errorCode: "DB_INSERT_FAILED",
+      errorCode: "DRIVE_UPLOAD_OUTCOME_UNKNOWN",
       resetCounts: false,
     },
   });

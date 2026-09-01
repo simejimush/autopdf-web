@@ -6,20 +6,24 @@ import {
   getGmailAttachment,
   type GmailAttachment,
 } from "@/lib/google/gmail";
-import { uploadFileToDrive, uploadPdfToDrive } from "@/lib/google/drive";
+import {
+  DriveUploadOutcomeUnknownError,
+  uploadFileToDrive,
+  uploadPdfToDrive,
+} from "@/lib/google/drive";
 import { getRunErrorMessage } from "@/lib/runs/getRunErrorMessage";
 import { normalizeRunErrorCode } from "@/lib/runs/normalizeRunErrorCode";
 import { finalizeGuardedExecution } from "@/lib/runs/guardedExecutionRepository";
 import {
-  getProcessedEmailState,
-  recordProcessedEmail,
+  completeProcessedEmail,
+  markProcessedEmailDriveStarted,
+  reserveProcessedEmail,
 } from "@/lib/runs/processedEmailRepository";
 import { updateGoogleConnectionHealth } from "@/lib/monitoring/updateGoogleConnectionHealth";
 import { notifySlack } from "@/lib/monitoring/notifySlack";
 import { notifyUser } from "@/lib/monitoring/notifyUser";
 import { detectDocumentTypeWithAi } from "@/lib/ai/detectDocumentType";
 import { resolveEffectivePlan } from "@/lib/billing/resolveEffectivePlan";
-import { checkFreeMonthlyPdfSaveLimit } from "@/lib/rules/freePlanLimit";
 import {
   normalizeFileNameFormat,
   normalizeFileNameFormatForPlan,
@@ -30,6 +34,7 @@ import {
   EXECUTION_ABSOLUTE_DEADLINE_MS,
   GMAIL_CUMULATIVE_TIMEOUT_MS,
   OPENAI_TIMEOUT_MS,
+  TOTAL_DRIVE_WRITE_PER_EMAIL_LIMIT_BYTES,
 } from "@/lib/cost-safety/limits";
 import { getAllowedStageTimeoutMs } from "@/lib/cost-safety/deadline";
 import { readExecutionDisabledFromEnv } from "@/lib/cost-safety/killSwitch";
@@ -68,6 +73,7 @@ const SLACK_NOTIFY_ERROR_CODES = new Set([
   "GOOGLE_PERMISSION_DENIED",
   "DRIVE_FOLDER_INVALID",
   "DRIVE_UPLOAD_FAILED",
+  "DRIVE_UPLOAD_OUTCOME_UNKNOWN",
   "DB_INSERT_FAILED",
   "TIMEOUT",
   "UNKNOWN",
@@ -77,6 +83,13 @@ const USER_NOTIFY_ERROR_CODES = new Set<string>([
   "GOOGLE_TOKEN_INVALID",
   "GOOGLE_REFRESH_OUTCOME_UNKNOWN",
   "GOOGLE_PERMISSION_DENIED",
+]);
+
+const RESET_COUNT_ERROR_CODES = new Set([
+  "FREE_MONTHLY_LIMIT_EXCEEDED",
+  "DAILY_PROCESSED_EMAIL_LIMIT_EXCEEDED",
+  "MONTHLY_PROCESSED_EMAIL_LIMIT_EXCEEDED",
+  "DRIVE_BYTE_LIMIT_EXCEEDED",
 ]);
 
 const SAFE_RUN_ERROR_STAGES = new Set([
@@ -109,9 +122,6 @@ const ALLOWED_ATTACHMENT_MIME_TYPES = new Set([
   "application/vnd.ms-excel",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 ]);
-
-const FREE_MONTHLY_LIMIT_MESSAGE =
-  "Freeプランの今月のPDF保存上限（10件）に達しています。翌月まで待つか、Proプランへの変更をご検討ください。";
 
 function createCostSafetyError(
   code:
@@ -161,25 +171,6 @@ function getTotalByteLength(bytes: readonly Uint8Array[]) {
   }
 
   return total;
-}
-
-function getFreeMonthlyLimitOutcome(): TerminalOutcome {
-  return {
-    finalization: {
-      status: "error",
-      errorCode: "FREE_MONTHLY_LIMIT_EXCEEDED",
-      resetCounts: true,
-      message: FREE_MONTHLY_LIMIT_MESSAGE,
-    },
-    result: {
-      ok: false,
-      processedCount: 0,
-      savedCount: 0,
-      skippedCount: 0,
-      errorCode: "FREE_MONTHLY_LIMIT_EXCEEDED",
-      message: FREE_MONTHLY_LIMIT_MESSAGE,
-    },
-  };
 }
 
 function sanitizeFilename(value?: string | null, fallback = "file") {
@@ -500,13 +491,23 @@ export async function executeRule(
 
     const messageId = messageIds[0];
 
-    const processedEmailState = await getProcessedEmailState({
-      userId: params.userId,
-      ruleId: rule.id,
-      gmailMessageId: messageId,
-    });
+    let reservation: Awaited<ReturnType<typeof reserveProcessedEmail>>;
+    try {
+      reservation = await reserveProcessedEmail({
+        runId: params.runId,
+        userId: params.userId,
+        ruleId: rule.id,
+        gmailMessageId: messageId,
+        executionLeaseIdHash: params.leaseIdHash,
+        reservedBytes: TOTAL_DRIVE_WRITE_PER_EMAIL_LIMIT_BYTES,
+      });
+    } catch {
+      throw Object.assign(new Error("Processed email reservation failed"), {
+        code: "DB_INSERT_FAILED",
+      });
+    }
 
-    if (processedEmailState.exists) {
+    if (!reservation.reserved && reservation.completed) {
       const message = "Skipped 1 already processed email";
 
       const outcome: TerminalOutcome = {
@@ -537,12 +538,43 @@ export async function executeRule(
       return outcome.result;
     }
 
-    const monthlyLimit = await checkFreeMonthlyPdfSaveLimit(params.userId);
-
-    if (!monthlyLimit.ok) {
-      const outcome = getFreeMonthlyLimitOutcome();
+    if (
+      !reservation.reserved &&
+      reservation.errorCode === "ACTIVE_RESERVATION"
+    ) {
+      const message = "Skipped 1 email reserved by another run";
+      const outcome: TerminalOutcome = {
+        finalization: {
+          status: "success",
+          processedCount: 0,
+          savedCount: 0,
+          skippedCount: 1,
+          message,
+        },
+        result: {
+          ok: true,
+          processedCount: 0,
+          savedCount: 0,
+          skippedCount: 1,
+          errorCode: null,
+          message,
+        },
+      };
       await finalizeTerminal(outcome);
+      await updateGoogleConnectionHealth({
+        userId: params.userId,
+        event: "success",
+      });
       return outcome.result;
+    }
+
+    if (!reservation.reserved) {
+      throw Object.assign(new Error(reservation.errorCode), {
+        code:
+          reservation.errorCode === "OUTCOME_UNKNOWN"
+            ? "DRIVE_UPLOAD_OUTCOME_UNKNOWN"
+            : reservation.errorCode,
+      });
     }
 
     const message = await getGmailMessage({
@@ -704,14 +736,6 @@ export async function executeRule(
       filenameFormat,
     });
 
-    const uploadLimit = await checkFreeMonthlyPdfSaveLimit(params.userId);
-
-    if (!uploadLimit.ok) {
-      const outcome = getFreeMonthlyLimitOutcome();
-      await finalizeTerminal(outcome);
-      return outcome.result;
-    }
-
     const driveStageStartedAtMs = Date.now();
     const driveBudget = {
       getTimeoutMs: () =>
@@ -722,13 +746,29 @@ export async function executeRule(
         }),
     };
 
+    let driveWriteStarted = false;
+    let actualWrittenBytes = 0;
+    const markDriveWriteStarted = async () => {
+      if (driveWriteStarted) return;
+      await markProcessedEmailDriveStarted({
+        runId: params.runId,
+        userId: params.userId,
+        ruleId: rule.id,
+        gmailMessageId: messageId,
+        reservationIdHash: reservation.reservationIdHash,
+      });
+      driveWriteStarted = true;
+    };
+
     const driveResult = await uploadPdfToDrive({
       userId: params.userId,
       folderId: rule.drive_folder_id,
       filename,
       pdfBytes,
       budget: driveBudget,
+      onCreateRequestStarted: markDriveWriteStarted,
     });
+    if (driveResult.created) actualWrittenBytes += pdfBytes.byteLength;
 
     let savedAttachmentCount = 0;
     const skippedAttachmentCount = attachments.filter(
@@ -745,14 +785,28 @@ export async function executeRule(
         attachmentFilename: attachment.filename,
       });
 
-      await uploadFileToDrive({
-        userId: params.userId,
-        folderId: rule.drive_folder_id,
-        filename: attachmentFilename,
-        bytes: attachmentBytes,
-        mimeType: attachment.mimeType || "application/octet-stream",
-        budget: driveBudget,
-      });
+      try {
+        const attachmentResult = await uploadFileToDrive({
+          userId: params.userId,
+          folderId: rule.drive_folder_id,
+          filename: attachmentFilename,
+          bytes: attachmentBytes,
+          mimeType: attachment.mimeType || "application/octet-stream",
+          budget: driveBudget,
+          onCreateRequestStarted: markDriveWriteStarted,
+        });
+        if (attachmentResult.created) {
+          actualWrittenBytes += attachmentBytes.byteLength;
+        }
+      } catch (error) {
+        if (
+          actualWrittenBytes > 0 &&
+          normalizeRunErrorCode(error) !== "DRIVE_UPLOAD_OUTCOME_UNKNOWN"
+        ) {
+          throw new DriveUploadOutcomeUnknownError();
+        }
+        throw error;
+      }
 
       savedAttachmentCount += 1;
     }
@@ -760,22 +814,26 @@ export async function executeRule(
     const savedCount = 1 + savedAttachmentCount;
 
     try {
-      await recordProcessedEmail({
+      await completeProcessedEmail({
+        runId: params.runId,
         userId: params.userId,
         ruleId: rule.id,
         gmailMessageId: messageId,
-        drive: {
-          fileId: driveResult.fileId,
-          webViewLink: driveResult.webViewLink,
-          fileName: filename,
-        },
+        reservationIdHash: reservation.reservationIdHash,
+        driveFileId: driveResult.fileId,
+        driveWebViewLink: driveResult.webViewLink,
+        driveFileName: filename,
+        writtenBytes: actualWrittenBytes,
       });
     } catch {
-      console.error("[executeRule] processed_emails insert failed:", {
-        code: "PROCESSED_EMAIL_INSERT_FAILED",
-        location: "insert_processed_email",
+      console.error("[executeRule] processed email completion failed:", {
+        code: "PROCESSED_EMAIL_COMPLETE_FAILED",
+        location: "complete_processed_email",
       });
 
+      if (actualWrittenBytes > 0) {
+        throw new DriveUploadOutcomeUnknownError();
+      }
       throw Object.assign(new Error("Processed email storage failed"), {
         code: "DB_INSERT_FAILED",
       });
@@ -843,7 +901,7 @@ export async function executeRule(
       finalization: {
         status: "error",
         errorCode,
-        resetCounts: false,
+        resetCounts: RESET_COUNT_ERROR_CODES.has(errorCode),
         message: safeMessage,
       },
       result: {
