@@ -39,11 +39,19 @@ export type GuardedExecutionClaim =
       errorCode: ExecutionGuardRejectionCode;
     }>;
 
+export type CronCandidate = Readonly<{
+  ruleId: string;
+  userId: string;
+}>;
+
 type RpcResult = Readonly<{ data: unknown; error: unknown }>;
 
 export type GuardedExecutionSupabaseClient = Readonly<{
   rpc(
-    functionName: "claim_guarded_execution" | "finalize_guarded_execution",
+    functionName:
+      | "claim_guarded_execution"
+      | "finalize_guarded_execution"
+      | "list_cron_candidates",
     parameters: Readonly<Record<string, unknown>>,
   ): PromiseLike<RpcResult>;
 }>;
@@ -78,6 +86,10 @@ function isCount(value: unknown): value is number {
   return Number.isSafeInteger(value) && Number(value) >= 0;
 }
 
+function isPositiveCount(value: unknown): value is number {
+  return isCount(value) && value > 0;
+}
+
 function validateFinalization(finalization: RunFinalization): void {
   if (
     typeof finalization.message !== "string" ||
@@ -108,12 +120,33 @@ function getOnlyRow(result: RpcResult): Record<string, unknown> {
   return row as Record<string, unknown>;
 }
 
+function toCronCandidate(value: unknown): CronCandidate {
+  if (!value || typeof value !== "object" || Array.isArray(value)) fail();
+
+  const row = value as Record<string, unknown>;
+  const keys = Object.keys(row).sort();
+  if (
+    keys.length !== 2 ||
+    keys[0] !== "rule_id" ||
+    keys[1] !== "user_id" ||
+    typeof row.rule_id !== "string" ||
+    typeof row.user_id !== "string" ||
+    !UUID_PATTERN.test(row.rule_id) ||
+    !UUID_PATTERN.test(row.user_id)
+  ) {
+    fail();
+  }
+
+  return Object.freeze({ ruleId: row.rule_id, userId: row.user_id });
+}
+
 export function createGuardedExecutionRepository(
   dependencies: Readonly<{
     getClient: () =>
       | GuardedExecutionSupabaseClient
       | Promise<GuardedExecutionSupabaseClient>;
     createLeaseIdHash: () => string;
+    cronCandidateLimit: number;
   }>,
 ) {
   async function callRpc(
@@ -127,6 +160,35 @@ export function createGuardedExecutionRepository(
       if (error instanceof GuardedExecutionRepositoryError) throw error;
       fail();
     }
+  }
+
+  async function listCronCandidates(): Promise<readonly CronCandidate[]> {
+    let result: RpcResult;
+    try {
+      const client = await dependencies.getClient();
+      result = await client.rpc("list_cron_candidates", {});
+    } catch {
+      fail();
+    }
+
+    if (
+      result.error ||
+      !Array.isArray(result.data) ||
+      !isPositiveCount(dependencies.cronCandidateLimit) ||
+      result.data.length > dependencies.cronCandidateLimit
+    ) {
+      fail();
+    }
+
+    const ruleIds = new Set<string>();
+    const candidates = result.data.map((row) => {
+      const candidate = toCronCandidate(row);
+      if (ruleIds.has(candidate.ruleId)) fail();
+      ruleIds.add(candidate.ruleId);
+      return candidate;
+    });
+
+    return Object.freeze(candidates);
   }
 
   async function claimGuardedExecution(
@@ -229,5 +291,9 @@ export function createGuardedExecutionRepository(
     }
   }
 
-  return Object.freeze({ claimGuardedExecution, finalizeGuardedExecution });
+  return Object.freeze({
+    claimGuardedExecution,
+    finalizeGuardedExecution,
+    listCronCandidates,
+  });
 }

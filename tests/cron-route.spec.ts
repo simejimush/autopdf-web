@@ -10,25 +10,31 @@ const ROUTE_PATH = resolve(process.cwd(), "app/api/cron/route.ts");
 const VERCEL_CONFIG_PATH = resolve(process.cwd(), "vercel.json");
 const SECRET = "test-secret-never-return";
 const USER_ID = "44444444-4444-4444-8444-444444444444";
+const SECOND_USER_ID = "55555555-5555-4555-8555-555555555555";
 const RULE_ID = "66666666-6666-4666-8666-666666666666";
 const SECOND_RULE_ID = "77777777-7777-4777-8777-777777777777";
 const RUN_ID = "88888888-8888-4888-8888-888888888888";
 const LEASE_ID_HASH = "a".repeat(64);
 
-type Rule = {
-  id?: string;
-  user_id?: string | null;
-  is_active?: boolean;
-};
+type Candidate = { ruleId: string; userId: string };
+
+function makeCandidate(index: number, userId = USER_ID): Candidate {
+  return {
+    ruleId: `00000000-0000-4000-8000-${index.toString(16).padStart(12, "0")}`,
+    userId,
+  };
+}
 
 function loadRoute(options?: {
-  rules?: Rule[];
-  ruleError?: { message: string } | null;
+  candidates?: readonly Candidate[];
+  candidateError?: Error;
   guardErrorFor?: string;
   guardErrorCode?: string;
   executeErrorFor?: string;
+  overflowRuleIds?: readonly string[];
   cronSecret?: string;
   omitCronSecret?: boolean;
+  executionDisabled?: string;
 }) {
   const source = readFileSync(ROUTE_PATH, "utf8");
   const compiled = ts.transpileModule(source, {
@@ -40,10 +46,13 @@ function loadRoute(options?: {
     fileName: ROUTE_PATH,
   }).outputText;
   const calls = {
-    ruleSelect: [] as string[],
-    directRunInsert: [] as unknown[],
+    candidateRpc: 0,
     overflow: [] as string[],
-    repository: [] as Array<{ userId: string; ruleId: string }>,
+    repository: [] as Array<{
+      userId: string;
+      ruleId: string;
+      trigger: string;
+    }>,
     execute: [] as Array<{
       ruleId: string;
       userId: string;
@@ -52,6 +61,7 @@ function loadRoute(options?: {
       trigger: string;
     }>,
     logs: [] as unknown[][],
+    warns: [] as unknown[][],
     errors: [] as unknown[][],
   };
   const loadedModule = {
@@ -59,33 +69,19 @@ function loadRoute(options?: {
   };
   const localRequire = (specifier: string) => {
     if (specifier === "next/server") return { NextResponse };
-    if (specifier === "@/lib/supabase/admin") {
+    if (specifier === "@/lib/cost-safety/killSwitch") {
       return {
-        supabaseAdmin: {
-          from(table: string) {
-            if (table === "rules") {
-              return {
-                async select(columns: string) {
-                  calls.ruleSelect.push(columns);
-                  return {
-                    data: options?.rules ?? [
-                      { id: RULE_ID, user_id: USER_ID, is_active: true },
-                    ],
-                    error: options?.ruleError ?? null,
-                  };
-                },
-              };
-            }
-            if (table === "runs") {
-              return {
-                insert(payload: unknown) {
-                  calls.directRunInsert.push(payload);
-                  throw new Error("direct runs insert is forbidden");
-                },
-              };
-            }
-            throw new Error(`Unexpected table ${table}`);
-          },
+        readExecutionDisabledFromEnv: (
+          environment: Record<string, string | undefined>,
+        ) => environment.AUTOPDF_EXECUTION_DISABLED !== "false",
+      };
+    }
+    if (specifier === "@/lib/runs/guardedExecutionRepository") {
+      return {
+        async listCronCandidates() {
+          calls.candidateRpc++;
+          if (options?.candidateError) throw options.candidateError;
+          return options?.candidates ?? [{ ruleId: RULE_ID, userId: USER_ID }];
         },
       };
     }
@@ -93,13 +89,17 @@ function loadRoute(options?: {
       return {
         async getFreePlanOverflowRuleIds(userId: string) {
           calls.overflow.push(userId);
-          return [];
+          return options?.overflowRuleIds ?? [];
         },
       };
     }
     if (specifier === "@/lib/cost-safety/executionGuard") {
       return {
-        async claimExecutionGuard(input: { userId: string; ruleId: string }) {
+        async claimExecutionGuard(input: {
+          userId: string;
+          ruleId: string;
+          trigger: string;
+        }) {
           calls.repository.push(input);
           if (options?.guardErrorFor === input.ruleId) {
             return {
@@ -125,9 +125,8 @@ function loadRoute(options?: {
           trigger: string;
         }) {
           calls.execute.push(input);
-          if (options?.executeErrorFor === input.ruleId) {
+          if (options?.executeErrorFor === input.ruleId)
             throw new Error("raw execute detail");
-          }
           return {
             ok: true,
             processedCount: 0,
@@ -141,36 +140,40 @@ function loadRoute(options?: {
     }
     throw new Error(`Unexpected route dependency: ${specifier}`);
   };
-
+  const environment: Record<string, string | undefined> =
+    options?.omitCronSecret
+      ? {}
+      : { CRON_SECRET: options?.cronSecret ?? SECRET };
+  if (!options?.omitCronSecret) {
+    environment.AUTOPDF_EXECUTION_DISABLED =
+      options && "executionDisabled" in options
+        ? options.executionDisabled
+        : "false";
+  }
   runInNewContext(compiled, {
     exports: loadedModule.exports,
     module: loadedModule,
     require: localRequire,
     URL,
-    process: {
-      env: options?.omitCronSecret
-        ? {}
-        : { CRON_SECRET: options?.cronSecret ?? SECRET },
-    },
+    process: { env: environment },
     console: {
       log(...args: unknown[]) {
         calls.logs.push(args);
+      },
+      warn(...args: unknown[]) {
+        calls.warns.push(args);
       },
       error(...args: unknown[]) {
         calls.errors.push(args);
       },
     },
   });
-
   return { GET: loadedModule.exports.GET, calls, source };
 }
 
 function request(options?: { authorization?: string; querySecret?: string }) {
   const url = new URL("https://example.invalid/api/cron");
-  if (options?.querySecret) {
-    url.searchParams.set("secret", options.querySecret);
-  }
-
+  if (options?.querySecret) url.searchParams.set("secret", options.querySecret);
   return new Request(url, {
     headers: options?.authorization
       ? { Authorization: options.authorization }
@@ -188,18 +191,16 @@ async function expectUnauthorized(
 ) {
   const response = await route.GET(cronRequest);
   const text = await response.clone().text();
-
   expect(response.status).toBe(401);
   expect(await response.json()).toEqual({ error: "Unauthorized" });
-  expect(route.calls.ruleSelect).toHaveLength(0);
+  expect(route.calls.candidateRpc).toBe(0);
   expect(route.calls.repository).toHaveLength(0);
   expect(route.calls.execute).toHaveLength(0);
   expect(text).not.toContain(SECRET);
-  expect(JSON.stringify(route.calls.logs)).not.toContain(SECRET);
-  expect(JSON.stringify(route.calls.errors)).not.toContain(SECRET);
+  expect(JSON.stringify(route.calls)).not.toContain(SECRET);
 }
 
-test("rejects missing, malformed, and mismatched authorization", async () => {
+test("rejects missing, malformed, mismatched, and missing-secret authorization", async () => {
   for (const authorization of [
     undefined,
     SECRET,
@@ -209,185 +210,177 @@ test("rejects missing, malformed, and mismatched authorization", async () => {
   ]) {
     await expectUnauthorized(loadRoute(), request({ authorization }));
   }
-});
-test("fails closed when CRON_SECRET is missing, empty, or whitespace", async () => {
   await expectUnauthorized(
     loadRoute({ omitCronSecret: true }),
     authorizedRequest(),
   );
-
-  for (const cronSecret of ["", "   "]) {
+  for (const cronSecret of ["", "   "])
     await expectUnauthorized(loadRoute({ cronSecret }), authorizedRequest());
-  }
-});
-
-test("rejects legacy query authentication without authorization", async () => {
   await expectUnauthorized(loadRoute(), request({ querySecret: SECRET }));
 });
 
-test("preserves rule selection and delegates owned identities before execution", async () => {
-  const route = loadRoute();
-  const response = await route.GET(authorizedRequest());
-  const body = await response.json();
+test("entry kill switch stops Cron before candidate, guard, run, and provider work", async () => {
+  for (const executionDisabled of [undefined, "", "true", "False", " false "]) {
+    const route = loadRoute({ executionDisabled });
+    const response = await route.GET(authorizedRequest());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ message: "Cron disabled" });
+    expect(route.calls.candidateRpc).toBe(0);
+    expect(route.calls.overflow).toHaveLength(0);
+    expect(route.calls.repository).toHaveLength(0);
+    expect(route.calls.execute).toHaveLength(0);
+    expect(JSON.stringify(route.calls)).not.toContain(SECRET);
+  }
+});
 
+test("only the canonical enabled value reaches the finite candidate RPC", async () => {
+  const route = loadRoute({ executionDisabled: "false" });
+  const response = await route.GET(authorizedRequest());
   expect(response.status).toBe(200);
-  expect(body).toEqual({
-    message: "Cron finished",
-    total_rules: 1,
-    enabled_rules: 1,
-    runnable_rules: 1,
-    free_overflow_skipped: 0,
-    ok: 1,
-    ng: 0,
-    results: [
-      {
-        id: RULE_ID,
-        ok: true,
-        runId: RUN_ID,
-        message: "No matching emails",
-      },
-    ],
-  });
-  expect(route.calls.ruleSelect).toEqual(["*"]);
+  expect(route.calls.candidateRpc).toBe(1);
   expect(route.calls.repository).toEqual([
     { userId: USER_ID, ruleId: RULE_ID, trigger: "cron" },
   ]);
-  expect(route.calls.execute).toEqual([
-    {
-      ruleId: RULE_ID,
-      userId: USER_ID,
-      runId: RUN_ID,
-      leaseIdHash: LEASE_ID_HASH,
-      trigger: "cron",
-    },
-  ]);
-  expect(route.calls.directRunInsert).toHaveLength(0);
-  expect(route.source).not.toContain('.from("runs")');
-  expect(route.source).not.toContain(".insert({");
 });
 
-test("guard failure is safe, stops that rule, and continues other rules", async () => {
+test("uses candidate RPC, preserves empty completion, and never selects all rules", async () => {
+  const route = loadRoute({ candidates: [] });
+  const response = await route.GET(authorizedRequest());
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({
+    message: "Cron finished",
+    total_rules: 0,
+    enabled_rules: 0,
+    runnable_rules: 0,
+    free_overflow_skipped: 0,
+    ok: 0,
+    ng: 0,
+    results: [],
+  });
+  expect(route.calls.candidateRpc).toBe(1);
+  expect(route.calls.overflow).toHaveLength(0);
+  expect(route.calls.repository).toHaveLength(0);
+  expect(route.calls.execute).toHaveLength(0);
+  expect(route.source).not.toContain('.select("*")');
+  expect(route.source).not.toContain("supabaseAdmin");
+  expect(route.source).not.toContain("createCronRun");
+  expect(route.source).not.toContain('.from("runs")');
+});
+
+test("accepts the 500 candidate boundary and preserves Free overflow skipping", async () => {
+  const candidates = Array.from({ length: 500 }, (_, index) =>
+    makeCandidate(index),
+  );
   const route = loadRoute({
-    rules: [
-      { id: RULE_ID, user_id: USER_ID, is_active: true },
-      { id: SECOND_RULE_ID, user_id: USER_ID, is_active: true },
-    ],
-    guardErrorFor: RULE_ID,
-    guardErrorCode: "GUARD_STORE_FAILED",
+    candidates,
+    overflowRuleIds: [candidates[0].ruleId],
   });
   const response = await route.GET(authorizedRequest());
-  const text = await response.clone().text();
   const body = await response.json();
-
   expect(response.status).toBe(200);
-  expect(route.calls.repository).toHaveLength(2);
-  expect(route.calls.execute).toEqual([
-    {
-      ruleId: SECOND_RULE_ID,
-      userId: USER_ID,
-      runId: SECOND_RULE_ID,
-      leaseIdHash: LEASE_ID_HASH,
-      trigger: "cron",
-    },
-  ]);
-  expect(body).toMatchObject({ ok: 1, ng: 1 });
-  expect(body.results[0]).toEqual({
-    id: RULE_ID,
-    ok: false,
-    error: "GUARD_STORE_FAILED",
+  expect(route.calls.candidateRpc).toBe(1);
+  expect(route.calls.overflow).toEqual([USER_ID]);
+  expect(route.calls.repository).toHaveLength(499);
+  expect(route.calls.execute).toHaveLength(499);
+  expect(body).toMatchObject({
+    total_rules: 500,
+    enabled_rules: 500,
+    runnable_rules: 499,
+    free_overflow_skipped: 1,
+    ok: 499,
+    ng: 0,
   });
-  expect(text).not.toContain(SECRET);
-  expect(route.source).not.toContain("createCronRun");
 });
 
-test("each expected guard rejection skips execution", async () => {
-  for (const errorCode of [
-    "SYSTEM_LIMIT_EXCEEDED",
-    "USER_RATE_LIMIT_EXCEEDED",
-    "EXECUTION_CONCURRENCY_LIMIT",
-    "RUN_ALREADY_RUNNING",
-  ]) {
+test("systemic guard rejections stop the invocation after one claim and no execution", async () => {
+  for (const errorCode of ["SYSTEM_LIMIT_EXCEEDED", "GUARD_STORE_FAILED"]) {
     const route = loadRoute({
+      candidates: [
+        { ruleId: RULE_ID, userId: USER_ID },
+        { ruleId: SECOND_RULE_ID, userId: SECOND_USER_ID },
+      ],
       guardErrorFor: RULE_ID,
       guardErrorCode: errorCode,
     });
     const response = await route.GET(authorizedRequest());
     expect(response.status).toBe(200);
+    expect(route.calls.repository).toEqual([
+      { userId: USER_ID, ruleId: RULE_ID, trigger: "cron" },
+    ]);
+    expect(route.calls.execute).toHaveLength(0);
     expect(await response.json()).toMatchObject({
       ok: 0,
       ng: 1,
       results: [{ id: RULE_ID, ok: false, error: errorCode }],
     });
-    expect(route.calls.execute).toHaveLength(0);
+    expect(
+      route.calls.errors.filter((args) =>
+        String(args[0]).includes(
+          "Stopping after systemic execution guard rejection",
+        ),
+      ),
+    ).toHaveLength(1);
   }
 });
 
-test("malformed and duplicate rule rows fail closed before repository access", async () => {
-  for (const rules of [
-    [{ id: "bad", user_id: USER_ID, is_active: true }],
-    [{ id: RULE_ID, user_id: "bad", is_active: true }],
-    [
-      { id: RULE_ID, user_id: USER_ID, is_active: true },
-      { id: RULE_ID, user_id: USER_ID, is_active: true },
+test("user-level guard rejections do not stop other users", async () => {
+  const route = loadRoute({
+    candidates: [
+      { ruleId: RULE_ID, userId: USER_ID },
+      { ruleId: SECOND_RULE_ID, userId: SECOND_USER_ID },
     ],
-  ]) {
-    const route = loadRoute({ rules });
-    const response = await route.GET(authorizedRequest());
-    const body = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(route.calls.repository).toHaveLength(0);
-    expect(route.calls.execute).toHaveLength(0);
-    expect(route.calls.overflow).toHaveLength(0);
-    expect(body.ng).toBe(rules.length);
-    expect(body.results).toEqual(
-      rules.map((rule) => ({
-        id: rule.id === RULE_ID ? RULE_ID : "(unknown)",
-        ok: false,
-        error: "RUN_STORE_INPUT_INVALID",
-      })),
-    );
-  }
+    guardErrorFor: RULE_ID,
+    guardErrorCode: "USER_RATE_LIMIT_EXCEEDED",
+  });
+  const response = await route.GET(authorizedRequest());
+  expect(response.status).toBe(200);
+  expect(route.calls.repository).toHaveLength(2);
+  expect(route.calls.execute).toEqual([
+    {
+      ruleId: SECOND_RULE_ID,
+      userId: SECOND_USER_ID,
+      runId: SECOND_RULE_ID,
+      leaseIdHash: LEASE_ID_HASH,
+      trigger: "cron",
+    },
+  ]);
+  expect(await response.json()).toMatchObject({ ok: 1, ng: 1 });
 });
 
-test("rule-query and thrown execution failures do not expose raw errors", async () => {
-  const ruleRaw = "raw rules database detail";
-  const failedQuery = loadRoute({ ruleError: { message: ruleRaw } });
-  const queryResponse = await failedQuery.GET(authorizedRequest());
-  const queryText = await queryResponse.clone().text();
-  expect(queryResponse.status).toBe(500);
-  expect(await queryResponse.json()).toEqual({
-    error: "Failed to fetch rules",
+test("candidate and execution failures do not expose raw details", async () => {
+  const candidateRaw = "raw candidate database detail";
+  const candidateRoute = loadRoute({ candidateError: new Error(candidateRaw) });
+  const candidateResponse = await candidateRoute.GET(authorizedRequest());
+  const candidateText = await candidateResponse.clone().text();
+  expect(candidateResponse.status).toBe(500);
+  expect(await candidateResponse.json()).toEqual({
+    error: "Failed to fetch cron candidates",
   });
-  expect(queryText).not.toContain(ruleRaw);
-  expect(JSON.stringify(failedQuery.calls.errors)).not.toContain(ruleRaw);
+  expect(candidateText).not.toContain(candidateRaw);
+  expect(JSON.stringify(candidateRoute.calls)).not.toContain(candidateRaw);
 
   const executeRaw = "raw execute detail";
-  const failedExecute = loadRoute({ executeErrorFor: RULE_ID });
-  const executeResponse = await failedExecute.GET(authorizedRequest());
-  const text = await executeResponse.clone().text();
+  const executeRoute = loadRoute({ executeErrorFor: RULE_ID });
+  const executeResponse = await executeRoute.GET(authorizedRequest());
+  const executeText = await executeResponse.clone().text();
   expect(executeResponse.status).toBe(200);
   expect(await executeResponse.json()).toMatchObject({
     ok: 0,
     ng: 1,
     results: [{ id: RULE_ID, ok: false, error: "UNKNOWN" }],
   });
-  expect(text).not.toContain(executeRaw);
-  expect(JSON.stringify(failedExecute.calls.errors)).not.toContain(executeRaw);
+  expect(executeText).not.toContain(executeRaw);
+  expect(JSON.stringify(executeRoute.calls)).not.toContain(executeRaw);
 });
 
 test("tracked configuration does not contain Cron query authentication", () => {
   const config = JSON.parse(readFileSync(VERCEL_CONFIG_PATH, "utf8"));
   expect(config.crons).toEqual([{ path: "/api/cron", schedule: "0 0 * * *" }]);
-
   const safeDirectory = process.cwd().replaceAll("\\", "/");
   const trackedFiles = execFileSync(
     "git",
     ["-c", `safe.directory=${safeDirectory}`, "ls-files", "-z"],
-    {
-      cwd: process.cwd(),
-      encoding: "utf8",
-    },
+    { cwd: process.cwd(), encoding: "utf8" },
   )
     .split("\0")
     .filter(Boolean)
@@ -402,6 +395,5 @@ test("tracked configuration does not contain Cron query authentication", () => {
       readFileSync(resolve(process.cwd(), path), "utf8"),
     ),
   );
-
   expect(unsafeFiles).toEqual([]);
 });

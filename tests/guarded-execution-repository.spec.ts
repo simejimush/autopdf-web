@@ -30,6 +30,7 @@ function createHarness(responses: RpcResponse[]) {
   const repository = createGuardedExecutionRepository({
     getClient: () => client,
     createLeaseIdHash: () => LEASE_ID_HASH,
+    cronCandidateLimit: 500,
   });
 
   return { repository, calls };
@@ -229,5 +230,43 @@ test("identity mismatch, duplicate finalize, invalid transition, and DB failures
         },
       }),
     );
+  }
+});
+
+test("bounded Cron candidates accept only the exact RPC shape", async () => {
+  const harness = createHarness([
+    {
+      data: [
+        { rule_id: RULE_ID, user_id: USER_ID },
+        { rule_id: "77777777-7777-4777-8777-777777777777", user_id: USER_ID },
+      ],
+      error: null,
+    },
+  ]);
+
+  await expect(harness.repository.listCronCandidates()).resolves.toEqual([
+    { ruleId: RULE_ID, userId: USER_ID },
+    { ruleId: "77777777-7777-4777-8777-777777777777", userId: USER_ID },
+  ]);
+  expect(harness.calls).toEqual([
+    { functionName: "list_cron_candidates", parameters: {} },
+  ]);
+});
+
+test("Cron candidate malformed, duplicate, oversized, and DB-error results fail closed", async () => {
+  const validCandidate = { rule_id: RULE_ID, user_id: USER_ID };
+  const oversized = Array.from({ length: 501 }, () => validCandidate);
+
+  for (const response of [
+    { data: null, error: null },
+    { data: [{ rule_id: "bad", user_id: USER_ID }], error: null },
+    { data: [{ rule_id: RULE_ID, user_id: "bad" }], error: null },
+    { data: [{ ...validCandidate, unexpected: true }], error: null },
+    { data: [validCandidate, validCandidate], error: null },
+    { data: oversized, error: null },
+    { data: null, error: { message: "raw candidate DB error" } },
+  ]) {
+    const harness = createHarness([response]);
+    await expectStoreFailure(() => harness.repository.listCronCandidates());
   }
 });

@@ -1,20 +1,9 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase/admin";
 import { executeRule } from "@/lib/runs/executeRule";
 import { getFreePlanOverflowRuleIds } from "@/lib/rules/freePlanLimit";
 import { claimExecutionGuard } from "@/lib/cost-safety/executionGuard";
-
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-type RuleRow = {
-  id?: string;
-  user_id?: string | null;
-  is_enabled?: boolean | null;
-  enabled?: boolean | null;
-  is_active?: boolean | null;
-  created_at?: string | null;
-};
+import { readExecutionDisabledFromEnv } from "@/lib/cost-safety/killSwitch";
+import { listCronCandidates } from "@/lib/runs/guardedExecutionRepository";
 
 type CronResultRow = {
   id: string;
@@ -23,19 +12,6 @@ type CronResultRow = {
   error?: string;
   message?: string;
 };
-
-function isEnabledRule(rule: RuleRow): boolean {
-  const value = rule.is_active ?? rule.is_enabled ?? rule.enabled;
-  return value === undefined ? true : Boolean(value);
-}
-
-function hasValidIdentity(
-  rule: RuleRow,
-): rule is RuleRow & { id: string; user_id: string } {
-  return (
-    UUID_PATTERN.test(rule.id ?? "") && UUID_PATTERN.test(rule.user_id ?? "")
-  );
-}
 
 export async function GET(req: Request) {
   const authorization = req.headers.get("authorization");
@@ -46,64 +22,58 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  if (readExecutionDisabledFromEnv(process.env)) {
+    console.warn("[cron] Execution disabled");
+    return NextResponse.json({ message: "Cron disabled" });
+  }
+
   console.log("[cron] Cron triggered");
 
-  // 互換性優先で * 取得し、JS側で有効判定する
-  const { data, error } = await supabaseAdmin.from("rules").select("*");
-
-  if (error) {
-    console.error("[cron] Failed to fetch rules");
+  let candidates: Awaited<ReturnType<typeof listCronCandidates>>;
+  try {
+    candidates = await listCronCandidates();
+  } catch {
+    console.error("[cron] Failed to fetch candidates");
     return NextResponse.json(
-      { error: "Failed to fetch rules" },
+      { error: "Failed to fetch cron candidates" },
       { status: 500 },
     );
   }
 
-  const rules = (Array.isArray(data) ? data : []).map((rule) =>
-    rule && typeof rule === "object" ? (rule as RuleRow) : ({} as RuleRow),
-  );
-  const enabledRules = rules.filter(isEnabledRule);
-
-  const ruleIdCounts = new Map<string, number>();
-  for (const rule of enabledRules) {
-    const ruleId = rule.id ?? "";
-    ruleIdCounts.set(ruleId, (ruleIdCounts.get(ruleId) ?? 0) + 1);
-  }
-
-  const validUniqueRules = enabledRules.filter(
-    (rule) => hasValidIdentity(rule) && ruleIdCounts.get(rule.id) === 1,
-  );
-
   const overflowRuleIds = new Set<string>();
   const userIds = Array.from(
-    new Set(
-      validUniqueRules
-        .map((rule) => rule.user_id)
-        .filter((userId): userId is string => Boolean(userId)),
-    ),
+    new Set(candidates.map((candidate) => candidate.userId)),
   );
 
-  for (const userId of userIds) {
-    const ids = await getFreePlanOverflowRuleIds(userId);
+  try {
+    for (const userId of userIds) {
+      const ids = await getFreePlanOverflowRuleIds(userId);
 
-    for (const id of ids) {
-      overflowRuleIds.add(id);
+      for (const id of ids) {
+        overflowRuleIds.add(id);
+      }
     }
+  } catch {
+    console.error("[cron] Failed to evaluate plan limits");
+    return NextResponse.json(
+      { error: "Failed to prepare cron candidates" },
+      { status: 500 },
+    );
   }
 
-  const runnableRules = enabledRules.filter(
-    (rule) => !overflowRuleIds.has(rule.id ?? ""),
+  const runnableCandidates = candidates.filter(
+    (candidate) => !overflowRuleIds.has(candidate.ruleId),
   );
 
   console.log(
     "[cron] total rules:",
-    rules.length,
+    candidates.length,
     "enabled:",
-    enabledRules.length,
+    candidates.length,
     "runnable:",
-    runnableRules.length,
+    runnableCandidates.length,
     "free_overflow_skipped:",
-    enabledRules.length - runnableRules.length,
+    candidates.length - runnableCandidates.length,
   );
 
   let ok = 0;
@@ -111,22 +81,11 @@ export async function GET(req: Request) {
 
   const results: CronResultRow[] = [];
 
-  for (const rule of runnableRules) {
+  for (const candidate of runnableCandidates) {
     try {
-      if (!hasValidIdentity(rule) || ruleIdCounts.get(rule.id ?? "") !== 1) {
-        ng++;
-        console.error("[cron] Skip invalid rule row");
-        results.push({
-          id: UUID_PATTERN.test(rule.id ?? "") ? rule.id! : "(unknown)",
-          ok: false,
-          error: "RUN_STORE_INPUT_INVALID",
-        });
-        continue;
-      }
-
       const claim = await claimExecutionGuard({
-        userId: rule.user_id,
-        ruleId: rule.id,
+        userId: candidate.userId,
+        ruleId: candidate.ruleId,
         trigger: "cron",
       });
 
@@ -136,16 +95,28 @@ export async function GET(req: Request) {
           code: claim.errorCode,
         });
         results.push({
-          id: rule.id,
+          id: candidate.ruleId,
           ok: false,
           error: claim.errorCode,
         });
+        if (
+          claim.errorCode === "SYSTEM_LIMIT_EXCEEDED" ||
+          claim.errorCode === "GUARD_STORE_FAILED"
+        ) {
+          console.error(
+            "[cron] Stopping after systemic execution guard rejection",
+            {
+              code: claim.errorCode,
+            },
+          );
+          break;
+        }
         continue;
       }
 
       const result = await executeRule({
-        ruleId: rule.id,
-        userId: rule.user_id,
+        ruleId: candidate.ruleId,
+        userId: candidate.userId,
         runId: claim.runId,
         leaseIdHash: claim.leaseIdHash,
         trigger: "cron",
@@ -154,10 +125,10 @@ export async function GET(req: Request) {
       if (result.ok) ok++;
       else ng++;
 
-      console.log("[cron] rule done:", rule.id, "ok:", result.ok);
+      console.log("[cron] rule done:", candidate.ruleId, "ok:", result.ok);
 
       results.push({
-        id: rule.id,
+        id: candidate.ruleId,
         ok: result.ok,
         runId: claim.runId,
         message: result.message,
@@ -168,7 +139,7 @@ export async function GET(req: Request) {
       console.error("[cron] rule failed");
 
       results.push({
-        id: UUID_PATTERN.test(rule.id ?? "") ? rule.id! : "(unknown)",
+        id: candidate.ruleId,
         ok: false,
         error: "UNKNOWN",
       });
@@ -177,10 +148,10 @@ export async function GET(req: Request) {
 
   return NextResponse.json({
     message: "Cron finished",
-    total_rules: rules.length,
-    enabled_rules: enabledRules.length,
-    runnable_rules: runnableRules.length,
-    free_overflow_skipped: enabledRules.length - runnableRules.length,
+    total_rules: candidates.length,
+    enabled_rules: candidates.length,
+    runnable_rules: runnableCandidates.length,
+    free_overflow_skipped: candidates.length - runnableCandidates.length,
     ok,
     ng,
     results,
