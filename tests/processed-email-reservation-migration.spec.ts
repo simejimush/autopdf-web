@@ -9,6 +9,13 @@ const path = resolve(
 );
 const sql = readFileSync(path, "utf8").replace(/\r\n/g, "\n");
 const normalized = sql.toLowerCase();
+const preflight = normalized.match(
+  /do \$preflight\$([\s\S]*?)\$preflight\$;/,
+)?.[1];
+
+if (!preflight) {
+  throw new Error("Migration B preflight block is missing");
+}
 
 test("Migration B is bounded, transactional, and preflights before mutation", () => {
   expect(normalized.trimStart()).toMatch(/^begin;/);
@@ -22,6 +29,7 @@ test("Migration B is bounded, transactional, and preflights before mutation", ()
     "processed email reservation objects are partially present",
   );
   expect(normalized).toContain("processed_emails contains an unknown grant");
+  expect(normalized).toContain("processed_emails policy drifted");
   expect(normalized).toContain(
     "processed email reservation constraints drifted",
   );
@@ -33,6 +41,49 @@ test("Migration B is bounded, transactional, and preflights before mutation", ()
   );
   expect(normalized).not.toContain("drop table");
   expect(normalized).not.toContain("drop column");
+});
+
+test("accepts only the canonical enabled and non-FORCE processed_emails RLS shape", () => {
+  expect(preflight).toContain("and c.relrowsecurity");
+  expect(preflight).toContain("and not c.relforcerowsecurity");
+  expect(preflight).not.toMatch(/and\s+c\.relforcerowsecurity/);
+});
+
+test("fails closed when processed_emails RLS is disabled", () => {
+  expect(preflight).toMatch(
+    /if not exists \([\s\S]*and c\.relrowsecurity[\s\S]*\)\s+or/,
+  );
+});
+
+test("fails closed when processed_emails unexpectedly has FORCE RLS", () => {
+  expect(preflight).toMatch(/and not c\.relforcerowsecurity/);
+});
+
+test("fails closed on processed_emails owner, policy, or grant drift", () => {
+  expect(preflight).toContain(
+    "pg_catalog.pg_get_userbyid(c.relowner) = 'postgres'",
+  );
+  expect(preflight).toContain("from pg_catalog.pg_policies p");
+  expect(preflight).toContain("p.policyname in (");
+  expect(preflight).toContain("'processed_emails_select_own'");
+  expect(preflight).toContain("'users_can_select_own_processed_emails'");
+  expect(preflight).toContain("p.permissive = 'permissive'");
+  expect(preflight).toContain("p.roles = array['authenticated']::name[]");
+  expect(preflight).toContain("p.cmd = 'select'");
+  expect(preflight).toContain("'selectauth.uid=user_id'");
+  expect(preflight).toContain("p.with_check is null");
+  expect(preflight).toContain("processed_emails policy drifted");
+  expect(preflight).toContain("processed_emails contains an unknown grant");
+  expect(preflight).toContain("or acl.is_grantable");
+  expect(preflight).toContain(
+    "pg_catalog.has_table_privilege('anon', 'public.processed_emails'",
+  );
+});
+
+test("does not mutate processed_emails RLS mode", () => {
+  expect(normalized).not.toMatch(
+    /alter table public\.processed_emails\s+(enable|disable|force|no force) row level security/,
+  );
 });
 
 test("adds the canonical reservation state without weakening identity or RLS", () => {
@@ -56,7 +107,7 @@ test("adds the canonical reservation state without weakening identity or RLS", (
   expect(normalized).toContain("written_bytes <= reserved_bytes");
   expect(normalized).toContain("processed_emails_rule_msg_uniq");
   expect(normalized).toContain("c.relrowsecurity");
-  expect(normalized).toContain("c.relforcerowsecurity");
+  expect(normalized).toContain("not c.relforcerowsecurity");
   expect(normalized).toContain("pg_catalog.pg_get_expr(c.conbin");
   expect(normalized).toContain("pg_catalog.aclexplode(v_function_row.proacl)");
 });

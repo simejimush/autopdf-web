@@ -56,7 +56,7 @@ begin
     where c.oid = 'public.processed_emails'::pg_catalog.regclass
       and c.relkind = 'r'
       and c.relrowsecurity
-      and c.relforcerowsecurity
+      and not c.relforcerowsecurity
       and pg_catalog.pg_get_userbyid(c.relowner) = 'postgres'
   )
     or pg_catalog.has_table_privilege('anon', 'public.processed_emails',
@@ -70,6 +70,36 @@ begin
     raise exception 'processed_emails owner, RLS, or ACL drifted';
   end if;
 
+  if (
+    select pg_catalog.count(*)
+    from pg_catalog.pg_policies p
+    where p.schemaname = 'public'
+      and p.tablename = 'processed_emails'
+  ) <> 1
+    or not exists (
+      select 1
+      from pg_catalog.pg_policies p
+      where p.schemaname = 'public'
+        and p.tablename = 'processed_emails'
+        and p.policyname in (
+          'processed_emails_select_own',
+          'users_can_select_own_processed_emails'
+        )
+        and p.permissive = 'PERMISSIVE'
+        and p.roles = array['authenticated']::name[]
+        and p.cmd = 'SELECT'
+        and pg_catalog.lower(pg_catalog.regexp_replace(
+          coalesce(p.qual, ''), '[()[:space:]]', '', 'g'
+        )) in (
+          'auth.uid=user_id',
+          'selectauth.uid=user_id',
+          'selectauth.uidasuid=user_id'
+        )
+        and p.with_check is null
+    ) then
+    raise exception 'processed_emails policy drifted';
+  end if;
+
   if exists (
     select 1
     from pg_catalog.pg_class c
@@ -79,6 +109,7 @@ begin
     where c.oid = 'public.processed_emails'::pg_catalog.regclass
       and (
         acl.grantor <> pg_catalog.to_regrole('postgres')
+        or acl.is_grantable
         or acl.grantee not in (
           pg_catalog.to_regrole('postgres'),
           pg_catalog.to_regrole('authenticated'),
