@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 430" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">メール書類の自動整理</title>
+  <desc id="desc">受信したメール書類がAutoPDFを通って整理済みの保存先へ届くイメージ</desc>
+  <defs>
+    <linearGradient id="blob" x1="68" y1="38" x2="502" y2="402" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#EFF6FF"/>
+      <stop offset="1" stop-color="#F8FAFC"/>
+    </linearGradient>
+    <linearGradient id="box" x1="236" y1="161" x2="324" y2="249" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2563EB"/>
+      <stop offset="1" stop-color="#38BDF8"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="10" stdDeviation="9" flood-color="#1E3A8A" flood-opacity=".10"/>
+    </filter>
+  </defs>
+
+  <path d="M91 86C147 24 238 45 282 74c61-48 161-19 184 49 27 78-34 139-89 150-55 11-68 93-155 87-87-6-152-61-138-142 6-36-16-89 7-132Z" fill="url(#blob)"/>
+  <circle cx="85" cy="282" r="4" fill="#BFDBFE"/>
+  <circle cx="465" cy="102" r="5" fill="#DBEAFE"/>
+  <path d="M124 351c13-20 33-31 60-33" stroke="#BFDBFE" stroke-width="3" stroke-linecap="round"/>
+  <path d="M414 336c12 5 25 5 39 0" stroke="#BBF7D0" stroke-width="3" stroke-linecap="round"/>
+
+  <path d="M178 168C208 168 216 190 239 197" stroke="#93C5FD" stroke-width="3" stroke-dasharray="5 8" stroke-linecap="round"/>
+  <path d="M323 203c29 0 38 20 62 20" stroke="#86EFAC" stroke-width="3" stroke-dasharray="5 8" stroke-linecap="round"/>
+  <path d="m218 184 11 11-11 11" stroke="#60A5FA" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="m365 213 11 10-11 11" stroke="#4ADE80" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <g filter="url(#shadow)">
+    <rect x="58" y="126" width="136" height="92" rx="14" fill="#F8FAFC" stroke="#DBEAFE"/>
+    <rect x="49" y="145" width="136" height="92" rx="14" fill="#FFF" stroke="#DBEAFE"/>
+    <rect x="40" y="164" width="136" height="92" rx="14" fill="#FFF" stroke="#BFDBFE"/>
+  </g>
+  <rect x="58" y="185" width="28" height="21" rx="5" fill="#E8F0FE"/>
+  <path d="m61 189 11 8 11-8" stroke="#4F7DF3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="96" y="198" fill="#1E293B" font-family="Arial, sans-serif" font-size="13" font-weight="700">請求書のご案内</text>
+  <path d="M59 218h94" stroke="#E2E8F0" stroke-width="4" stroke-linecap="round"/>
+  <path d="M59 230h68" stroke="#F1F5F9" stroke-width="4" stroke-linecap="round"/>
+  <rect x="143" y="150" width="18" height="18" rx="5" fill="#FEE2E2"/>
+  <text x="147" y="163" fill="#DC2626" font-family="Arial, sans-serif" font-size="8" font-weight="700">PDF</text>
+
+  <g filter="url(#shadow)">
+    <rect x="231" y="158" width="104" height="104" rx="24" fill="url(#box)"/>
+  </g>
+  <rect x="257" y="177" width="52" height="31" rx="8" fill="#FFF" fill-opacity=".92"/>
+  <path d="M269 187h28M269 196h19" stroke="#60A5FA" stroke-width="3" stroke-linecap="round"/>
+  <text x="247" y="235" fill="#FFF" font-family="Arial, sans-serif" font-size="14" font-weight="700">AutoPDF</text>
+  <text x="252" y="252" fill="#DBEAFE" font-family="Arial, sans-serif" font-size="10">自動で整理</text>
+  <g transform="rotate(10 324 145)">
+    <rect x="309" y="126" width="30" height="38" rx="5" fill="#FFF" stroke="#FCA5A5"/>
+    <path d="M315 141h18M315 148h14" stroke="#F87171" stroke-width="2" stroke-linecap="round"/>
+    <text x="314" y="136" fill="#DC2626" font-family="Arial, sans-serif" font-size="7" font-weight="700">PDF</text>
+  </g>
+  <g transform="rotate(-9 218 144)">
+    <rect x="205" y="126" width="24" height="32" rx="5" fill="#FFF" stroke="#FCA5A5"/>
+    <path d="M211 141h12M211 147h10" stroke="#F87171" stroke-width="2" stroke-linecap="round"/>
+    <text x="209" y="136" fill="#DC2626" font-family="Arial, sans-serif" font-size="6" font-weight="700">PDF</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="378" y="151" width="137" height="128" rx="16" fill="#FFF" stroke="#BBF7D0"/>
+  </g>
+  <path d="M400 181h37l7 8h49v20h-93v-28Z" fill="#DCFCE7" stroke="#86EFAC" stroke-width="1.5" stroke-linejoin="round"/>
+  <text x="406" y="202" fill="#15803D" font-family="Arial, sans-serif" font-size="11" font-weight="700">整理済み</text>
+  <rect x="400" y="223" width="89" height="15" rx="5" fill="#F8FAFC"/>
+  <rect x="405" y="226" width="11" height="10" rx="2" fill="#FEE2E2"/>
+  <text x="423" y="234" fill="#475569" font-family="Arial, sans-serif" font-size="9">請求書.pdf</text>
+  <rect x="400" y="244" width="89" height="15" rx="5" fill="#F8FAFC"/>
+  <rect x="405" y="247" width="11" height="10" rx="2" fill="#FEE2E2"/>
+  <text x="423" y="255" fill="#475569" font-family="Arial, sans-serif" font-size="9">領収書.pdf</text>
+  <circle cx="493" cy="167" r="16" fill="#DCFCE7"/>
+  <path d="m485 167 5 5 10-11" stroke="#16A34A" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <path d="M204 296c8-9 19-13 31-13" stroke="#BFDBFE" stroke-width="2" stroke-dasharray="3 7" stroke-linecap="round"/>
+  <path d="m216 291 12-7-4 13" fill="#93C5FD"/>
+  <path d="M340 292c10 10 22 14 35 13" stroke="#BBF7D0" stroke-width="2" stroke-dasharray="3 7" stroke-linecap="round"/>
+  <circle cx="350" cy="116" r="4" fill="#BAE6FD"/>
+  <circle cx="204" cy="114" r="3" fill="#BFDBFE"/>
+</svg>

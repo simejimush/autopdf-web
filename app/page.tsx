@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import styles from "./HomePage.module.css";
 
@@ -64,25 +65,39 @@ export default function HomePage() {
       </header>
 
       <section className={styles.hero}>
-        <h1 className={styles.heroTitle}>
-          <span className={`${styles.heroAccent} ${styles.heroLine}`}>
-            必要なメール書類は、
-          </span>
-          <span className={`${styles.heroAccent} ${styles.heroLine}`}>
-            届いたらもう整理済み。
-          </span>
-        </h1>
-        <p className={styles.heroDescription}>
-          Gmailに届く請求書・領収書などを、設定したルールに沿ってPDF化し、Google
-          Driveへ自動保存。一度設定すれば、毎回探したり、保存したり、指示したりする必要はありません。
-        </p>
-        <div className={styles.heroActions}>
-          <Link href="/login" className={styles.primaryButton}>
-            無料で始める
-          </Link>
-          <a href="#how-it-works" className={styles.secondaryButton}>
-            使い方を見る
-          </a>
+        <div className={styles.heroContent}>
+          <div className={styles.heroCopy}>
+            <h1 className={styles.heroTitle}>
+              <span className={`${styles.heroAccent} ${styles.heroLine}`}>
+                必要なメール書類は、
+              </span>
+              <span className={`${styles.heroAccent} ${styles.heroLine}`}>
+                届いたらもう整理済み。
+              </span>
+            </h1>
+            <p className={styles.heroDescription}>
+              Gmailに届く請求書・領収書などを、設定したルールに沿ってPDF化し、Google
+              Driveへ自動保存。一度設定すれば、毎回探したり、保存したり、指示したりする必要はありません。
+            </p>
+            <div className={styles.heroActions}>
+              <Link href="/login" className={styles.primaryButton}>
+                無料で始める
+              </Link>
+              <a href="#how-it-works" className={styles.secondaryButton}>
+                使い方を見る
+              </a>
+            </div>
+          </div>
+          <div className={styles.heroVisual}>
+            <Image
+              src="/hero-document-flow.svg"
+              alt="メール書類がAutoPDFで処理され、整理済みの書類として保存されるイメージ"
+              className={styles.heroIllustration}
+              width={560}
+              height={430}
+              priority
+            />
+          </div>
         </div>
         <div
           className={styles.flowLane}
