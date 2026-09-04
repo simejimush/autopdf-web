@@ -2,25 +2,23 @@ import Link from "next/link";
 import styles from "./HelpPage.module.css";
 
 const capabilities = [
-  "Gmailで届いたメールを条件に合わせて探す",
+  "必要なメールを条件に合わせて自動で見つける",
   "メール本文をPDF化する",
-  "Google Driveの指定フォルダへ保存する",
+  "指定したGoogle Driveフォルダへ自動保存する",
+  "一度作ったルールを繰り返し使う",
   "実行履歴で保存状況を確認する",
 ];
 
 const gettingStartedSteps = [
   "Googleアカウントでログイン",
   "Google連携を許可",
-  "保存ルールを作成",
+  "保存したいメールの条件をルールとして作成",
   "保存先のGoogle Driveフォルダを指定",
-  "手動実行または自動実行で保存を確認",
+  "一度テスト実行して保存を確認",
+  "以後は設定したルールに沿って自動処理",
 ];
 
-const ruleExamples = [
-  "請求書メール",
-  "領収書メール",
-  "取引先ごとのメール",
-];
+const ruleExamples = ["請求書メール", "領収書メール", "取引先ごとのメール"];
 
 const notes = [
   "Gmail検索条件に一致しないメールは保存されない",
@@ -35,7 +33,8 @@ export default function HelpPage() {
         <header className={styles.header}>
           <h1 className={styles.title}>AutoPDF 使い方ガイド</h1>
           <p className={styles.description}>
-            Gmailで届く請求書・領収書メールをPDF化し、Google Driveへ保存するための基本的な流れを説明します。
+            メールで届く請求書や領収書などを、条件に合わせて自動で見つけ、PDF化してGoogle
+            Driveへ保存するまでの基本的な流れを説明します。
           </p>
         </header>
 
@@ -64,7 +63,8 @@ export default function HelpPage() {
         <section className={styles.section}>
           <h2 className={styles.sectionTitle}>ルールとは</h2>
           <p className={styles.paragraph}>
-            どのメールを、どのDriveフォルダに保存するかを決める設定です。
+            どのメールを見つけ、どのGoogle
+            Driveフォルダへ保存するかを決める設定です。一度作成すると、その条件を繰り返し使って自動処理できます。
           </p>
           <ul className={styles.list}>
             {ruleExamples.map((item) => (
@@ -80,12 +80,14 @@ export default function HelpPage() {
           <div className={styles.planGrid}>
             <article className={styles.planCard}>
               <h3 className={styles.planName}>Free</h3>
-              <p className={styles.planText}>ルール3件まで、広告表示あり</p>
+              <p className={styles.planText}>
+                まずは3ルールまで無料で試せます。広告表示あり。
+              </p>
             </article>
             <article className={styles.planCard}>
               <h3 className={styles.planName}>Pro</h3>
               <p className={styles.planText}>
-                ルール数を拡張、広告なし、本格運用向け
+                複数のルールを管理し、継続的な書類整理に使えます。月額980円、広告なし。
               </p>
             </article>
           </div>
