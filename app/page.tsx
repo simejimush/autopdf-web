@@ -124,7 +124,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className={styles.section}>
+      <section className={`${styles.section} ${styles.beforeAfterSection}`}>
         <h2 className={styles.sectionTitle}>
           こんな書類整理を、毎月くり返していませんか？
         </h2>
@@ -178,7 +178,7 @@ export default function HomePage() {
         </Link>
       </section>
 
-      <section className={styles.section}>
+      <section className={`${styles.section} ${styles.mechanismSection}`}>
         <h2 className={styles.sectionTitle}>任せっぱなしにできる仕組み</h2>
         <div className={styles.featureGrid}>
           {features.map((item) => (
@@ -234,7 +234,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className={styles.section}>
+      <section className={`${styles.section} ${styles.trustSection}`}>
         <h2 className={styles.sectionTitle}>安心して任せられるように</h2>
         <div className={styles.featureGrid}>
           {trustItems.map((item) => (

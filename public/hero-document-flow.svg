@@ -13,6 +13,12 @@
     <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
       <feDropShadow dx="0" dy="10" stdDeviation="9" flood-color="#1E3A8A" flood-opacity=".10"/>
     </filter>
+    <marker id="flowArrowBlue" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="12" markerHeight="12" orient="auto">
+      <path d="M1 1 11 6 1 11" fill="none" stroke="#60A5FA" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="flowArrowGreen" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="12" markerHeight="12" orient="auto">
+      <path d="M1 1 11 6 1 11" fill="none" stroke="#4ADE80" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
   </defs>
 
   <path d="M91 86C147 24 238 45 282 74c61-48 161-19 184 49 27 78-34 139-89 150-55 11-68 93-155 87-87-6-152-61-138-142 6-36-16-89 7-132Z" fill="url(#blob)"/>
@@ -21,10 +27,8 @@
   <path d="M124 351c13-20 33-31 60-33" stroke="#BFDBFE" stroke-width="3" stroke-linecap="round"/>
   <path d="M414 336c12 5 25 5 39 0" stroke="#BBF7D0" stroke-width="3" stroke-linecap="round"/>
 
-  <path d="M178 168C208 168 216 190 239 197" stroke="#93C5FD" stroke-width="3" stroke-dasharray="5 8" stroke-linecap="round"/>
-  <path d="M323 203c29 0 38 20 62 20" stroke="#86EFAC" stroke-width="3" stroke-dasharray="5 8" stroke-linecap="round"/>
-  <path d="m218 184 11 11-11 11" stroke="#60A5FA" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="m365 213 11 10-11 11" stroke="#4ADE80" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M178 168c19 0 28 20 46 29" stroke="#93C5FD" stroke-width="3" stroke-dasharray="5 8" stroke-linecap="round" marker-end="url(#flowArrowBlue)"/>
+  <path d="M339 203c12 0 18 20 29 20" stroke="#86EFAC" stroke-width="3" stroke-dasharray="5 8" stroke-linecap="round" marker-end="url(#flowArrowGreen)"/>
 
   <g filter="url(#shadow)">
     <rect x="58" y="126" width="136" height="92" rx="14" fill="#F8FAFC" stroke="#DBEAFE"/>
