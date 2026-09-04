@@ -9,22 +9,22 @@ const painPoints = [
 
 const steps = [
   "Googleアカウントを接続",
-  "保存ルールを作成",
-  "自動でPDF保存",
+  "保存ルールを一度設定",
+  "あとは自動で保存",
 ];
 
 const features = [
-  "Gmail検索条件をルール化",
-  "Google Driveへ保存",
-  "実行履歴を確認可能",
-  "Free / Proプランに対応",
+  "条件に合うメールだけを処理",
+  "Google Driveの指定先へ保存",
+  "同じメールの重複保存を防止",
+  "実行履歴で処理結果を確認",
 ];
 
 const trustItems = [
-  "Google OAuth連携",
-  "Stripe決済",
-  "実行履歴で確認可能",
-  "エラーは記録される",
+  "同じメールを重複保存しない",
+  "実行履歴から保存結果を確認",
+  "エラーも記録",
+  "Googleアカウント連携で動作",
 ];
 
 const freeFeatures = [
@@ -40,14 +40,10 @@ const freeFeatures = [
 ];
 
 const proFeatures = [
-  "Freeのすべての基本機能",
-  "ルール数を拡張",
-  "PDF保存件数を大幅に拡張",
-  "広告なし",
-  "より多くの保存ルールを管理",
-  "複数パターンの請求書・領収書メールに対応しやすい",
-  "Gmail検索条件を柔軟に設定",
-  "Google Driveの保存先をルールごとに指定",
+  "月500件まで自動保存",
+  "複数の保存ルールを管理",
+  "ルールごとにGoogle Drive保存先を指定",
+  "同じメールの重複保存を防止",
   "実行履歴で保存状況を確認",
   "AIファイル名設定（書類種別を含めた命名）",
 ];
@@ -69,14 +65,16 @@ export default function HomePage() {
 
       <section className={styles.hero}>
         <h1 className={styles.heroTitle}>
-          Gmailの請求書・領収書を、
-          <br />
-          <span className={styles.heroAccent}>
-            PDF化してGoogle Driveへ自動保存
+          <span className={`${styles.heroAccent} ${styles.heroLine}`}>
+            必要なメール書類は、
+          </span>
+          <span className={`${styles.heroAccent} ${styles.heroLine}`}>
+            届いたらもう整理済み。
           </span>
         </h1>
         <p className={styles.heroDescription}>
-          メールを探して、PDFにして、Driveへ保存する作業をAutoPDFが自動化します。
+          Gmailに届く請求書・領収書などを、設定したルールに沿ってPDF化し、Google
+          Driveへ自動保存。一度設定すれば、毎回探したり、保存したり、指示したりする必要はありません。
         </p>
         <div className={styles.heroActions}>
           <Link href="/login" className={styles.primaryButton}>
@@ -86,30 +84,35 @@ export default function HomePage() {
             使い方を見る
           </a>
         </div>
-        <div className={styles.flowLane} aria-label="GmailからDriveへの保存フロー">
+        <div
+          className={styles.flowLane}
+          aria-label="メール書類の自動整理フロー"
+        >
           <div className={styles.laneCard}>
-            <div className={styles.laneTitle}>Gmail</div>
-            <p className={styles.laneText}>条件に合うメールを抽出</p>
+            <div className={styles.laneTitle}>届く</div>
+            <p className={styles.laneText}>必要なメールを自動で見つける</p>
           </div>
           <div className={styles.laneArrow} aria-hidden="true">
             →
           </div>
           <div className={styles.laneCard}>
-            <div className={styles.laneTitle}>PDF化</div>
-            <p className={styles.laneText}>本文を保存しやすい形へ</p>
+            <div className={styles.laneTitle}>片付く</div>
+            <p className={styles.laneText}>保存できるPDFに自動変換</p>
           </div>
           <div className={styles.laneArrow} aria-hidden="true">
             →
           </div>
           <div className={styles.laneCard}>
-            <div className={styles.laneTitle}>Google Drive</div>
-            <p className={styles.laneText}>指定フォルダへ保存</p>
+            <div className={styles.laneTitle}>残る</div>
+            <p className={styles.laneText}>決めたGoogle Driveへ自動保存</p>
           </div>
         </div>
       </section>
 
       <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>よくある手作業を減らす</h2>
+        <h2 className={styles.sectionTitle}>
+          こんな書類整理を、毎月くり返していませんか？
+        </h2>
         <div className={styles.beforeAfterGrid}>
           <article className={styles.beforeCard}>
             <h3 className={styles.beforeAfterTitle}>Before</h3>
@@ -122,13 +125,27 @@ export default function HomePage() {
             </ul>
           </article>
           <article className={styles.afterCard}>
-            <h3 className={styles.beforeAfterTitle}>After</h3>
+            <h3 className={styles.beforeAfterTitle}>
+              一度設定すれば、あとはAutoPDFに。
+            </h3>
             <p className={styles.afterText}>
-              条件に合うメールをPDF化し、Google Driveへ保存。
-              日々の確認と整理の手間を減らして、必要な書類を追いやすくします。
+              必要なメールを見つけ、PDF化して、指定したGoogle Driveへ保存。
+              メールが届くたびに同じ作業を繰り返す必要がなくなります。
             </p>
           </article>
         </div>
+      </section>
+
+      <section className={`${styles.section} ${styles.positioningSection}`}>
+        <h2 className={styles.sectionTitle}>
+          毎回お願いする自動化ではありません。
+        </h2>
+        <p className={styles.sectionLead}>
+          AutoPDFは、メール書類の保存に必要な流れを最初からひとつにまとめた専用サービスです。
+        </p>
+        <p className={styles.sectionText}>
+          Googleアカウントを接続して保存ルールを設定すれば、その後は対象メールを受信するたびに自動で処理。毎回ログインして指示したり、その都度保存方法を考えたりする必要はありません。
+        </p>
       </section>
 
       <section id="how-it-works" className={styles.section}>
@@ -147,7 +164,7 @@ export default function HomePage() {
       </section>
 
       <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>主な機能</h2>
+        <h2 className={styles.sectionTitle}>任せっぱなしにできる仕組み</h2>
         <div className={styles.featureGrid}>
           {features.map((item) => (
             <div key={item} className={styles.pill}>
@@ -183,7 +200,9 @@ export default function HomePage() {
             <div className={styles.proBadge}>本格運用向け</div>
             <h3 className={styles.cardTitle}>Pro</h3>
             <p className={styles.price}>¥980 / 月</p>
-            <p className={styles.cardText}>日々の保存作業をまとめて自動化</p>
+            <p className={styles.cardText}>
+              毎月のメール書類整理を手放したい方向け
+            </p>
             <ul className={styles.pricingList}>
               {proFeatures.map((item) => (
                 <li key={item} className={styles.pricingItem}>
@@ -191,18 +210,17 @@ export default function HomePage() {
                 </li>
               ))}
             </ul>
+            <div className={styles.limitBox}>PDF保存は月500件まで</div>
             <Link href="/login" className={styles.pricingCta}>
               Proで始める
             </Link>
-            <p className={styles.pricingNote}>
-              ログイン後、決済画面へ進めます
-            </p>
+            <p className={styles.pricingNote}>ログイン後、決済画面へ進めます</p>
           </article>
         </div>
       </section>
 
       <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>安心して使える設計</h2>
+        <h2 className={styles.sectionTitle}>安心して任せられるように</h2>
         <div className={styles.featureGrid}>
           {trustItems.map((item) => (
             <div key={item} className={styles.pill}>
@@ -213,7 +231,10 @@ export default function HomePage() {
       </section>
 
       <section className={styles.footerCta}>
-        <h2 className={styles.footerTitle}>まずはFreeで始められます</h2>
+        <h2 className={styles.footerTitle}>
+          次のメールから、保存作業をひとつ減らしませんか。
+        </h2>
+        <p className={styles.footerDescription}>Freeなら月10件まで試せます。</p>
         <Link href="/login" className={styles.primaryButton}>
           無料で始める
         </Link>

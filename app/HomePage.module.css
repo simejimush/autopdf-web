@@ -81,7 +81,7 @@
   margin-left: auto;
   margin-right: auto;
   font-size: clamp(34px, 5.2vw, 56px);
-  font-weight: 600;
+  font-weight: 700;
   line-height: 1.16;
   letter-spacing: -0.028em;
 }
@@ -91,6 +91,10 @@
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+}
+
+.heroLine {
+  display: block;
 }
 
 .heroDescription {
@@ -158,6 +162,30 @@
   font-weight: 600;
   line-height: 1.2;
   letter-spacing: -0.02em;
+}
+
+.positioningSection {
+  max-width: 820px;
+  padding: 32px;
+  border-left: 4px solid #2563eb;
+  border-radius: 0 16px 16px 0;
+  background: rgba(239, 246, 255, 0.72);
+}
+
+.sectionLead,
+.sectionText {
+  margin: 0;
+  color: #334155;
+  line-height: 1.85;
+}
+
+.sectionLead {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.sectionText {
+  margin-top: 12px;
 }
 
 .cardTitle {
@@ -407,6 +435,12 @@
   letter-spacing: -0.02em;
 }
 
+.footerDescription {
+  margin: -6px 0 16px;
+  color: #475569;
+  line-height: 1.7;
+}
+
 .footerHelpLink {
   margin-top: 10px;
   display: block;
@@ -482,7 +516,7 @@
     margin-left: 0;
     margin-right: 0;
     max-width: none;
-    font-size: clamp(30px, 9vw, 40px);
+    font-size: clamp(28px, 7.5vw, 31px);
     line-height: 1.2;
   }
 
@@ -492,6 +526,10 @@
 
   .heroActions {
     justify-content: flex-start;
+  }
+
+  .positioningSection {
+    padding: 24px;
   }
 }
 
@@ -518,8 +556,16 @@
 :global(html[data-theme="dark"]) .cardText,
 :global(html[data-theme="dark"]) .listItem,
 :global(html[data-theme="dark"]) .stepItem,
-:global(html[data-theme="dark"]) .pill {
+:global(html[data-theme="dark"]) .pill,
+:global(html[data-theme="dark"]) .sectionLead,
+:global(html[data-theme="dark"]) .sectionText,
+:global(html[data-theme="dark"]) .footerDescription {
   color: #cbd5e1;
+}
+
+:global(html[data-theme="dark"]) .positioningSection {
+  background: rgba(30, 41, 59, 0.62);
+  border-left-color: #60a5fa;
 }
 
 :global(html[data-theme="dark"]) .card,
