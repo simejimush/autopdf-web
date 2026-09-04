@@ -28,7 +28,8 @@ export default function TermsPage() {
         <section className={styles.section}>
           <h2 className={styles.sectionTitle}>2. サービス内容</h2>
           <p className={styles.paragraph}>
-            本サービスは、利用者が設定した条件に基づいてGmailのメールを検索し、メール本文等をPDF化して、指定されたGoogle Driveフォルダへ保存する機能等を提供します。
+            本サービスは、利用者が設定した条件に基づき、Gmailの対象メールを検索し、手動または自動でメール本文等をPDF化して、指定されたGoogle
+            Driveフォルダへ保存する機能等を提供します。
           </p>
         </section>
 
