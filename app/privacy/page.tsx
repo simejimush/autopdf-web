@@ -44,32 +44,45 @@ export default function PrivacyPage() {
         <section className={styles.section}>
           <h2 className={styles.sectionTitle}>3. 利用目的</h2>
           <ul className={styles.list}>
-            <li className={styles.listItem}>本サービスの提供、本人確認およびアカウント管理</li>
-            <li className={styles.listItem}>メールの検索、PDF生成およびGoogle Driveへの保存</li>
-            <li className={styles.listItem}>契約・決済の管理、利用状況の確認およびサポート対応</li>
-            <li className={styles.listItem}>不正利用の防止、安全性の確保、障害対応およびサービス改善</li>
+            <li className={styles.listItem}>
+              本サービスの提供、本人確認およびアカウント管理
+            </li>
+            <li className={styles.listItem}>
+              メールの検索、PDF生成およびGoogle Driveへの保存
+            </li>
+            <li className={styles.listItem}>
+              契約・決済の管理、利用状況の確認およびサポート対応
+            </li>
+            <li className={styles.listItem}>
+              不正利用の防止、安全性の確保、障害対応およびサービス改善
+            </li>
             <li className={styles.listItem}>法令上必要な対応</li>
           </ul>
         </section>
 
         <section className={styles.section}>
-          <h2 className={styles.sectionTitle}>4. Googleユーザーデータの取り扱い</h2>
+          <h2 className={styles.sectionTitle}>
+            4. Googleユーザーデータの取り扱い
+          </h2>
           <p className={styles.paragraph}>
-            Gmailの本文その他のGoogleユーザーデータは、利用者が設定した条件に基づくPDF生成・保存処理およびそのために必要なサービス提供に使用します。広告のターゲティングには使用せず、本サービスの提供に必要な範囲を超えて利用しません。
+            Gmailの本文その他のGoogleユーザーデータは、利用者が設定した条件に基づくPDF生成・保存処理およびそのために必要なサービス提供に使用します。AIによる書類種別判定を利用する場合、判定に必要な範囲で、件名、送信元、本文の一部、添付ファイル名等をOpenAI
+            APIへ送信する場合があります。Googleユーザーデータを広告ターゲティングに使用せず、当サービスによるAIモデルの学習目的にも使用しません。
           </p>
         </section>
 
         <section className={styles.section}>
           <h2 className={styles.sectionTitle}>5. Google Driveへの保存</h2>
           <p className={styles.paragraph}>
-            生成したPDFは、利用者が指定したGoogle Driveのフォルダへ保存します。保存後のファイルは、利用者のGoogleアカウントおよびGoogle Drive上の設定に従って管理されます。
+            生成したPDFは、利用者が指定したGoogle
+            Driveのフォルダへ保存します。保存後のファイルは、利用者のGoogleアカウントおよびGoogle
+            Drive上の設定に従って管理されます。
           </p>
         </section>
 
         <section className={styles.section}>
           <h2 className={styles.sectionTitle}>6. 外部サービス</h2>
           <p className={styles.paragraph}>
-            本サービスでは、認証・データ管理、決済、ホスティング等のために、Google、Stripe、Supabase、Vercel等の外部サービスを利用する場合があります。各事業者は、その提供業務に必要な範囲で情報を取り扱います。
+            本サービスでは、認証、データ保存、決済、ホスティング、AI処理等のために外部サービスを利用します。各事業者には、本サービスの提供に必要な範囲でのみ情報を提供します。Googleユーザーデータを外部サービスで処理する場合の具体的な取扱いについては、「Googleユーザーデータの取り扱い」に記載します。
           </p>
         </section>
 
